@@ -1,0 +1,189 @@
+package com.lechixy.kick.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
+import com.lechixy.kick.R
+import com.lechixy.kick.data.model.Livestream
+import com.lechixy.kick.util.FormatUtils
+import com.lechixy.kick.util.buildOptimizedImageRequest
+
+@Composable
+fun StreamCard(
+    stream: Livestream,
+    modifier: Modifier = Modifier,
+    isDataSaverActive: Boolean = false,
+    onClick: () -> Unit = {}
+) {
+    val context = LocalContext.current
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        )
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isDataSaverActive) {
+                    // Tasarruf modu aktifken thumbnail yerine çıkan etiket
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                            contentDescription = "Data Saver",
+                            tint = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Text(
+                            text = "Tasarruf Modu",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.outline,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                } else {
+                    // Normal mod: Optimize görsel yüklemesi
+                    AsyncImage(
+                        model = remember(stream.thumbnail?.src) {
+                            buildOptimizedImageRequest(
+                                context = context,
+                                data = stream.thumbnail?.src,
+                                targetWidthDp = 400,
+                                targetHeightDp = 225
+                            )
+                        },
+                        contentDescription = stream.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
+                // Canlı rozeti ve Viewer Count aynen kalıyor
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Surface(
+                        color = Color(0xFF53FC18),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "LIVE",
+                            color = Color.Black,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    if (stream.showViewCount) {
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.7f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "${FormatUtils.formatViewersCount(stream.viewerCount)} viewers",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                AsyncImage(
+                    model = remember(stream.channel?.profilePic) {
+                        buildOptimizedImageRequest(
+                            context = context,
+                            data = stream.channel?.profilePic,
+                            targetWidthDp = 44,
+                            targetHeightDp = 44
+                        )
+                    },
+                    contentDescription = stream.channel?.username,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stream.title ?: "No Title",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = stream.channel?.username ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    stream.category?.let { cat ->
+                        Text(
+                            text = cat.name,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
