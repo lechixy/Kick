@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Kick</string>
+    <string name="github">https://github.com/lechixy/Kick</string>
 </resources>

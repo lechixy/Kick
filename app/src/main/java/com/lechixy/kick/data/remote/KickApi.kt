@@ -9,7 +9,6 @@ import retrofit2.http.Query
 import retrofit2.http.Url
 
 interface KickApi {
-
     @GET("api/v1/livestreams")
     suspend fun getLivestreams(
         @Query("limit") limit: Int = 20,

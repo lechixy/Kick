@@ -2,9 +2,10 @@ package com.lechixy.kick.ui.screens.following
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lechixy.kick.data.model.Livestream
+import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.remote.KickNetwork
 import com.lechixy.kick.data.repository.KickRepository
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,7 +13,8 @@ import kotlinx.coroutines.launch
 
 data class FollowingUiState(
     val isLoading: Boolean = false,
-    val streams: List<Livestream> = emptyList(),
+    val online: List<ChannelDetail> = emptyList(),
+    val offline: List<ChannelDetail> = emptyList(),
     val error: String? = null
 )
 
@@ -23,28 +25,39 @@ class FollowingViewModel(
     private val _uiState = MutableStateFlow(FollowingUiState())
     val uiState: StateFlow<FollowingUiState> = _uiState.asStateFlow()
 
-    fun loadFollowingStreams(followedSlugs: Set<String>) {
+    fun loadFollowingChannels(followedSlugs: Set<String>) {
         if (followedSlugs.isEmpty()) {
-            _uiState.value = FollowingUiState(streams = emptyList(), isLoading = false)
+            _uiState.value =
+                FollowingUiState(online = emptyList(), offline = emptyList(), isLoading = false)
             return
         }
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
-                val allStreams = repository.getLivestreams()
-                val normalizedFollowed = followedSlugs.map { it.trim().lowercase() }.toSet()
+                // Channels
+                val online = mutableListOf<ChannelDetail>()
+                val offline = mutableListOf<ChannelDetail>()
 
-                val filtered = allStreams.filter { stream ->
-                    val streamSlug = stream.channel?.slug?.trim()?.lowercase() ?: ""
-                    normalizedFollowed.contains(streamSlug)
+                // Live streams
+                followedSlugs.forEach { slug ->
+                    val livestreamDeferred = async { repository.getChannel(slug) }
+                    val livestream = livestreamDeferred.await()
+                    if (livestream.livestream != null) {
+                        online.add(livestream)
+                    } else {
+                        offline.add(livestream)
+                    }
                 }
 
-                _uiState.value = FollowingUiState(isLoading = false, streams = filtered)
+                _uiState.value =
+                    FollowingUiState(isLoading = false, online = online, offline = offline)
             } catch (e: Exception) {
                 _uiState.value = FollowingUiState(
                     isLoading = false,
-                    error = e.message ?: "Takip edilen yayınlar yüklenemedi"
+                    online = emptyList(),
+                    offline = emptyList(),
+                    error = e.message ?: "Takip edilen kanallar yüklenemedi"
                 )
             }
         }

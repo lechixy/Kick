@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -19,23 +19,27 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lechixy.kick.data.local.FollowManager
-import com.lechixy.kick.ui.components.StreamCard
 
 @Composable
 fun FollowingScreen(
     viewModel: FollowingViewModel = viewModel(),
     onStreamClick: (channelSlug: String) -> Unit
 ) {
+    val context = LocalContext.current
     val followedSlugs by FollowManager.followedSlugs.collectAsState()
     val state by viewModel.uiState.collectAsState()
 
     LaunchedEffect(followedSlugs) {
-        viewModel.loadFollowingStreams(followedSlugs)
+        viewModel.loadFollowingChannels(followedSlugs)
     }
+
+    val online = state.online
+    val offline = state.offline
 
     Scaffold(
         topBar = {
@@ -51,12 +55,23 @@ fun FollowingScreen(
     ) { paddingValues ->
         when {
             state.isLoading -> {
-                Box(modifier = Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                    contentAlignment = Alignment.Center
+                ) {
                     CircularProgressIndicator()
                 }
             }
+
             followedSlugs.isEmpty() -> {
-                Box(modifier = Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
                         text = "Henüz takip ettiğin bir kanal yok.",
                         style = MaterialTheme.typography.bodyLarge,
@@ -64,15 +79,7 @@ fun FollowingScreen(
                     )
                 }
             }
-            state.streams.isEmpty() -> {
-                Box(modifier = Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "Takip ettiğin kanallardan hiçbiri şu an canlı değil.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
-            }
+
             else -> {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 280.dp),
@@ -83,14 +90,46 @@ fun FollowingScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    items(state.streams, key = { it.id }) { stream ->
-                        StreamCard(
-                            stream = stream,
-                            onClick = {
-                                stream.channel?.slug?.let(onStreamClick)
-                            }
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Text(
+                            text = "Online Channels",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
+
+                    if (online.isEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Text(
+                                text = "There is no live channels from followed channels.",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    } else {
+//                        items(liveChannels, key = { "followed_${it.id}" }) { channel ->
+//                            StreamCard(
+//                                stream = channel,
+//                                onClick = { channel.channel?.slug?.let(onStreamClick) }
+//                            )
+//                        }
+                    }
+//                    item(span = { GridItemSpan(maxLineSpan) }) {
+//                        Text(
+//                            text = "Offline Channels",
+//                            style = MaterialTheme.typography.titleMedium,
+//                            fontWeight = FontWeight.Bold,
+//                            color = MaterialTheme.colorScheme.outline
+//                        )
+//                    }
+//                    items(channels, key = { it.id }) { channel ->
+//                        ChannelCard(
+//                            channel = channel,
+//                            onChannelClick = {
+//                                channel.slug.let(onStreamClick)
+//                            }
+//                        )
+//                    }
                 }
             }
         }

@@ -1,20 +1,18 @@
 package com.lechixy.kick.ui.components
 
 import android.Manifest
-import android.app.Activity
+import android.annotation.SuppressLint
 import android.app.PictureInPictureParams
 import android.content.ComponentName
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.os.Build
 import android.util.Rational
 import android.view.ViewGroup
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,11 +25,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -52,7 +53,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -60,7 +61,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -68,14 +71,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.media3.common.C
@@ -93,26 +92,39 @@ import com.lechixy.kick.R
 import com.lechixy.kick.data.local.PlayerSettingsManager
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.service.PlaybackService
+import com.lechixy.kick.ui.screens.channel.findActivity
+import com.lechixy.kick.ui.theme.KickVoltGreen
 import com.lechixy.kick.util.FormatUtils
+import com.lechixy.kick.util.FormatUtils.formatDuration
+import com.lechixy.kick.util.FormatUtils.parseUtcStartTimeToMillis
 import com.lechixy.kick.util.NotificationUtils
 import com.lechixy.kick.util.PlayerUtils
 import com.lechixy.kick.util.VideoQualityOption
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.isActive
 import kotlin.time.Duration.Companion.milliseconds
 
+@SuppressLint("UseKtx")
 @androidx.annotation.OptIn(UnstableApi::class)
+@kotlin.OptIn(FlowPreview::class)
 @Composable
 fun KickPlayerView(
     playbackUrl: String,
     channelName: String = "",
     streamTitle: String = "",
     channel: ChannelDetail? = null,
+    isFullScreen: Boolean = false,
     isInPipMode: Boolean = false,
+    onFullScreenChange: (Boolean) -> Unit = {},
     onPlayerCoordinatesChanged: (Rect) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val activity = remember(context) { context as? Activity }
+    val activity = remember(context) { context.findActivity() }
+
+    val player by rememberMediaController()
 
     var isBuffering by remember { mutableStateOf(true) }
     var isPlaying by remember { mutableStateOf(true) }
@@ -120,7 +132,7 @@ fun KickPlayerView(
     var volume by remember { mutableFloatStateOf(1f) }
     var playbackError by remember { mutableStateOf<String?>(null) }
     var showControls by remember { mutableStateOf(false) }
-    var isFullScreen by remember { mutableStateOf(false) }
+    var isAdjustingVolume by remember { mutableStateOf(false) }
 
     var showSettingsDialog by remember { mutableStateOf(false) }
     var sleepTimerMinutes by remember { mutableIntStateOf(0) }
@@ -130,22 +142,12 @@ fun KickPlayerView(
     val availableQualities = remember { mutableStateListOf<VideoQualityOption>() }
     var currentVideoHeight by remember { mutableIntStateOf(0) }
 
-    var player by remember { mutableStateOf<Player?>(null) }
-
-    DisposableEffect(context) {
-        val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
-        val future = MediaController.Builder(context, token).buildAsync()
-        future.addListener(
-            { player = runCatching { future.get() }.getOrNull() },
-            ContextCompat.getMainExecutor(context)
-        )
-        onDispose {
-            player?.stop() // ekrandan çıkınca yayın dursun istiyorsan bırak, arka planda devam etsin istiyorsan sil
-            MediaController.releaseFuture(future)
-            player = null
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            activity?.window?.insetsController?.show(WindowInsets.Type.systemBars())
-        }
+    // Fullscreen state'i artık dışarıdan geliyor. Gesture'lar yeniden başlamasın diye
+    // güncel değerleri rememberUpdatedState ile okuyoruz.
+    val latestIsFullScreen by rememberUpdatedState(isFullScreen)
+    val latestOnFullScreenChange by rememberUpdatedState(onFullScreenChange)
+    val toggleFullScreen: () -> Unit = remember {
+        { latestOnFullScreenChange(!latestIsFullScreen) }
     }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -156,7 +158,7 @@ fun KickPlayerView(
         }
     }
 
-    // Sleep timer
+    // ---- Sleep timer ----
     LaunchedEffect(sleepTimerMinutes) {
         if (sleepTimerMinutes > 0) {
             remainingTimerSeconds = sleepTimerMinutes * 60
@@ -171,7 +173,7 @@ fun KickPlayerView(
             }
 
             if (remainingTimerSeconds <= 0) {
-                player?.pause()          // ✅ DEĞİŞTİ: gerçekten durdurur (isPlaying listener'dan güncellenir)
+                player?.pause()
                 sleepTimerMinutes = 0
                 NotificationUtils.showTimerEndedNotification(context)
             }
@@ -180,19 +182,45 @@ fun KickPlayerView(
         }
     }
 
-    val pipEnabled by PlayerSettingsManager.pipEnabled.collectAsState()
+    var streamDuration by remember { mutableStateOf("00:00:00") }
+    val startTimeString = channel?.livestream?.startTime // "2026-10-09 16:29:59"
 
-    LaunchedEffect(isPlaying, pipEnabled) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activity != null) {
-            val pipParams = PictureInPictureParams.Builder()
-                .setAspectRatio(Rational(16, 9))
-                .setAutoEnterEnabled(isPlaying && pipEnabled)
-                .build()
-            activity.setPictureInPictureParams(pipParams)
+    LaunchedEffect(startTimeString) {
+        val startMillis = parseUtcStartTimeToMillis(startTimeString)
+
+        if (startMillis <= 0L) {
+            streamDuration = "00:00:00"
+            return@LaunchedEffect
+        }
+
+        while (isActive) {
+            val currentMillis = System.currentTimeMillis()
+            val elapsedMillis = (currentMillis - startMillis).coerceAtLeast(0L)
+
+            streamDuration = formatDuration(elapsedMillis)
+
+            delay(1000.milliseconds)
         }
     }
 
-    // Ekran açık tutma
+    // ---- PiP parametreleri ----
+    // sourceRectHint: sistem PiP geçişini player'ın o anki yerinden başlatır (zıplama azalır).
+    // Animasyon sırasında her frame setPictureInPictureParams çağırmamak için debounce var.
+    val pipEnabled by PlayerSettingsManager.pipEnabled.collectAsState()
+    var playerBounds by remember { mutableStateOf<Rect?>(null) }
+
+    LaunchedEffect(isPlaying, pipEnabled, activity) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || activity == null) return@LaunchedEffect
+        snapshotFlow { playerBounds }
+            .debounce(150.milliseconds)
+            .collect { bounds ->
+                activity.setPictureInPictureParams(
+                    buildPipParams(autoEnter = isPlaying && pipEnabled, sourceRect = bounds)
+                )
+            }
+    }
+
+    // ---- Ekran açık kalsın ----
     DisposableEffect(isPlaying) {
         if (isPlaying) activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -203,58 +231,22 @@ fun KickPlayerView(
         player?.volume = if (isMuted) 0f else volume
     }
 
-    val toggleFullScreen = {
-        val target = !isFullScreen
-        isFullScreen = target
-        activity?.let { act ->
-            if (target) {
-                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                act.window.insetsController?.hide(WindowInsets.Type.systemBars())
-            } else {
-                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                act.window.insetsController?.show(WindowInsets.Type.systemBars())
-            }
-        }
-    }
-
-    LaunchedEffect(showControls) {
-        if (showControls) {
+    LaunchedEffect(showControls, isAdjustingVolume) {
+        if (showControls && !isAdjustingVolume) {
             delay(3500.milliseconds)
             showControls = false
         }
     }
 
+    // ---- Player listener ----
     DisposableEffect(player) {
         val p = player
         if (p == null) {
             onDispose { }
         } else {
-            fun updateQualities(tracks: Tracks) {
+            fun refreshQualities(tracks: Tracks) {
                 availableQualities.clear()
-                val parsed = mutableListOf<VideoQualityOption>()
-                tracks.groups.forEach { group ->
-                    if (group.type == C.TRACK_TYPE_VIDEO) {
-                        for (i in 0 until group.length) {
-                            val format = group.getTrackFormat(i)
-                            if (format.height > 0) {
-                                val height = format.height
-                                val bitrate = format.bitrate
-                                val usage = PlayerUtils.estimateDataUsagePerHour(bitrate, height)
-                                parsed.add(
-                                    VideoQualityOption(
-                                        label = "${height}p",
-                                        height = height,
-                                        bitrate = bitrate,
-                                        dataPerHourText = usage
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-                availableQualities.addAll(
-                    parsed.distinctBy { it.height }.sortedByDescending { it.height }
-                )
+                availableQualities.addAll(tracks.toQualityOptions())
             }
 
             val listener = object : Player.Listener {
@@ -271,7 +263,7 @@ fun KickPlayerView(
                 }
 
                 override fun onTracksChanged(tracks: Tracks) {
-                    updateQualities(tracks)
+                    refreshQualities(tracks)
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
@@ -280,30 +272,42 @@ fun KickPlayerView(
                 }
             }
 
-            // Servis zaten çalışıyorsa mevcut durumu al
             isPlaying = p.isPlaying
             isBuffering = p.playbackState == Player.STATE_BUFFERING
-            updateQualities(p.currentTracks)
+            refreshQualities(p.currentTracks)
 
             p.addListener(listener)
-            onDispose { p.removeListener(listener) } // ✅ release YOK, ömrünü servis yönetir
+            onDispose { p.removeListener(listener) }
         }
     }
 
-    // ✅ DEĞİŞTİ: HlsMediaSource yerine MediaItem veriyoruz (DefaultMediaSourceFactory HLS'i tanır)
-    LaunchedEffect(player, playbackUrl, streamTitle, channelName) {
+    // ---- Medyayı yükle ----
+    // Aynı yayın zaten yüklüyse (PiP'den dönüş, recomposition vs.) tekrar setMediaItem/prepare
+    // YAPMIYORUZ; aksi halde oynatma durup yeniden yüklenir. streamTitle/channelName'i key
+    // yapmıyoruz çünkü başlık değişince yayını baştan başlatırdı.
+    LaunchedEffect(player, playbackUrl) {
         val p = player ?: return@LaunchedEffect
         if (playbackUrl.isBlank()) return@LaunchedEffect
 
         playbackError = null
-        isBuffering = true
 
+        val alreadyLoaded = p.currentMediaItem?.mediaId == playbackUrl
+        if (alreadyLoaded) {
+            if (p.playbackState == Player.STATE_IDLE) p.prepare()
+            return@LaunchedEffect
+        }
+
+        isBuffering = true
+        val pic: String = (channel?.bannerImage?.url ?: channel?.user?.profilePic
+        ?: "https://placehold.co/600x400/EEE/31343C?font=open-sans&text=No%20banner") as String
         val metadata = MediaMetadata.Builder()
-            .setTitle(if (streamTitle.isNotBlank()) streamTitle else "Canlı Yayın")
-            .setArtist(if (channelName.isNotBlank()) channelName else "Kick")
+            .setTitle(streamTitle.ifBlank { "Canlı Yayın" })
+            .setArtist(channelName.ifBlank { "Kick" })
+            .setArtworkUri(pic.toUri())
             .build()
 
         val mediaItem = MediaItem.Builder()
+            .setMediaId(playbackUrl)
             .setUri(playbackUrl.toUri())
             .setMediaMetadata(metadata)
             .build()
@@ -313,330 +317,111 @@ fun KickPlayerView(
         p.play()
     }
 
-    val playerContent: @Composable (Modifier) -> Unit = { mod ->
-        var totalDragY by remember { mutableFloatStateOf(0f) }
+    // ---- UI: Dialog YOK, player her zaman aynı composable konumunda ----
+    var totalDragY by remember { mutableFloatStateOf(0f) }
 
-        Box(
-            modifier = mod
-                .background(Color.Black)
-                .onGloballyPositioned { coordinates ->
-                    val bounds = coordinates.boundsInWindow()
-                    onPlayerCoordinatesChanged(
-                        Rect(
-                            bounds.left.toInt(),
-                            bounds.top.toInt(),
-                            bounds.right.toInt(),
-                            bounds.bottom.toInt()
-                        )
+    Box(
+        modifier = modifier
+            .background(Color.Black)
+            .onGloballyPositioned { coordinates ->
+                val b = coordinates.boundsInWindow()
+                val rect = Rect(b.left.toInt(), b.top.toInt(), b.right.toInt(), b.bottom.toInt())
+                playerBounds = rect
+                onPlayerCoordinatesChanged(rect)
+            }
+            .pointerInput(isInPipMode) {
+                if (!isInPipMode) {
+                    detectTapGestures(
+                        onDoubleTap = { toggleFullScreen() },
+                        onTap = { showControls = !showControls }
                     )
                 }
-                .pointerInput(isFullScreen, isInPipMode) {
-                    if (!isInPipMode) {
-                        detectTapGestures(
-                            onDoubleTap = {
-                                toggleFullScreen()
-                            },
-                            onTap = {
-                                showControls = !showControls
-                            }
-                        )
-                    }
-                }
-                .pointerInput(isFullScreen, isInPipMode) {
-                    if (!isInPipMode) {
-                        detectVerticalDragGestures(
-                            onDragStart = { totalDragY = 0f },
-                            onDragEnd = {
-                                val threshold = 70f // Tetiklenme eşiği
-                                if (!isFullScreen && totalDragY < -threshold) {
-                                    // Yukarı kaydırıldı -> Tam ekrana geç
-                                    toggleFullScreen()
-                                } else if (isFullScreen && totalDragY > threshold) {
-                                    // Aşağı kaydırıldı -> Tam ekrandan çık
-                                    toggleFullScreen()
-                                }
-                                totalDragY = 0f
-                            },
-                            onDragCancel = { totalDragY = 0f },
-                            onVerticalDrag = { _, dragAmount ->
-                                totalDragY += dragAmount
-                            }
-                        )
-                    }
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        useController = false
-                        keepScreenOn = true
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                    }
-                },
-                update = { playerView ->
-                    playerView.player = player          // ✅ EKSİK OLAN SATIR
-                    playerView.keepScreenOn = isPlaying
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-
-            if (isBuffering && playbackError == null) {
-                CircularProgressIndicator(
-                    color = Color(0xFF53FC18),
-                    modifier = Modifier.size(44.dp)
-                )
             }
-
-            // Custom Kontroller Katmanı
-            AnimatedVisibility(
-                visible = showControls && playbackError == null && !isInPipMode,
-                enter = fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f))
-                ) {
-                    // ÜST BAR: LIVE Rozeti + Aktif Kalite + Uyku Zamanlayıcısı
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.TopStart)
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // 1. LIVE Rozeti
-                        Surface(color = Color(0xFF53FC18), shape = RoundedCornerShape(4.dp)) {
-                            Text(
-                                text = "LIVE",
-                                color = Color.Black,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-
-                        // 2. Aktif Kalite Etiketi
-                        val displayQuality = remember(selectedQualityHeight, currentVideoHeight) {
-                            if (selectedQualityHeight > 0) "${selectedQualityHeight}p"
-                            else if (currentVideoHeight > 0) "${currentVideoHeight}p (Auto)"
-                            else "Auto"
-                        }
-                        Surface(
-                            color = Color.Black.copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Text(
-                                text = displayQuality,
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-
-                        // 3. Uyku Zamanlayıcısı (Sadece aktif ve kalan süre > 0 ise görünür)
-                        if (sleepTimerMinutes > 0 && remainingTimerSeconds > 0) {
-                            Surface(
-                                color = Color.Black.copy(alpha = 0.75f),
-                                shape = RoundedCornerShape(6.dp),
-                                border = BorderStroke(1.dp, Color(0xFF53FC18).copy(alpha = 0.6f))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.timer_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                                        contentDescription = "Timer",
-                                        tint = Color(0xFF53FC18),
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Text(
-                                        text = "Uyku: ${(remainingTimerSeconds + 59) / 60}m",
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
+            .pointerInput(isInPipMode) {
+                if (!isInPipMode) {
+                    detectVerticalDragGestures(
+                        onDragStart = { totalDragY = 0f },
+                        onDragEnd = {
+                            val threshold = 70f
+                            if (!latestIsFullScreen && totalDragY < -threshold) {
+                                latestOnFullScreenChange(true)
+                            } else if (latestIsFullScreen && totalDragY > threshold) {
+                                latestOnFullScreenChange(false)
                             }
-                        }
-                    }
-
-                    // ORTA: Play/Pause Butonu
-                    IconButton(
-                        onClick = { if (isPlaying) player?.pause() else player?.play() },
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .size(56.dp)
-                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                    ) {
-                        Icon(
-                            painter = painterResource(
-                                id = if (isPlaying) R.drawable.pause_24dp_e3e3e3_fill1_wght400_grad0_opsz24
-                                else R.drawable.play_arrow_24dp_e3e3e3_fill1_wght400_grad0_opsz24
-                            ),
-                            contentDescription = "Play/Pause",
-                            tint = Color.White,
-                            modifier = Modifier.size(32.dp)
-                        )
-                    }
-
-                    // ALT BAR: Sol Ses Slider + Sağ Ayarlar & Tam Ekran
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Sol: Ses Kontrolleri
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    isMuted = !isMuted
-                                    player?.volume = if (isMuted) 0f else volume
-                                },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (isMuted || volume == 0f) R.drawable.volume_off_24dp_e3e3e3_fill0_wght400_grad0_opsz24
-                                        else R.drawable.volume_up_24dp_e3e3e3_fill0_wght400_grad0_opsz24
-                                    ),
-                                    contentDescription = "Mute",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            Slider(
-                                value = if (isMuted) 0f else volume,
-                                onValueChange = { newVol ->
-                                    volume = newVol
-                                    isMuted = false
-                                    player?.volume = newVol
-                                },
-                                valueRange = 0f..1f,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = Color(0xFF53FC18),
-                                    activeTrackColor = Color(0xFF53FC18),
-                                    inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                                ),
-                                modifier = Modifier.width(110.dp)
-                            )
-
-                            Text(
-                                text = "${(if (isMuted) 0f else volume * 100).toInt()}%",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-
-                            Text(
-                                text = " | ",
-                                color = Color.White.copy(alpha = 0.5f),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-
-                            Text(
-                                text = streamTitle,
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-
-                            Text(
-                                text = " | ",
-                                color = Color.White.copy(alpha = 0.5f),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-
-                            Text(
-                                text = "${FormatUtils.formatViewersCount(channel?.livestream?.viewerCount)} viewers",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-
-                        // Sağ: Ayarlar Butonu + Tam Ekran Butonu
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Ayarlar (YouTube gibi sağ altta)
-                            IconButton(onClick = { showSettingsDialog = true }) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                                    contentDescription = "Settings",
-                                    tint = Color.White
-                                )
-                            }
-
-                            // Tam Ekran
-                            IconButton(onClick = toggleFullScreen as () -> Unit) {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (isFullScreen) R.drawable.fullscreen_exit_24dp_e3e3e3_fill0_wght400_grad0_opsz24
-                                        else R.drawable.fullscreen_24dp_e3e3e3_fill0_wght400_grad0_opsz24
-                                    ),
-                                    contentDescription = "Fullscreen",
-                                    tint = Color.White
-                                )
-                            }
-                        }
-                    }
+                            totalDragY = 0f
+                        },
+                        onDragCancel = { totalDragY = 0f },
+                        onVerticalDrag = { _, dragAmount -> totalDragY += dragAmount }
+                    )
                 }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    useController = false
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                }
+            },
+            update = { playerView ->
+                playerView.player = player
+                playerView.keepScreenOn = isPlaying
+            },
+            onRelease = { it.player = null },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        if (isBuffering && playbackError == null) {
+            CircularProgressIndicator(
+                color = Color(0xFF53FC18),
+                modifier = Modifier.size(44.dp)
+            )
+        }
+
+        val qualityLabel = remember(selectedQualityHeight, currentVideoHeight) {
+            when {
+                selectedQualityHeight > 0 -> "${selectedQualityHeight}p"
+                currentVideoHeight > 0 -> "${currentVideoHeight}p (Auto)"
+                else -> "Auto"
             }
         }
-    }
+        val viewersText = remember(channel?.livestream?.viewerCount) {
+            "${FormatUtils.formatViewersCount(channel?.livestream?.viewerCount)} viewers"
+        }
 
-    if (!isFullScreen) {
-        playerContent(modifier)
-    } else {
-        // GERÇEK TAM EKRAN: Navigation Bar sızıntısı engellendi
-        Dialog(
-            onDismissRequest = { toggleFullScreen() },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false,
-                dismissOnBackPress = true,
-                decorFitsSystemWindows = false
-            )
+        AnimatedVisibility(
+            visible = showControls && playbackError == null && !isInPipMode,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize()
         ) {
-            // Dialog penceresinin arka planını ve navigation bar rengini saf siyah yapma
-            val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
-            SideEffect {
-                dialogWindow?.let { win ->
-                    win.navigationBarColor = android.graphics.Color.BLACK
-                    win.statusBarColor = android.graphics.Color.BLACK
-                    win.insetsController?.hide(WindowInsets.Type.navigationBars() or WindowInsets.Type.statusBars())
-                    win.insetsController?.systemBarsBehavior =
-                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
-            ) {
-                playerContent(Modifier.fillMaxSize())
-            }
+            PlayerControlsOverlay(
+                isFullScreen = isFullScreen,
+                isPlaying = isPlaying,
+                isMuted = isMuted,
+                volume = volume,
+                qualityLabel = qualityLabel,
+                sleepRemainingSeconds = if (sleepTimerMinutes > 0) remainingTimerSeconds else 0,
+                streamTitle = streamTitle,
+                viewersText = viewersText,
+                streamDuration = streamDuration,
+                onTogglePlay = { if (isPlaying) player?.pause() else player?.play() },
+                onToggleMute = { isMuted = !isMuted },
+                onVolumeChange = { newVol ->
+                    isAdjustingVolume = true
+                    volume = newVol
+                    isMuted = false
+                },
+                onVolumeChangeFinished = {
+                    isAdjustingVolume = false
+                },
+                onOpenSettings = { showSettingsDialog = true },
+                onToggleFullScreen = toggleFullScreen
+            )
         }
     }
 
@@ -646,7 +431,6 @@ fun KickPlayerView(
             title = { Text("Player Ayarları") },
             text = {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // PiP Açma/Kapatma Switch'i
                     item {
                         Row(
                             modifier = Modifier
@@ -822,4 +606,275 @@ fun KickPlayerView(
             }
         )
     }
+}
+
+/** MediaController'ı oluşturur; composable ayrılınca yayını durdurup serbest bırakır. */
+@Composable
+private fun rememberMediaController(): State<Player?> {
+    val context = LocalContext.current
+    val playerState = remember { mutableStateOf<Player?>(null) }
+
+    DisposableEffect(context) {
+        val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+        val future = MediaController.Builder(context, token).buildAsync()
+        future.addListener(
+            { playerState.value = runCatching { future.get() }.getOrNull() },
+            ContextCompat.getMainExecutor(context)
+        )
+        onDispose {
+            playerState.value?.stop()
+            MediaController.releaseFuture(future)
+            playerState.value = null
+        }
+    }
+    return playerState
+}
+
+@RequiresApi(Build.VERSION_CODES.S)
+private fun buildPipParams(autoEnter: Boolean, sourceRect: Rect?): PictureInPictureParams =
+    PictureInPictureParams.Builder()
+        .setAspectRatio(Rational(16, 9))
+        .setAutoEnterEnabled(autoEnter)
+        .setSeamlessResizeEnabled(false) // video içerik için daha doğru geçiş
+        .apply { sourceRect?.takeIf { !it.isEmpty }?.let { setSourceRectHint(it) } }
+        .build()
+
+@androidx.annotation.OptIn(UnstableApi::class)
+private fun Tracks.toQualityOptions(): List<VideoQualityOption> =
+    groups
+        .asSequence()
+        .filter { it.type == C.TRACK_TYPE_VIDEO }
+        .flatMap { group -> (0 until group.length).map { group.getTrackFormat(it) } }
+        .filter { it.height > 0 }
+        .map { format ->
+            VideoQualityOption(
+                label = "${format.height}p",
+                height = format.height,
+                bitrate = format.bitrate,
+                dataPerHourText = PlayerUtils.estimateDataUsagePerHour(
+                    format.bitrate,
+                    format.height
+                )
+            )
+        }
+        .distinctBy { it.height }
+        .sortedByDescending { it.height }
+        .toList()
+
+@Composable
+private fun PlayerControlsOverlay(
+    isFullScreen: Boolean,
+    isPlaying: Boolean,
+    isMuted: Boolean,
+    volume: Float,
+    qualityLabel: String,
+    sleepRemainingSeconds: Int,
+    streamTitle: String,
+    viewersText: String,
+    streamDuration: String,
+    onTogglePlay: () -> Unit,
+    onToggleMute: () -> Unit,
+    onVolumeChange: (Float) -> Unit,
+    onVolumeChangeFinished: () -> Unit = {},
+    onOpenSettings: () -> Unit,
+    onToggleFullScreen: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val green = KickVoltGreen
+    val labelStyle = MaterialTheme.typography.labelSmall
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.5f))
+            // Fullscreen'de çentik/cutout altında kalmasın (inline modda zaten tüketilmiş olur)
+            .windowInsetsPadding(WindowInsets.displayCutout)
+    ) {
+        /**
+         * Top
+         */
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .padding(
+                    start = if (isFullScreen) 12.dp else 56.dp,
+                    top = 12.dp, end = 12.dp, bottom = 12.dp
+                ),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            /**
+             * Top Start/Left
+             */
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(color = Color.Black.copy(alpha = 0.6f), shape = RoundedCornerShape(4.dp)) {
+                    Text(
+                        text = qualityLabel,
+                        color = Color.White,
+                        style = labelStyle,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+
+                if (sleepRemainingSeconds > 0) {
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.75f),
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, green.copy(alpha = 0.6f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.timer_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                                contentDescription = "Timer",
+                                tint = green,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "Sleep: ${(sleepRemainingSeconds + 59) / 60}m",
+                                color = Color.White,
+                                style = labelStyle,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+            /**
+             * Top End/Right
+             */
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                IconButton(onClick = onOpenSettings) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                        contentDescription = "Settings",
+                        tint = Color.White
+                    )
+                }
+            }
+        }
+
+        /**
+         * Play Icon / Center
+         */
+        IconButton(
+            onClick = onTogglePlay,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(56.dp)
+                .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+        ) {
+            Icon(
+                painter = painterResource(
+                    id = if (isPlaying) R.drawable.pause_24dp_e3e3e3_fill1_wght400_grad0_opsz24
+                    else R.drawable.play_arrow_24dp_e3e3e3_fill1_wght400_grad0_opsz24
+                ),
+                contentDescription = "Play/Pause",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(32.dp)
+            )
+        }
+
+        /**
+         * Bottom
+         */
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            /**
+             * Bottom Start/Left
+             */
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                IconButton(onClick = onToggleMute, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        painter = painterResource(
+                            id = if (isMuted || volume == 0f) R.drawable.volume_off_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+                            else R.drawable.volume_up_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+                        ),
+                        contentDescription = "Mute",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Slider(
+                    value = if (isMuted) 0f else volume,
+                    onValueChange = onVolumeChange,
+                    onValueChangeFinished = onVolumeChangeFinished,
+                    valueRange = 0f..1f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = green,
+                        activeTrackColor = green,
+                        inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                    ),
+                    modifier = Modifier.width(110.dp)
+                )
+                Text(
+                    text = "${(if (isMuted) 0f else volume * 100).toInt()}%",
+                    color = Color.White,
+                    style = labelStyle,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Separator()
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(color = MaterialTheme.colorScheme.primary, shape = CircleShape)
+                )
+                Text(
+                    text = streamDuration,
+                    color = Color.White,
+                    style = labelStyle,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            /**
+             * Bottom End/Right
+             */
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                IconButton(onClick = onToggleFullScreen) {
+                    Icon(
+                        painter = painterResource(
+                            id = if (isFullScreen) R.drawable.fullscreen_exit_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+                            else R.drawable.fullscreen_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+                        ),
+                        contentDescription = "Fullscreen",
+                        tint = Color.White
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Separator() {
+    Text(
+        text = " | ",
+        color = Color.White.copy(alpha = 0.5f),
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold
+    )
 }

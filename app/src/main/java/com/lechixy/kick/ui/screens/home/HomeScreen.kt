@@ -67,7 +67,7 @@ fun HomeScreen(
                 Indicator(
                     modifier = Modifier.align(Alignment.TopCenter),
                     isRefreshing = state.isRefreshing,
-                    containerColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    containerColor = MaterialTheme.colorScheme.onPrimary,
                     color = MaterialTheme.colorScheme.primary,
                     state = pullState
                 )

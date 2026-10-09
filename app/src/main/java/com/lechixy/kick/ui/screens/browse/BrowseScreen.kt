@@ -13,14 +13,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,7 +28,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -39,7 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -50,7 +46,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import com.lechixy.kick.R
-import com.lechixy.kick.ui.components.VerifiedBadge
+import com.lechixy.kick.data.model.toChannelDetail
+import com.lechixy.kick.ui.components.ChannelCard
 import com.lechixy.kick.util.buildOptimizedImageRequest
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -169,81 +166,10 @@ fun BrowseScreen(
                                     maxItemsInEachRow = 3
                                 ) {
                                     data.channels.forEach { ch ->
-                                        Card(
-                                            modifier = Modifier
-                                                .weight(1f, fill = false)
-                                                .widthIn(min = 280.dp)
-                                                .clickable { onChannelClick(ch.slug) },
-                                            shape = RoundedCornerShape(12.dp),
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                                            )
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(12.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                            ) {
-                                                AsyncImage(
-                                                    model = remember(ch.profilePicture) {
-                                                        buildOptimizedImageRequest(
-                                                            context = context,
-                                                            data = ch.profilePicture,
-                                                            targetWidthDp = 48,
-                                                            targetHeightDp = 48
-                                                        )
-                                                    },
-                                                    contentDescription = ch.username,
-                                                    modifier = Modifier
-                                                        .size(46.dp)
-                                                        .clip(CircleShape),
-                                                    contentScale = ContentScale.Crop
-                                                )
-
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = ch.username,
-                                                            style = MaterialTheme.typography.bodyLarge,
-                                                            fontWeight = FontWeight.SemiBold,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
-                                                        if (ch.isVerified) {
-                                                            VerifiedBadge(
-                                                                modifier = Modifier.size(14.dp),
-                                                                colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimaryContainer)
-                                                            )
-                                                        }
-                                                    }
-                                                    Text(
-                                                        text = ch.slug,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.outline
-                                                    )
-                                                }
-
-                                                if (ch.isLive) {
-                                                    Surface(
-                                                        color = Color(0xFF53FC18),
-                                                        shape = RoundedCornerShape(4.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = "LIVE",
-                                                            color = Color.Black,
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            fontWeight = FontWeight.Bold,
-                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        ChannelCard(
+                                            channel = ch.toChannelDetail(),
+                                            onChannelClick = onChannelClick
+                                        )
                                     }
                                 }
                             }

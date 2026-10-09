@@ -1,7 +1,6 @@
 package com.lechixy.kick.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,9 +46,9 @@ fun StreamCard(
     val context = LocalContext.current
 
     Card(
+        onClick,
         modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
@@ -65,26 +64,18 @@ fun StreamCard(
                 contentAlignment = Alignment.Center
             ) {
                 if (isDataSaverActive) {
-                    // Tasarruf modu aktifken thumbnail yerine çıkan etiket
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
-                            painter = painterResource(id = R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                            painter = painterResource(id = R.drawable.energy_savings_leaf_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                             contentDescription = "Data Saver",
                             tint = MaterialTheme.colorScheme.outline,
                             modifier = Modifier.size(28.dp)
                         )
-                        Text(
-                            text = "Tasarruf Modu",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.outline,
-                            fontWeight = FontWeight.SemiBold
-                        )
                     }
                 } else {
-                    // Normal mod: Optimize görsel yüklemesi
                     AsyncImage(
                         model = remember(stream.thumbnail?.src) {
                             buildOptimizedImageRequest(
@@ -100,7 +91,6 @@ fun StreamCard(
                     )
                 }
 
-                // Canlı rozeti ve Viewer Count aynen kalıyor
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomStart)

@@ -25,6 +25,20 @@ data class SearchChannel(
     val username: String
 )
 
+fun SearchChannel.toChannelDetail(): ChannelDetail {
+    return ChannelDetail(
+        id = 0,
+        livestream = if (isLive) ChannelLivestream(id = 0, slug = slug, isLive = true) else null,
+        verified = isVerified,
+        user = ChannelUser(
+            id = 0,
+            profilePic = profilePicture,
+            username = username
+        ),
+        slug = slug
+    )
+}
+
 @Serializable
 data class SearchCategory(
     @SerialName("is_mature") val isMature: Boolean = false,
