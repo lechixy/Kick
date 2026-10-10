@@ -30,8 +30,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lechixy.kick.data.local.FollowManager
-import com.lechixy.kick.data.local.PlayerSettingsManager
+import com.lechixy.kick.data.repository.LocalSettingsRepository
+import com.lechixy.kick.data.repository.SettingsKeys
 import com.lechixy.kick.ui.components.HomeTopBar
 import com.lechixy.kick.ui.components.StreamCard
 
@@ -46,7 +48,12 @@ fun HomeScreen(
     val pullState = rememberPullToRefreshState()
     val followedSlugs by FollowManager.followedSlugs.collectAsState()
 
-    val isDataSaverActive by PlayerSettingsManager.dataSaverEnabled.collectAsState()
+    val repository = LocalSettingsRepository.current
+    val isDataSaverActive by repository
+        .get(SettingsKeys.DATA_SAVER)
+        .collectAsStateWithLifecycle(
+            initialValue = SettingsKeys.DATA_SAVER.defaultValue
+        )
 
     Scaffold(
         topBar = {

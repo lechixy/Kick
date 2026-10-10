@@ -9,10 +9,11 @@ import retrofit2.http.Query
 import retrofit2.http.Url
 
 interface KickApi {
-    @GET("api/v1/livestreams")
+    @GET("api/v1/livestreams/featured")
     suspend fun getLivestreams(
         @Query("limit") limit: Int = 20,
-        @Query("sort") sort: String = "viewer_count_desc"
+        @Query("sort") sort: String = "viewer_count_desc",
+        @Query("language") language: String = "tr"
     ): LivestreamResponse
 
     @GET

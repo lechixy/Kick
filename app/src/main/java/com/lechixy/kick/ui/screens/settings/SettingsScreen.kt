@@ -13,9 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,7 +24,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,8 +33,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lechixy.kick.R
-import com.lechixy.kick.data.local.PlayerSettingsManager
 import com.lechixy.kick.ui.components.ColoredAppText
 import com.lechixy.kick.util.AppUtils
 import com.lechixy.kick.util.AppUtils.getVersionAndInfo
@@ -45,7 +45,7 @@ enum class SettingsDestinations(
     val description: String,
     val headerIcon: Int
 ) {
-    HOME(
+    GENERAL(
         "General",
         "Basic app behavior, localization, and system defaults",
         R.drawable.apps_24dp_e3e3e3_fill0_wght400_grad0_opsz24
@@ -65,12 +65,14 @@ enum class SettingsDestinations(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    viewModel: SettingsViewModel = hiltViewModel<SettingsViewModel>(),
+    onSubsettingClick: (subsetting: SettingsDestinations) -> Unit,
     onBackClick: () -> Unit
 ) {
     val context = LocalContext.current
     val appInfo = getVersionAndInfo(context)
 
-    val dataSaverEnabled by PlayerSettingsManager.dataSaverEnabled.collectAsState()
+    val dataSaver by viewModel.dataSaver.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -91,11 +93,10 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp)
         ) {
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(0.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 maxItemsInEachRow = 3
             ) {
@@ -104,7 +105,7 @@ fun SettingsScreen(
                         header = dest.header,
                         description = dest.description,
                         headerIcon = dest.headerIcon
-                    )
+                    ) { onSubsettingClick(dest) }
                 }
             }
 //            SettingsCard(
@@ -132,8 +133,8 @@ fun SettingsScreen(
 //                    )
 //                }
 //                Switch(
-//                    checked = dataSaverEnabled,
-//                    onCheckedChange = { PlayerSettingsManager.setDataSaverEnabled(it) }
+//                    checked = dataSaver,
+//                    onCheckedChange = { viewModel.set(SettingsKeys.DATA_SAVER, it) }
 //                )
 //            }
 
@@ -223,10 +224,7 @@ fun SettingsCard(
     Card(
         onClick = onClick,
         modifier = modifier
-            .fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.onPrimary
-        )
+            .fillMaxWidth()
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -237,13 +235,15 @@ fun SettingsCard(
                     painter = painterResource(id = headerIcon),
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp)
+                    modifier = Modifier
+                        .padding(start = 20.dp, top = 8.dp, bottom = 8.dp)
+                        .size(32.dp),
                 )
             }
             Column(
                 modifier = modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
+                    .padding(vertical = 20.dp)
             ) {
                 Text(
                     text = header,
@@ -252,7 +252,7 @@ fun SettingsCard(
                 )
                 Text(
                     text = description,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.outline
                 )
             }

@@ -71,7 +71,13 @@ fun BrowseScreen(
                     value = state.query,
                     onValueChange = viewModel::onQueryChange,
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Search channels, categories, streams...") },
+                    placeholder = {
+                        Text(
+                            "Search for channels, categories or streams...",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
                     leadingIcon = {
                         Icon(
                             painter = painterResource(id = R.drawable.search_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
@@ -197,7 +203,9 @@ fun BrowseScreen(
                                                 .clickable { /* İleride category filter */ },
                                             shape = RoundedCornerShape(8.dp),
                                             colors = CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                                    alpha = 0.3f
+                                                )
                                             )
                                         ) {
                                             Column {
@@ -257,7 +265,9 @@ fun BrowseScreen(
                                                 .clickable { onChannelClick(stream.slug) },
                                             shape = RoundedCornerShape(12.dp),
                                             colors = CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                                    alpha = 0.3f
+                                                )
                                             )
                                         ) {
                                             Row(

@@ -2,6 +2,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
 }
 
 java {
@@ -72,27 +74,26 @@ dependencies {
     // Lifecycle
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
-
     // Navigation
     implementation(libs.androidx.navigation.compose)
-
     // Splash Screen
     implementation(libs.androidx.core.splashscreen)
-
     // Retrofit
     implementation(libs.retrofit)
     implementation(libs.converter.kotlinx.serialization)
-
+    // Settings
+    implementation(libs.androidx.datastore.preferences)
     // Kotlin Serialization
     implementation(libs.kotlinx.serialization.json)
-
+    // Depency Injection
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation(libs.hilt.navigation.compose)
     // OkHttp
     implementation(libs.logging.interceptor)
-
     // Coil
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
-
     // Debug
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)

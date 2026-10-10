@@ -1,8 +1,15 @@
 package com.lechixy.kick.service
 
+import android.net.Uri
+import android.os.Bundle
 import androidx.annotation.OptIn
+import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -34,7 +41,7 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
-        mediaSession = MediaSession.Builder(this, player).build()
+        mediaSession = MediaSession.Builder(this, LiveAwarePlayer(player)).build()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = mediaSession
@@ -46,5 +53,81 @@ class PlaybackService : MediaSessionService() {
         }
         mediaSession = null
         super.onDestroy()
+    }
+}
+
+const val EXTRA_IS_LIVE = "kick_is_live"
+const val EXTRA_START_TIME_MS = "kick_start_time_ms"
+
+fun buildPlaybackMediaItem(
+    playbackUrl: String,
+    isLive: Boolean,
+    title: String,
+    channelName: String,
+    viewersText: String?,
+    artwork: Uri,
+    startTimeMs: Long = 0L,
+    vodDurationMs: Long? = null
+): MediaItem {
+    val subtitle = buildString {
+        append(if (isLive) "🔴 Canlı" else "Kayıt")
+        if (!viewersText.isNullOrBlank()) append(" • ").append(viewersText)
+    }
+    val metadata = MediaMetadata.Builder()
+        .setTitle(title)
+        .setArtist(channelName)
+        .setAlbumArtist(channelName)
+        .setAlbumTitle("Kick")
+        .setSubtitle(subtitle)
+        .setDescription(subtitle)
+        .setArtworkUri(artwork)
+        .setMediaType(MediaMetadata.MEDIA_TYPE_VIDEO)
+        .setIsPlayable(true)
+        .setIsBrowsable(false)
+        .apply { if (!isLive && vodDurationMs != null && vodDurationMs > 0) setDurationMs(vodDurationMs) }
+        .setExtras(Bundle().apply {
+            putBoolean(EXTRA_IS_LIVE, isLive)
+            putLong(EXTRA_START_TIME_MS, startTimeMs)
+        })
+        .build()
+
+    return MediaItem.Builder()
+        .setMediaId(playbackUrl)
+        .setUri(playbackUrl.toUri())
+        .setMediaMetadata(metadata)
+        .build()
+}
+
+@UnstableApi
+class LiveAwarePlayer(player: Player) : ForwardingPlayer(player) {
+
+    private val isLiveItem: Boolean
+        get() = wrappedPlayer.isCurrentMediaItemLive ||
+                wrappedPlayer.currentMediaItem?.mediaMetadata?.extras?.getBoolean(EXTRA_IS_LIVE, false) == true
+
+    private val seekCommands = intArrayOf(
+        COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+        COMMAND_SEEK_BACK,
+        COMMAND_SEEK_FORWARD,
+        COMMAND_SEEK_TO_DEFAULT_POSITION
+    )
+
+    override fun getDuration(): Long = if (isLiveItem) LIVE_BAR_MS else super.getDuration()
+    override fun getContentDuration(): Long = if (isLiveItem) LIVE_BAR_MS else super.getContentDuration()
+    override fun getCurrentPosition(): Long = if (isLiveItem) LIVE_BAR_MS else super.getCurrentPosition()
+    override fun getContentPosition(): Long = if (isLiveItem) LIVE_BAR_MS else super.getContentPosition()
+    override fun getBufferedPosition(): Long = if (isLiveItem) LIVE_BAR_MS else super.getBufferedPosition()
+    override fun getContentBufferedPosition(): Long =
+        if (isLiveItem) LIVE_BAR_MS else super.getContentBufferedPosition()
+
+    override fun getAvailableCommands(): Player.Commands =
+        if (isLiveItem) super.getAvailableCommands().buildUpon().removeAll(*seekCommands).build()
+        else super.getAvailableCommands()
+
+    override fun isCommandAvailable(command: Int): Boolean =
+        if (isLiveItem && command in seekCommands) false else super.isCommandAvailable(command)
+
+    private companion object {
+        const val LIVE_BAR_MS = 1_000L
     }
 }
