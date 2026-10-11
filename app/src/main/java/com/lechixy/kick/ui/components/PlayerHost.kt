@@ -3,6 +3,7 @@ package com.lechixy.kick.ui.components
 import android.content.pm.ActivityInfo
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -30,6 +31,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -66,6 +69,7 @@ import com.lechixy.kick.PlayerHostState
 import com.lechixy.kick.PlayerMode
 import com.lechixy.kick.ui.screens.channel.findActivity
 import com.lechixy.kick.util.buildOptimizedImageRequest
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.max
@@ -95,6 +99,7 @@ fun PlayerHost(
     onMinimize: () -> Unit,
     onExpand: () -> Unit,
     onClose: () -> Unit,
+    pageContent: @Composable (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (host.slug == null || host.mode == PlayerMode.Hidden) return
@@ -104,6 +109,14 @@ fun PlayerHost(
     val mode = host.mode
 
     val frameT = remember { Animatable(0f) }
+    var releaseVelocity by remember { mutableFloatStateOf(0f) }
+    val settleJobs = remember { mutableListOf<Job>() }
+    var pageAlpha by remember { mutableFloatStateOf(0f) }   // 0'dan başlar -> açılışta fade-in
+    var fsScale by remember { mutableFloatStateOf(1f) }
+    var fsDy by remember { mutableFloatStateOf(0f) }
+    val showPage = mode == PlayerMode.Expanded || mode == PlayerMode.Fullscreen || pageAlpha > 0.01f
+    var dragScale by remember { mutableFloatStateOf(1f) }   // madde 3
+    var playerDy by remember { mutableFloatStateOf(0f) }    // madde 4
     var dragT by remember { mutableFloatStateOf(0f) }
     var container by remember { mutableStateOf(IntSize.Zero) }
     var area by remember { mutableStateOf(IntRect.Zero) }
@@ -118,10 +131,20 @@ fun PlayerHost(
         mode == PlayerMode.Mini -> -1f
         else -> 0f
     }
+
+    LaunchedEffect(mode) {
+        animate(pageAlpha, if (mode == PlayerMode.Mini) 0f else 1f, animationSpec = tween(250)) { v, _ -> pageAlpha = v }
+    }
+
     LaunchedEffect(targetT, isInPipMode) {
-        // PiP'de pencereyi sistem küçülttüğü için animasyon yok (snap)
-        if (isInPipMode) frameT.snapTo(targetT)
-        else frameT.animateTo(targetT, tween(300, easing = FastOutSlowInEasing))
+        if (isInPipMode) { frameT.snapTo(targetT); return@LaunchedEffect }
+        val v = releaseVelocity; releaseVelocity = 0f
+        if (v != 0f) frameT.animateTo(
+            targetT,
+            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+            initialVelocity = v
+        ) else frameT.animateTo(targetT, tween(300, easing = FastOutSlowInEasing))
+        if (targetT == 0f) { fsScale = 1f; fsDy = 0f }
     }
 
     ImmersiveSystemBars(isFullScreen = mode == PlayerMode.Fullscreen, progress = frameT.asState())
@@ -160,14 +183,25 @@ fun PlayerHost(
         (a.bottom + (b.bottom - a.bottom) * f).roundToInt()
     )
 
-    fun currentT() = frameT.value + dragT
-    fun frameAt(t: Float): IntRect =
-        if (t >= 0f) lerpRect(
-            inlineRect(),
-            IntRect(0, 0, container.width, container.height),
-            t.coerceAtMost(1f)
-        )
-        else lerpRect(inlineRect(), miniRect(), (-t).coerceAtMost(1f))
+    fun currentT() = frameT.value
+    fun scaledBottomCenter(r: IntRect, s: Float): IntRect {
+        val cx = (r.left + r.right) / 2f
+        val w = r.width * s; val h = r.height * s
+        return IntRect((cx - w / 2).roundToInt(), (r.bottom - h).roundToInt(), (cx + w / 2).roundToInt(), r.bottom)
+    }
+
+    fun fullRect(): IntRect {
+        val w = container.width * fsScale; val h = container.height * fsScale
+        val l = (container.width - w) / 2f
+        val t = (container.height - h) / 2f + fsDy
+        return IntRect(l.roundToInt(), t.roundToInt(), (l + w).roundToInt(), (t + h).roundToInt())
+    }
+
+    fun frameAt(t: Float): IntRect {
+        val base = scaledBottomCenter(inlineRect(), dragScale)
+        return if (t >= 0f) lerpRect(base, fullRect(), t.coerceAtMost(1f))
+        else lerpRect(base, miniRect(), (-t).coerceAtMost(1f))
+    }
 
     fun snapMini() {
         val rx = miniRangeX();
@@ -223,9 +257,15 @@ fun PlayerHost(
             )
         }
 
+        if (showPage) {
+            Box(Modifier.fillMaxSize().graphicsLayer { translationY = playerDy; alpha = pageAlpha }) {
+                host.pageSlug?.let { s -> key(s) { pageContent(s) } }
+            }
+        }
+
         Box(
             Modifier
-                .offset { frameAt(currentT()).let { IntOffset(it.left, it.top) } }
+                .offset { frameAt(currentT()).let { IntOffset(it.left, it.top + playerDy.roundToInt()) } }
                 .layout { measurable, _ ->
                     val f = frameAt(currentT())
                     val p = measurable.measure(
@@ -278,44 +318,84 @@ fun PlayerHost(
                 .pointerInput(mode, isInPipMode) {
                     if (mode == PlayerMode.Mini || isInPipMode) return@pointerInput
                     var total = 0f
+                    var committed = false
+                    val tracker = VelocityTracker()
                     val commitPx = 56.dp.toPx()
-                    val travelPx = 400.dp.toPx()
+                    val limitPx = 140.dp.toPx()
+                    val travelPx = 240.dp.toPx()
+                    val scaleDistPx = 160.dp.toPx()
+                    val back = spring<Float>(stiffness = 300f)
+
+                    fun fsDyMax() = container.height / 2f - 0.2f * container.height * fsScale  // videonun %30'u dışarıda
+
+                    fun cancelSettle() { settleJobs.forEach { it.cancel() }; settleJobs.clear() }
+                    fun settle() {
+                        cancelSettle()
+                        settleJobs += scope.launch {
+                            launch { animate(dragScale, 1f, animationSpec = back) { v, _ -> dragScale = v } }
+                            launch { animate(playerDy, 0f, animationSpec = back) { v, _ -> playerDy = v } }
+                            launch { animate(pageAlpha, 1f, animationSpec = back) { v, _ -> pageAlpha = v } }
+                            launch { animate(fsScale, 1f, animationSpec = back) { v, _ -> fsScale = v } }
+                            launch { animate(fsDy, 0f, animationSpec = back) { v, _ -> fsDy = v } }
+                        }
+                    }
+
+                    fun goMini() {
+                        committed = true
+                        scope.launch { animate(playerDy, 0f, animationSpec = back) { v, _ -> playerDy = v } }
+                        onMinimize()
+                    }
+
                     detectVerticalDragGestures(
-                        onDragStart = { total = 0f },
-                        onVerticalDrag = { _, dy ->
+                        onDragStart = {
+                            cancelSettle()                       // yarım kalan geri dönüşü durdur
+                            committed = false
+                            tracker.resetTracking()
+                            // Sıfırdan değil, ekrandaki mevcut durumdan devam et (ışınlanma/anchor sıçraması olmasın)
+                            total = when (mode) {
+                                PlayerMode.Fullscreen -> fsDy
+                                PlayerMode.Expanded -> playerDy
+                                else -> 0f
+                            }
+                        },
+                        onVerticalDrag = { change, dy ->
+                            if (committed) return@detectVerticalDragGestures
                             total += dy
-                            val raw = -total / travelPx
-                            dragT = if (mode == PlayerMode.Fullscreen) raw.coerceIn(-0.3f, 0f)
-                            else raw.coerceIn(-0.3f, 0.3f)
-                        },
-                        onDragCancel = {
-                            scope.launch {
-                                frameT.snapTo(frameT.value + dragT); dragT = 0f
-                                frameT.animateTo(targetT, tween(250))
+                            tracker.addPosition(change.uptimeMillis, change.position)
+                            when (mode) {
+                                PlayerMode.Expanded -> {
+                                    val up = (-total).coerceAtLeast(0f)
+                                    dragScale = 1f + 0.2f * up / (up + travelPx)
+                                    val down = total.coerceIn(0f, limitPx)
+                                    playerDy = down
+                                    pageAlpha = 1f - down / limitPx          // kaydıkça fade, arkadaki ekran belirir
+                                    if (total >= limitPx) goMini()
+                                }
+                                PlayerMode.Fullscreen -> {
+                                    val y = total.coerceAtLeast(0f)
+                                    fsScale = 1f - 0.1f * (y / scaleDistPx).coerceAtMost(1f)   // scale burada durur
+                                    fsDy = y.coerceAtMost(fsDyMax())                           // kayma devam eder
+                                }
+                                else -> Unit
                             }
                         },
+                        onDragCancel = { settle() },
                         onDragEnd = {
-                            val up = total < -commitPx
-                            val down = total > commitPx
-                            val commit = when {
-                                mode == PlayerMode.Expanded && up -> {
-                                    { host.setFullscreen(true) }
+                            if (committed) return@detectVerticalDragGestures
+                            val vy = tracker.calculateVelocity().y
+                            val tVel = -vy / container.height
+                            when {
+                                mode == PlayerMode.Expanded && (total < -commitPx || vy < -1800f) -> scope.launch {
+                                    releaseVelocity = tVel.coerceAtLeast(0.5f)
+                                    launch { animate(dragScale, 1f, animationSpec = back) { v, _ -> dragScale = v } }
+                                    host.setFullscreen(true)
                                 }
-
-                                mode == PlayerMode.Expanded && down -> onMinimize
-                                mode == PlayerMode.Fullscreen && down -> {
-                                    { host.setFullscreen(false) }
+                                mode == PlayerMode.Expanded && (total > 0.6f * limitPx || vy > 1800f) -> goMini()
+                                mode == PlayerMode.Fullscreen && (fsDy > 0.45f * fsDyMax() || vy > 1800f) -> {
+                                    releaseVelocity = tVel.coerceAtMost(-0.5f)
+                                    host.setFullscreen(false)   // bulunduğu çerçeveden 16:9'a doğru devam eder
                                 }
-
-                                else -> null
-                            }
-                            scope.launch {
-                                // Bırakılan noktadan devam et (zıplama yok)
-                                frameT.snapTo(frameT.value + dragT); dragT = 0f
-                                if (commit != null) commit() else frameT.animateTo(
-                                    targetT,
-                                    tween(250)
-                                )
+                                else -> settle()
                             }
                         }
                     )

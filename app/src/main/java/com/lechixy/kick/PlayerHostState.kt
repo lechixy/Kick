@@ -1,9 +1,14 @@
 package com.lechixy.kick
 
-import com.lechixy.kick.data.model.ChannelDetail
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import com.lechixy.kick.data.model.ChannelDetail
 
 /**
  * Hidden     : oturum yok (player hiç yok, PiP kapalı, normal uygulama)
@@ -23,6 +28,8 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
         private set
     var slug by mutableStateOf(initialSlug)
         private set
+    var pageSlug by mutableStateOf(initialSlug)   // sayfada gösterilen kanal (oturumdan farklı olabilir)
+        private set
 
     /** Son yüklenen kanal detayı: ChannelScreen kapansa (VM ölse) bile mini player bununla yaşar. */
     var channel by mutableStateOf<ChannelDetail?>(null)
@@ -30,14 +37,25 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
 
     val isChannelVisible get() = mode == PlayerMode.Expanded || mode == PlayerMode.Fullscreen
 
+    var dragOffsetY by mutableFloatStateOf(0f)
+
     fun open(slug: String) {
-        if (this.slug != slug) channel = null
-        this.slug = slug
+        if (this.slug == null) this.slug = slug
         mode = PlayerMode.Expanded
+        dragOffsetY = 0f
+        pageSlug = slug
     }
 
     fun onChannelLoaded(slug: String, detail: ChannelDetail) {
-        if (slug == this.slug) channel = detail
+        val isLive = detail.livestream != null && !detail.playbackUrl.isNullOrBlank()
+        val currentLive = channel?.livestream != null
+        if (slug == this.slug) {
+            channel = detail
+        } else if (isLive || !currentLive) {   // yeni kanal canlı -> ona geç; eski de canlı değilse -> yeni banner
+            this.slug = slug
+            this.pageSlug = slug
+            channel = detail
+        }
     }
 
     fun setFullscreen(enabled: Boolean) {
@@ -51,12 +69,14 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
 
     fun expand() {
         if (slug != null) mode = PlayerMode.Expanded
+        dragOffsetY = 0f
     }
 
     fun close() {
         mode = PlayerMode.Hidden
         slug = null
         channel = null
+        pageSlug = null
     }
 
     companion object {

@@ -45,7 +45,6 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -123,7 +122,11 @@ enum class AppDestinations(
         R.drawable.favorite_24dp_e3e3e3_fill0_wght400_grad0_opsz24
     ),
     BROWSE("Browse", R.drawable.search_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-    SETTINGS("Settings", R.drawable.settings_24dp_e3e3e3_fill1_wght400_grad0_opsz24, R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24)
+    SETTINGS(
+        "Settings",
+        R.drawable.settings_24dp_e3e3e3_fill1_wght400_grad0_opsz24,
+        R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+    )
 }
 
 @Composable
@@ -150,18 +153,7 @@ fun KickApp() {
         onDispose { componentActivity?.removeOnPictureInPictureModeChangedListener(listener) }
     }
 
-    val isInsideChannel = currentRoute?.startsWith("channel/") == true
-
-    // Route -> player modu senkronu (örn. alt bardan başka sekmeye geçince kanal sayfası kapanır -> mini olur).
-    LaunchedEffect(isInsideChannel) {
-        if (!isInsideChannel && playerHost.isChannelVisible) playerHost.minimize()
-        if (isInsideChannel && playerHost.mode == PlayerMode.Mini) playerHost.expand()
-    }
-
-    val openChannel: (String) -> Unit = { slug ->
-        playerHost.open(slug)
-        navController.navigate("channel/$slug")
-    }
+    val openChannel: (String) -> Unit = { slug -> playerHost.open(slug) }
 
     val isImmersive = playerHost.mode == PlayerMode.Fullscreen || isInPipMode
 
@@ -174,6 +166,7 @@ fun KickApp() {
             hidden = isImmersive,
             currentRoute = currentRoute,
             onNavigate = { targetRoute ->
+                if (playerHost.isChannelVisible) playerHost.minimize()
                 if (currentRoute != targetRoute) {
                     navController.navigate(targetRoute) {
                         popUpTo(navController.graph.findStartDestination().id) {
@@ -184,7 +177,9 @@ fun KickApp() {
                 }
             }
         ) {
-            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            Box(Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)) {
                 val animDuration = 350
                 NavHost(
                     navController = navController,
@@ -194,7 +189,10 @@ fun KickApp() {
                         fadeIn(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
                                 scaleIn(
                                     initialScale = 0.94f,
-                                    animationSpec = tween(animDuration, easing = FastOutSlowInEasing)
+                                    animationSpec = tween(
+                                        animDuration,
+                                        easing = FastOutSlowInEasing
+                                    )
                                 )
                     },
 
@@ -203,7 +201,10 @@ fun KickApp() {
                         fadeOut(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
                                 scaleOut(
                                     targetScale = 0.98f,
-                                    animationSpec = tween(animDuration, easing = FastOutSlowInEasing)
+                                    animationSpec = tween(
+                                        animDuration,
+                                        easing = FastOutSlowInEasing
+                                    )
                                 )
                     },
 
@@ -212,7 +213,10 @@ fun KickApp() {
                         fadeIn(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
                                 scaleIn(
                                     initialScale = 0.98f,
-                                    animationSpec = tween(animDuration, easing = FastOutSlowInEasing)
+                                    animationSpec = tween(
+                                        animDuration,
+                                        easing = FastOutSlowInEasing
+                                    )
                                 )
                     },
 
@@ -221,7 +225,10 @@ fun KickApp() {
                         fadeOut(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
                                 scaleOut(
                                     targetScale = 0.94f,
-                                    animationSpec = tween(animDuration, easing = FastOutSlowInEasing)
+                                    animationSpec = tween(
+                                        animDuration,
+                                        easing = FastOutSlowInEasing
+                                    )
                                 )
                     }
                 ) {
@@ -248,29 +255,6 @@ fun KickApp() {
                         )
                     }
 
-                    composable(
-                        route = "channel/{channelSlug}",
-                        arguments = listOf(navArgument("channelSlug") { type = NavType.StringType })
-                    ) { backStackEntry ->
-                        val slug = backStackEntry.arguments?.getString("channelSlug") ?: ""
-
-                        // Deep link / süreç yeniden başlatma: oturum yoksa bu kanalla başlat.
-                        LaunchedEffect(slug) { if (playerHost.slug != slug) playerHost.open(slug) }
-
-                        // Geri: kanal sayfasını kapat, player mini olarak kalsın.
-                        BackHandler(enabled = playerHost.mode == PlayerMode.Expanded) {
-                            playerHost.minimize()
-                            navController.popBackStack()
-                        }
-
-                        ChannelScreen(
-                            channelSlug = slug,
-                            onChannelLoaded = { channelDetail ->
-                                playerHost.onChannelLoaded(slug, channelDetail)
-                            }
-                        )
-                    }
-
                     composable("settings") {
                         SettingsScreen(
                             onBackClick = { navController.popBackStack() },
@@ -280,7 +264,9 @@ fun KickApp() {
 
                     composable(
                         route = "settings/{settingRoute}",
-                        arguments = listOf(navArgument("settingRoute") { type = NavType.StringType })
+                        arguments = listOf(navArgument("settingRoute") {
+                            type = NavType.StringType
+                        })
                     ) { backStackEntry ->
                         val settingRoute = backStackEntry.arguments?.getString("settingRoute") ?: ""
 
@@ -288,6 +274,7 @@ fun KickApp() {
                             "general" -> {
                                 GeneralSettingsScreen()
                             }
+
                             else -> {
                                 Row(
                                     modifier = Modifier.fillMaxSize(),
@@ -301,28 +288,22 @@ fun KickApp() {
                     }
                 }
 
-                // NavHost'un ÜSTÜNDE: inline / tam ekran / mini / PiP hepsi tek player.
                 PlayerHost(
                     host = playerHost,
                     isInPipMode = isInPipMode,
-                    onMinimize = {
-                        playerHost.minimize()
-                        if (isInsideChannel) navController.popBackStack()
-                    },
-                    onExpand = {
-                        val slug = playerHost.slug
-                        if (slug != null && !isInsideChannel) {
-                            playerHost.expand()
-                            navController.navigate("channel/$slug") { launchSingleTop = true }
-                        }
-                    },
-                    onClose = playerHost::close
+                    onMinimize = playerHost::minimize,
+                    onExpand = playerHost::expand,
+                    onClose = playerHost::close,
+                    pageContent = { slug ->
+                        ChannelScreen(
+                            channelSlug = slug,
+                            viewModel = viewModel(key = slug),
+                            onChannelLoaded = { playerHost.onChannelLoaded(slug, it) }
+                        )
+                    }
                 )
 
-                // Tam ekranda geri -> sadece tam ekrandan çık (NavHost'tan sonra tanımlı = öncelikli).
-                BackHandler(enabled = playerHost.mode == PlayerMode.Fullscreen) {
-                    playerHost.setFullscreen(false)
-                }
+                BackHandler(enabled = playerHost.mode == PlayerMode.Expanded) { playerHost.minimize() }
             }
         }
     }
