@@ -296,13 +296,14 @@ fun KickPlayerView(
         }
     }
 
-    LaunchedEffect(player, playbackUrl) {
+    val stableId = channel?.slug ?: playbackUrl
+    LaunchedEffect(player, stableId) {
         val p = player ?: return@LaunchedEffect
         if (playbackUrl.isBlank()) return@LaunchedEffect
 
         playbackError = null
 
-        val alreadyLoaded = p.currentMediaItem?.mediaId == playbackUrl
+        val alreadyLoaded = p.currentMediaItem?.mediaId == stableId
         if (alreadyLoaded) {
             if (p.playbackState == Player.STATE_IDLE) p.prepare()
             return@LaunchedEffect
@@ -315,6 +316,7 @@ fun KickPlayerView(
         val isLive = channel?.livestream != null
         val mediaItem = buildPlaybackMediaItem(
             playbackUrl = playbackUrl,
+            mediaId = stableId,
             isLive = isLive,
             title = streamTitle.ifBlank { "Canlı Yayın" },
             channelName = channelName.ifBlank { "Kick" },
@@ -624,8 +626,9 @@ private fun rememberMediaController(): State<Player?> {
             ContextCompat.getMainExecutor(context)
         )
         onDispose {
-            val changing = context.findActivity()?.isChangingConfigurations == true
-            if (!changing) playerState.value?.stop()
+            // TODO: fix pauses
+//            val changing = context.findActivity()?.isChangingConfigurations == true
+//            if (!changing) playerState.value?.stop()
             MediaController.releaseFuture(future)
             playerState.value = null
         }

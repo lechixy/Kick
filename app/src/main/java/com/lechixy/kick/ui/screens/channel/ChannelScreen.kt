@@ -124,7 +124,7 @@ fun ChannelScreen(
                         val isLive = channel.livestream != null
                         val lastLiveText = remember(state.videos) {
                             val latestVideo = state.videos.firstOrNull()
-                            FormatUtils.formatLastLive(latestVideo?.startTime ?: latestVideo?.createdAt)
+                            FormatUtils.formatLastLive(latestVideo?.startTime ?: latestVideo?.createdAt, true)
                         }
 
                         LazyColumn(
@@ -471,21 +471,21 @@ private fun ChannelTabContent(
                         )
                         TextButton(onClick = onNavigateToVideos) {
                             Text(
-                                text = "Daha Fazla",
+                                text = "More",
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
 
-                    // En fazla 4 video göster
-                    val recentList = videos.take(4)
+                    // Sadece en son 4 video gösterilecek
+                    val recentLives = videos.take(4)
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         maxItemsInEachRow = 3
                     ) {
-                        recentList.forEach { video ->
+                        recentLives.forEach { video ->
                             Box(
                                 modifier = Modifier
                                     .weight(1f, fill = false)

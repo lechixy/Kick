@@ -1,11 +1,11 @@
 package com.lechixy.kick.util
 
+import android.text.format.DateUtils
 import com.lechixy.kick.data.model.VideoThumbnail
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
-import java.util.concurrent.TimeUnit
 
 object FormatUtils {
 
@@ -46,29 +46,44 @@ object FormatUtils {
         }
     }
 
-    fun formatLastLive(startTimeStr: String?): String {
-        if (startTimeStr.isNullOrBlank()) return "Son zamanlarda yayın yapmadı"
+    fun formatLastLive(
+        startTimeStr: String?,
+        showPrefix: Boolean = false
+    ): String {
+        if (startTimeStr.isNullOrBlank()) {
+            return if (showPrefix) {
+                // Bu metinleri strings.xml üzerinden yerelleştir.
+                "Son zamanlarda yayın yapmadı"
+            } else {
+                "Bilinmiyor"
+            }
+        }
 
         return try {
-            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply {
+            val format = SimpleDateFormat(
+                "yyyy-MM-dd HH:mm:ss",
+                Locale.US
+            ).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
             }
-            val date = format.parse(startTimeStr) ?: return "Son zamanlarda yayın yapmadı"
-            val now = System.currentTimeMillis()
-            val diffMillis = now - date.time
 
-            val diffHours = TimeUnit.MILLISECONDS.toHours(diffMillis)
-            val diffDays = TimeUnit.MILLISECONDS.toDays(diffMillis)
+            val date = format.parse(startTimeStr)
+                ?: return "Bilinmiyor"
 
-            when {
-                diffHours < 1 -> "Last live recently"
-                diffHours < 24 -> "Last live $diffHours hours ago"
-                diffDays == 1L -> "Last live yesterday"
-                diffDays < 30 -> "Last live $diffDays days ago"
-                else -> "Son zamanlarda yayın yapmadı"
+            val relativeTime = DateUtils.getRelativeTimeSpanString(
+                date.time,
+                System.currentTimeMillis(),
+                DateUtils.MINUTE_IN_MILLIS,
+                DateUtils.FORMAT_ABBREV_RELATIVE
+            ).toString()
+
+            if (showPrefix) {
+                "Last live ${relativeTime.take( 1).lowercase()}${relativeTime.drop(1)}"
+            } else {
+                relativeTime
             }
         } catch (e: Exception) {
-            "Son zamanlarda yayın yapmadı"
+            "Bilinmiyor"
         }
     }
 

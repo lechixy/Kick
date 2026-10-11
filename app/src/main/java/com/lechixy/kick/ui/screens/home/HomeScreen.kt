@@ -30,17 +30,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.lechixy.kick.data.local.FollowManager
-import com.lechixy.kick.data.repository.LocalSettingsRepository
-import com.lechixy.kick.data.repository.SettingsKeys
 import com.lechixy.kick.ui.components.HomeTopBar
 import com.lechixy.kick.ui.components.StreamCard
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    viewModel: HomeViewModel,
+    viewModel: HomeViewModel = hiltViewModel(),
     onStreamClick: (channelSlug: String) -> Unit,
     onSettingsClick: () -> Unit
 ) {
@@ -48,12 +46,7 @@ fun HomeScreen(
     val pullState = rememberPullToRefreshState()
     val followedSlugs by FollowManager.followedSlugs.collectAsState()
 
-    val repository = LocalSettingsRepository.current
-    val isDataSaverActive by repository
-        .get(SettingsKeys.DATA_SAVER)
-        .collectAsStateWithLifecycle(
-            initialValue = SettingsKeys.DATA_SAVER.defaultValue
-        )
+    val isDataSaverActive = false
 
     Scaffold(
         topBar = {

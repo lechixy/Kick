@@ -10,9 +10,9 @@ class KickRepository(
     private val api: KickApi
 ) {
 
-    suspend fun getLivestreams(): List<Livestream> {
+    suspend fun getLivestreams(language: String): List<Livestream> {
         return api
-            .getLivestreams()
+            .getLivestreams(language = language )
             .data
             .livestreams
     }

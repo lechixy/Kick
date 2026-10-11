@@ -24,7 +24,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,8 +32,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lechixy.kick.R
 import com.lechixy.kick.ui.components.ColoredAppText
 import com.lechixy.kick.util.AppUtils
@@ -65,14 +62,11 @@ enum class SettingsDestinations(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    viewModel: SettingsViewModel = hiltViewModel<SettingsViewModel>(),
     onSubsettingClick: (subsetting: SettingsDestinations) -> Unit,
     onBackClick: () -> Unit
 ) {
     val context = LocalContext.current
     val appInfo = getVersionAndInfo(context)
-
-    val dataSaver by viewModel.dataSaver.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {

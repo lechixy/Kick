@@ -3,22 +3,32 @@ package com.lechixy.kick.ui.screens.home
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lechixy.kick.data.remote.KickNetwork
 import com.lechixy.kick.data.repository.KickRepository
+import com.lechixy.kick.data.settings.SettingsKeys
+import com.lechixy.kick.data.settings.SettingsRepository
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
-class HomeViewModel : ViewModel() {
-
-    private val repository = KickRepository(KickNetwork.api)
+@HiltViewModel
+class HomeViewModel @Inject constructor(
+    private val kickRepository: KickRepository,
+    private val settingsRepository: SettingsRepository
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     init {
         loadStreams()
+    }
+
+    private suspend fun getCurrentLanguage(): String {
+        return settingsRepository.get(SettingsKeys.RECOMMENDED_LIVESTREAM_LANGUAGE).first()
     }
 
     fun loadStreams() {
@@ -29,7 +39,8 @@ class HomeViewModel : ViewModel() {
             )
 
             try {
-                val streams = repository.getLivestreams()
+                val language = getCurrentLanguage()
+                val streams = kickRepository.getLivestreams(language = language)
 
                 _uiState.value = HomeUiState(
                     streams = streams
@@ -52,7 +63,8 @@ class HomeViewModel : ViewModel() {
             Log.e("HomeViewModel", "Refreshing streams...")
 
             try {
-                val streams = repository.getLivestreams()
+                val language = getCurrentLanguage()
+                val streams = kickRepository.getLivestreams(language = language)
 
                 _uiState.value = _uiState.value.copy(
                     streams = streams,

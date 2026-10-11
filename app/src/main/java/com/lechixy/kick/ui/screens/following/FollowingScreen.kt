@@ -99,6 +99,7 @@ fun FollowingScreen(
                         )
                     }
 
+                    // TODO: Fix online and offline channels
                     if (online.isEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             Text(

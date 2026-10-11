@@ -61,6 +61,7 @@ const val EXTRA_START_TIME_MS = "kick_start_time_ms"
 
 fun buildPlaybackMediaItem(
     playbackUrl: String,
+    mediaId: String,
     isLive: Boolean,
     title: String,
     channelName: String,
@@ -92,7 +93,7 @@ fun buildPlaybackMediaItem(
         .build()
 
     return MediaItem.Builder()
-        .setMediaId(playbackUrl)
+        .setMediaId(mediaId)
         .setUri(playbackUrl.toUri())
         .setMediaMetadata(metadata)
         .build()

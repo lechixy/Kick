@@ -57,6 +57,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.util.Consumer
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -67,8 +68,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.lechixy.kick.data.local.FollowManager
 import com.lechixy.kick.data.local.PlayerSettingsManager
-import com.lechixy.kick.data.repository.LocalSettingsRepository
-import com.lechixy.kick.data.repository.SettingsRepository
+import com.lechixy.kick.data.settings.LocalSettingsRepository
+import com.lechixy.kick.data.settings.SettingsRepository
 import com.lechixy.kick.ui.components.PlayerHost
 import com.lechixy.kick.ui.screens.browse.BrowseScreen
 import com.lechixy.kick.ui.screens.channel.ChannelScreen
@@ -78,7 +79,7 @@ import com.lechixy.kick.ui.screens.following.FollowingViewModel
 import com.lechixy.kick.ui.screens.home.HomeScreen
 import com.lechixy.kick.ui.screens.home.HomeViewModel
 import com.lechixy.kick.ui.screens.settings.SettingsScreen
-import com.lechixy.kick.ui.screens.settings.general.GeneralScreen
+import com.lechixy.kick.ui.screens.settings.general.GeneralSettingsScreen
 import com.lechixy.kick.ui.theme.KickTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -225,7 +226,7 @@ fun KickApp() {
                     }
                 ) {
                     composable("home") {
-                        val homeViewModel: HomeViewModel = viewModel()
+                        val homeViewModel: HomeViewModel = hiltViewModel()
                         HomeScreen(
                             viewModel = homeViewModel,
                             onStreamClick = { channelSlug -> openChannel(channelSlug) },
@@ -285,7 +286,7 @@ fun KickApp() {
 
                         when (settingRoute) {
                             "general" -> {
-                                GeneralScreen { navController.popBackStack() }
+                                GeneralSettingsScreen()
                             }
                             else -> {
                                 Row(
