@@ -5,10 +5,15 @@ import com.lechixy.kick.data.model.ChannelVideo
 import com.lechixy.kick.data.model.Livestream
 import com.lechixy.kick.data.model.SearchData
 import com.lechixy.kick.data.remote.KickApi
+import com.lechixy.kick.data.remote.KickChatWebSocketClient
 
 class KickRepository(
     private val api: KickApi
 ) {
+
+    val chatWebSocketClient: KickChatWebSocketClient by lazy {
+        KickChatWebSocketClient(api)
+    }
 
     suspend fun getLivestreams(language: String): List<Livestream> {
         return api

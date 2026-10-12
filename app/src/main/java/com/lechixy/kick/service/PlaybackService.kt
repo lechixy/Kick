@@ -91,7 +91,9 @@ fun buildPlaybackMediaItem(
         .setMediaType(MediaMetadata.MEDIA_TYPE_VIDEO)
         .setIsPlayable(true)
         .setIsBrowsable(false)
-        .apply { if (!isLive && vodDurationMs != null && vodDurationMs > 0) setDurationMs(vodDurationMs) }
+        .apply {
+            if (!isLive && vodDurationMs != null && vodDurationMs > 0) setDurationMs(vodDurationMs)
+        }
         .setExtras(Bundle().apply {
             putBoolean(EXTRA_IS_LIVE, isLive)
             putLong(EXTRA_START_TIME_MS, startTimeMs)
@@ -110,7 +112,10 @@ class LiveAwarePlayer(player: Player) : ForwardingPlayer(player) {
 
     private val isLiveItem: Boolean
         get() = wrappedPlayer.isCurrentMediaItemLive ||
-                wrappedPlayer.currentMediaItem?.mediaMetadata?.extras?.getBoolean(EXTRA_IS_LIVE, false) == true
+                wrappedPlayer.currentMediaItem?.mediaMetadata?.extras?.getBoolean(
+                    EXTRA_IS_LIVE,
+                    false
+                ) == true
 
     private val seekCommands = intArrayOf(
         COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
@@ -120,10 +125,18 @@ class LiveAwarePlayer(player: Player) : ForwardingPlayer(player) {
     )
 
     override fun getDuration(): Long = if (isLiveItem) LIVE_BAR_MS else super.getDuration()
-    override fun getContentDuration(): Long = if (isLiveItem) LIVE_BAR_MS else super.getContentDuration()
-    override fun getCurrentPosition(): Long = if (isLiveItem) LIVE_BAR_MS else super.getCurrentPosition()
-    override fun getContentPosition(): Long = if (isLiveItem) LIVE_BAR_MS else super.getContentPosition()
-    override fun getBufferedPosition(): Long = if (isLiveItem) LIVE_BAR_MS else super.getBufferedPosition()
+    override fun getContentDuration(): Long =
+        if (isLiveItem) LIVE_BAR_MS else super.getContentDuration()
+
+    override fun getCurrentPosition(): Long =
+        if (isLiveItem) LIVE_BAR_MS else super.getCurrentPosition()
+
+    override fun getContentPosition(): Long =
+        if (isLiveItem) LIVE_BAR_MS else super.getContentPosition()
+
+    override fun getBufferedPosition(): Long =
+        if (isLiveItem) LIVE_BAR_MS else super.getBufferedPosition()
+
     override fun getContentBufferedPosition(): Long =
         if (isLiveItem) LIVE_BAR_MS else super.getContentBufferedPosition()
 

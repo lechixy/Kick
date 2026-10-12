@@ -153,10 +153,9 @@ fun KickTheme(
                     Theme.LIGHT -> dynamicLightColorScheme(context)
                     Theme.DARK -> dynamicDarkColorScheme(context)
                     Theme.AMOLED -> dynamicDarkColorScheme(context).copy(
-                        surface = Color(0xFF0A0C08),
-                        onSurface = Color(0xFFE3E8D8),
-                        surfaceVariant = Color(0xFF2A2E22),
-                        onSurfaceVariant = Color(0xFFC5CBB8),
+                        background = Color.Black,
+                        surface = Color.Black,
+                        // TODO: add other colors
                     )
                 }
             }
@@ -168,10 +167,9 @@ fun KickTheme(
         }
         theme == Theme.DARK -> KickDarkColorScheme
         theme == Theme.AMOLED -> KickDarkColorScheme.copy(
-            surface = Color(0xFF0A0C08),
-            onSurface = Color(0xFFE3E8D8),
-            surfaceVariant = Color(0xFF2A2E22),
-            onSurfaceVariant = Color(0xFFC5CBB8),
+            background = Color.Black,
+            surface = Color.Black,
+            // TODO: add other colors
         )
         else -> KickLightColorScheme
     }

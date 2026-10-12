@@ -4,7 +4,14 @@ import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelVideo
 import com.lechixy.kick.data.model.LivestreamResponse
 import com.lechixy.kick.data.model.SearchResponse
+import com.lechixy.kick.data.model.chat.RealtimeAuthRequest
+import com.lechixy.kick.data.model.chat.RealtimeAuthResponse
+import com.lechixy.kick.data.model.chat.RealtimeConnectionRequest
+import com.lechixy.kick.data.model.chat.RealtimeConnectionResponse
+import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.POST
+import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.Url
 
@@ -30,4 +37,20 @@ interface KickApi {
     suspend fun search(
         @Url url: String
     ): SearchResponse
+
+    @POST("api/v1/realtime/connection")
+    suspend fun getRealtimeConnection(
+        @Body request: RealtimeConnectionRequest
+    ): RealtimeConnectionResponse
+
+    @POST("api/v1/realtime/auth/connection")
+    suspend fun getRealtimeAuth(
+        @Body request: RealtimeAuthRequest
+    ): RealtimeAuthResponse
+
+    @POST("api/v1/realtime/channels/{channelId}/chat/connection")
+    suspend fun getChannelChatConnection(
+        @Path("channelId") channelId: Long,
+        @Body request: RealtimeConnectionRequest
+    ): RealtimeConnectionResponse
 }

@@ -1,4 +1,10 @@
 <resources>
     <string name="app_name">Kick</string>
     <string name="github">https://github.com/lechixy/Kick</string>
+    <string name="live_badge">LIVE</string>
+    <string name="viewers">viewers</string>
+    <string name="home">Home</string>
+    <string name="following">Following</string>
+    <string name="browse">Browse</string>
+    <string name="settings">Settings</string>
 </resources>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Kick</string>
+    <string name="github">GitHub</string>
+    <string name="live_badge">CANLI</string>
+    <string name="viewers">izleyici</string>
+    <string name="home">Ev</string>
+    <string name="following">Takip Edilenler</string>
+    <string name="browse">Göz at</string>
+    <string name="settings">Ayarlar</string>
+</resources>

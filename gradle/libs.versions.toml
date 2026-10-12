@@ -1,5 +1,6 @@
 [versions]
 agp = "9.4.1"
+appcompat = "1.8.0"
 coilCompose = "3.6.3"
 converterKotlinxSerialization = "3.0.0"
 coreKtx = "1.19.1"
@@ -37,6 +38,7 @@ benchmarkMacroJunit4 = "1.2.4"
 baselineprofile = "1.5.0-beta01"
 
 [libraries]
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-core-splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "coreSplashscreen" }
 androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastorePreferences" }

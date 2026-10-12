@@ -24,6 +24,11 @@ object SettingsKeys {
     /*
      * General
      */
+    val APP_LANGUAGE = SettingKey(
+        key = stringPreferencesKey("app_language"),
+        defaultValue = "system",
+        type = SettingType.StringType
+    )
     val THEME = SettingKey(
         key = stringPreferencesKey("theme"),
         defaultValue = "system",
@@ -35,16 +40,36 @@ object SettingsKeys {
         type = SettingType.BooleanType
     )
 
+
+    /*
+     * Player & Playback
+     */
     val AUTOPLAY = SettingKey(
         key = booleanPreferencesKey("autoplay"),
         defaultValue = true,
         type = SettingType.BooleanType
     )
-
     val VIDEO_QUALITY = SettingKey(
         key = intPreferencesKey("video_quality"),
         defaultValue = 720,
         type = SettingType.IntType
+    )
+    val CHAT_FONT_SIZE = SettingKey(
+        key = intPreferencesKey("chat_font_size"),
+        defaultValue = 14,
+        type = SettingType.IntType,
+        validator = { it in 10..24 }
+    )
+    val AUTO_CONNECT_CHAT = SettingKey(
+        key = booleanPreferencesKey("auto_connect_chat"),
+        defaultValue = true,
+        type = SettingType.BooleanType
+    )
+    val CHAT_MESSAGE_SPACING = SettingKey(
+        key = intPreferencesKey("chat_message_spacing"),
+        defaultValue = 2,
+        type = SettingType.IntType,
+        validator = { it in 0..16 }
     )
 
     val RECOMMENDED_LIVESTREAM_LANGUAGE = SettingKey(
@@ -52,22 +77,17 @@ object SettingsKeys {
         defaultValue = "en",
         type = SettingType.StringType
     )
-
-    val CHAT_FONT_SIZE = SettingKey(
-        key = intPreferencesKey("chat_font_size"),
-        defaultValue = 14,
-        type = SettingType.IntType,
-        validator = { it in 10..24 }
-    )
-
-    // Tüm export edilebilir anahtarların listesi
+    /*
+     * Exportable Keys
+     */
     val ALL_KEYS: List<SettingKey<*>> by lazy {
         listOf(
-            AUTOPLAY,
             THEME,
             VIDEO_QUALITY,
             RECOMMENDED_LIVESTREAM_LANGUAGE,
             CHAT_FONT_SIZE,
+            AUTO_CONNECT_CHAT,
+            CHAT_MESSAGE_SPACING,
             DYNAMIC_COLOR
         )
     }

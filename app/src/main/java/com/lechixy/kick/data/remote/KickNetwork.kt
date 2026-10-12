@@ -15,6 +15,7 @@ object KickNetwork {
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
+        encodeDefaults = true
     }
 
     private val logging = HttpLoggingInterceptor().apply {

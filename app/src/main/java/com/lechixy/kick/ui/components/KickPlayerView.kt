@@ -72,6 +72,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -322,7 +323,7 @@ fun KickPlayerView(
             title = streamTitle.ifBlank { "Canlı Yayın" },
             channelName = channelName.ifBlank { "Kick" },
             viewersText = channel?.livestream?.viewerCount
-                ?.let { "${FormatUtils.formatViewersCount(it)} viewers" },
+                ?.let { "${FormatUtils.formatViewersCount(it)} ${context.applicationContext.getString(R.string.viewers)}" },
             artwork = pic.toUri(),
             startTimeMs = parseUtcStartTimeToMillis(channel?.livestream?.startTime)
         )
@@ -383,7 +384,7 @@ fun KickPlayerView(
             }
         }
         val viewersText = remember(channel?.livestream?.viewerCount) {
-            "${FormatUtils.formatViewersCount(channel?.livestream?.viewerCount)} viewers"
+            "${FormatUtils.formatViewersCount(channel?.livestream?.viewerCount)} ${context.applicationContext.getString(R.string.viewers)}"
         }
 
         AnimatedVisibility(
@@ -397,6 +398,7 @@ fun KickPlayerView(
                 isPlaying = isPlaying,
                 isMuted = isMuted,
                 volume = volume,
+                isSettingsDialogVisible = showSettingsDialog,
                 qualityLabel = qualityLabel,
                 sleepRemainingSeconds = if (sleepTimerMinutes > 0) remainingTimerSeconds else 0,
                 streamTitle = streamTitle,
@@ -430,7 +432,7 @@ fun KickPlayerView(
         if (showSettingsDialog) {
             AlertDialog(
                 onDismissRequest = { showSettingsDialog = false },
-                title = { Text("Settings") },
+                title = { Text(stringResource(R.string.settings)) },
                 text = {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         item {
@@ -681,6 +683,7 @@ internal fun PlayerControlsOverlay(
     isPlaying: Boolean,
     isMuted: Boolean,
     volume: Float,
+    isSettingsDialogVisible: Boolean,
     qualityLabel: String,
     sleepRemainingSeconds: Int,
     streamTitle: String,
@@ -773,7 +776,7 @@ internal fun PlayerControlsOverlay(
             ) {
                 IconButton(onClick = onOpenSettings) {
                     Icon(
-                        painter = painterResource(id = R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                        painter = painterResource(id = if (isSettingsDialogVisible) R.drawable.settings_24dp_e3e3e3_fill1_wght400_grad0_opsz24 else R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                         contentDescription = "Settings",
                         tint = Color.White
                     )

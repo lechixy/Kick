@@ -1,10 +1,13 @@
 package com.lechixy.kick
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.StringRes
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -24,7 +27,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
@@ -57,10 +59,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.core.app.PictureInPictureModeChangedInfo
+import androidx.core.os.LocaleListCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.util.Consumer
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -86,7 +90,10 @@ import com.lechixy.kick.ui.screens.settings.SettingsScreen
 import com.lechixy.kick.ui.screens.settings.general.GeneralSettingsScreen
 import com.lechixy.kick.ui.theme.KickTheme
 import com.lechixy.kick.ui.theme.Theme
+import com.lechixy.kick.util.LanguageUtils.getCurrentAppLanguage
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -95,10 +102,39 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var settingsRepository: SettingsRepository
 
+    override fun onResume() {
+        super.onResume()
+        syncLanguageWithDataStore()
+    }
+
+    private fun syncLanguageWithDataStore() {
+        val systemLang = getCurrentAppLanguage(this)
+
+        lifecycleScope.launch {
+            val savedLang = settingsRepository.get(SettingsKeys.APP_LANGUAGE).first()
+            // Sistemdeki dil ile DataStore farklıysa DataStore'u güncelle
+            if (systemLang.isNotEmpty() && systemLang != savedLang) {
+                settingsRepository.set(SettingsKeys.APP_LANGUAGE, systemLang)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        lifecycleScope.launch {
+            val currentSystemLocale = AppCompatDelegate.getApplicationLocales().toLanguageTags()
+
+            settingsRepository.get(SettingsKeys.APP_LANGUAGE).first().let { savedLang ->
+                if (currentSystemLocale.isNotEmpty() && currentSystemLocale != savedLang) {
+                    settingsRepository.set(SettingsKeys.APP_LANGUAGE, currentSystemLocale)
+                } else if (currentSystemLocale.isEmpty() && savedLang.isNotEmpty()) {
+                    AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(savedLang))
+                }
+            }
+        }
 
         setContent {
             CompositionLocalProvider(
@@ -132,26 +168,30 @@ class MainActivity : ComponentActivity() {
 }
 
 enum class AppDestinations(
-    val label: String,
+    @StringRes val label: Int,
     val activeIcon: Int,
     val inactiveIcon: Int = activeIcon
 ) {
     HOME(
-        "Home",
+        R.string.home,
         R.drawable.home_24dp_e3e3e3_fill1_wght400_grad0_opsz24,
         R.drawable.home_24dp_e3e3e3_fill0_wght400_grad0_opsz24
     ),
     FOLLOWING(
-        "Following",
+        R.string.following,
         R.drawable.favorite_24dp_e3e3e3_fill1_wght400_grad0_opsz24,
         R.drawable.favorite_24dp_e3e3e3_fill0_wght400_grad0_opsz24
     ),
-    BROWSE("Browse", R.drawable.search_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+    BROWSE(R.string.browse, R.drawable.search_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
     SETTINGS(
-        "Settings",
+        R.string.settings,
         R.drawable.settings_24dp_e3e3e3_fill1_wght400_grad0_opsz24,
         R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24
-    )
+    );
+
+    fun getLabel(context: Context): String {
+        return context.getString(this.label)
+    }
 }
 
 @Composable
@@ -336,11 +376,6 @@ fun KickApp() {
     }
 }
 
-/**
- * NavigationSuiteScaffold yerine: bar/rail ANİMASYONLU gizlenir (kayarak + boyut küçülerek),
- * içerik her karede kalan alanın tamamını doldurur -> ani boşalma / sıçrama yok.
- * Bar tipi (alt bar / rail) eskisiyle aynı adaptive hesaptan gelir.
- */
 @Composable
 private fun KickNavScaffold(
     hidden: Boolean,
@@ -348,9 +383,9 @@ private fun KickNavScaffold(
     onNavigate: (String) -> Unit,
     content: @Composable () -> Unit
 ) {
+    val context = LocalContext.current
     val type =
         NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(currentWindowAdaptiveInfoV2())
-    // Varsayım: adı "NavigationBar" içeren tipler alt bar, diğerleri (rail/drawer) yan rail.
     val useBottomBar = type.toString().contains("NavigationBar", ignoreCase = true)
 
     @Composable
@@ -364,16 +399,16 @@ private fun KickNavScaffold(
                 icon = {
                     Icon(
                         painter = painterResource(id = if (isSelected) destination.activeIcon else destination.inactiveIcon),
-                        contentDescription = destination.label
+                        contentDescription = destination.getLabel(context)
                     )
                 },
-                label = { Text(destination.label) }
+                label = { Text(destination.getLabel(context)) }
             )
         }
     }
 
     @Composable
-    fun ColumnScope.RailBarItems() {
+    fun RailBarItems() {
         AppDestinations.entries.forEach { destination ->
             val targetRoute = destination.name.lowercase()
             val isSelected = currentRoute == targetRoute
@@ -383,10 +418,10 @@ private fun KickNavScaffold(
                 icon = {
                     Icon(
                         painter = painterResource(id = if (isSelected) destination.activeIcon else destination.inactiveIcon),
-                        contentDescription = destination.label
+                        contentDescription = destination.getLabel(context)
                     )
                 },
-                label = { Text(destination.label) }
+                label = { Text(destination.getLabel(context)) }
             )
         }
     }

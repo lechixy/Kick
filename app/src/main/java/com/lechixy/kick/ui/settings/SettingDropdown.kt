@@ -29,7 +29,8 @@ fun <T> SettingDropdown(
     modifier: Modifier = Modifier,
     description: String? = null,
     icon: Int? = null,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    onValueChanged: ((T) -> Unit)? = null
 ) {
     val repository = LocalSettingsRepository.current
     val coroutineScope = rememberCoroutineScope()
@@ -70,11 +71,10 @@ fun <T> SettingDropdown(
                             text = { Text(text = label) },
                             onClick = {
                                 expanded = false
-                                if (optionValue != currentValue) {
-                                    coroutineScope.launch {
-                                        repository.set(key, optionValue)
-                                    }
+                                coroutineScope.launch {
+                                    repository.set(key, optionValue)
                                 }
+                                onValueChanged?.invoke(optionValue)
                             }
                         )
                     }

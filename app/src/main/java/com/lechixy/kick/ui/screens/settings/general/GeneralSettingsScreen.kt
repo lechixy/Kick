@@ -9,6 +9,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.settings.SettingDropdown
@@ -17,6 +18,7 @@ import com.lechixy.kick.ui.settings.SettingSlider
 import com.lechixy.kick.ui.settings.SettingSwitch
 import com.lechixy.kick.ui.settings.SettingTextField
 import com.lechixy.kick.ui.settings.SettingsTopBar
+import com.lechixy.kick.util.LanguageUtils.updateAppLocale
 
 @Composable
 fun GeneralSettingsScreen(
@@ -75,6 +77,20 @@ fun GeneralSettingsScreen(
                         title = "Sohbet ve Arayüz",
                         description = "Görünüm ve font yapılandırması"
                     ) {
+                        val context = LocalContext.current
+                        SettingDropdown(
+                            key = SettingsKeys.APP_LANGUAGE,
+                            title = "Uygulama Dili",
+                            options = listOf(
+                                "system" to "Sistem Varsayılanı",
+                                "en" to "English",
+                                "tr" to "Türkçe"
+                            ),
+                            onValueChanged = { selectedLanguageTag ->
+                                updateAppLocale(context, selectedLanguageTag)
+                            }
+                        )
+
                         SettingDropdown(
                             key = SettingsKeys.THEME,
                             title = "Uygulama Teması",

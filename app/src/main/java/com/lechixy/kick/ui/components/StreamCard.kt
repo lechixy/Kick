@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -105,7 +106,7 @@ fun StreamCard(
                             shape = RoundedCornerShape(4.dp)
                         ) {
                             Text(
-                                text = "${FormatUtils.formatViewersCount(stream.viewerCount)} viewers",
+                                text = "${FormatUtils.formatViewersCount(stream.viewerCount)} ${stringResource(R.string.viewers)}",
                                 color = Color.White,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)

@@ -51,15 +51,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import com.lechixy.kick.R
 import com.lechixy.kick.data.local.FollowManager
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelVideo
+import com.lechixy.kick.data.settings.LocalSettingsRepository
+import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.components.CHAT_WIDTH_FRACTION
 import com.lechixy.kick.ui.components.LiveBadge
 import com.lechixy.kick.ui.components.PlayerChromeButton
@@ -67,11 +71,12 @@ import com.lechixy.kick.ui.components.TagChip
 import com.lechixy.kick.ui.components.VerifiedBadge
 import com.lechixy.kick.ui.components.VideoCard
 import com.lechixy.kick.ui.components.WIDE_BREAKPOINT_DP
-import com.lechixy.kick.ui.theme.KickVoltGreen
+import com.lechixy.kick.ui.components.chat.ChatView
 import com.lechixy.kick.util.FormatUtils
 import com.lechixy.kick.util.buildOptimizedImageRequest
 
 enum class ChannelTab(val title: String) {
+    CHAT("Chat"),
     HOME("Home"),
     ABOUT("About"),
     VIDEOS("Videos"),
@@ -88,16 +93,34 @@ fun ChannelScreen(
     onBackClick: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
+    val chatMessages by viewModel.chatMessages.collectAsState()
+    val chatConnectionState by viewModel.chatConnectionState.collectAsState()
+
+    val settingsRepository = LocalSettingsRepository.current
+    val autoConnectChat by settingsRepository
+        .get(SettingsKeys.AUTO_CONNECT_CHAT)
+        .collectAsStateWithLifecycle(initialValue = SettingsKeys.AUTO_CONNECT_CHAT.defaultValue)
+
     val context = LocalContext.current
-    var selectedTab by remember { mutableStateOf(ChannelTab.HOME) }
+    var selectedTab by remember { mutableStateOf(ChannelTab.CHAT) }
 
     val followedSlugs by FollowManager.followedSlugs.collectAsState()
     val isFollowing = remember(followedSlugs, channelSlug) {
         FollowManager.isFollowing(channelSlug)
     }
 
-    LaunchedEffect(channelSlug) { viewModel.loadChannel(channelSlug) }
-    LaunchedEffect(state.channel) { state.channel?.let(onChannelLoaded) }
+    LaunchedEffect(channelSlug, autoConnectChat) {
+        viewModel.loadChannel(channelSlug, autoConnectChat = autoConnectChat)
+    }
+
+    LaunchedEffect(state.channel) {
+        state.channel?.let { channel ->
+            onChannelLoaded(channel)
+            if (channel.livestream == null && selectedTab == ChannelTab.CHAT) {
+                selectedTab = ChannelTab.HOME
+            }
+        }
+    }
 
     val inlineInsets = WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
 
@@ -159,37 +182,43 @@ fun ChannelScreen(
                             FormatUtils.formatLastLive(latestVideo?.startTime ?: latestVideo?.createdAt, true)
                         }
 
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                        ) {
-                            item {
-                                // TODO: ChannelLiveInfo
-                            }
-                            item {
-                                ChannelHeaderInfo(
-                                    channel = channel,
-                                    isLive = isLive,
-                                    lastLiveText = lastLiveText,
-                                    isFollowing = isFollowing,
-                                    onFollowClick = { FollowManager.toggleFollow(channelSlug) },
-                                    context = context
-                                )
-                            }
-                            item {
-                                ChannelTabsRow(
-                                    selectedTab = selectedTab,
-                                    onTabSelected = { selectedTab = it }
-                                )
-                            }
-                            item {
-                                ChannelTabContent(
-                                    tab = selectedTab,
-                                    channel = channel,
-                                    videos = state.videos,
-                                    onNavigateToVideos = { selectedTab = ChannelTab.VIDEOS }
-                                )
+                        ChannelHeaderInfo(
+                            channel = channel,
+                            isLive = isLive,
+                            lastLiveText = lastLiveText,
+                            isFollowing = isFollowing,
+                            onFollowClick = { FollowManager.toggleFollow(channelSlug) },
+                            context = context
+                        )
+
+                        ChannelTabsRow(
+                            selectedTab = selectedTab,
+                            onTabSelected = { selectedTab = it }
+                        )
+
+                        if (selectedTab == ChannelTab.CHAT && !isWide) {
+                            ChatView(
+                                messages = chatMessages,
+                                connectionState = chatConnectionState,
+                                onConnectClick = viewModel::connectChat,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                            )
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                            ) {
+                                item {
+                                    ChannelTabContent(
+                                        tab = selectedTab,
+                                        channel = channel,
+                                        videos = state.videos,
+                                        onNavigateToVideos = { selectedTab = ChannelTab.VIDEOS }
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -220,33 +249,14 @@ fun ChannelScreen(
                             thickness = 1.dp,
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                         )
-                        Box(
+                        ChatView(
+                            messages = chatMessages,
+                            connectionState = chatConnectionState,
+                            onConnectClick = viewModel::connectChat,
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .background(
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.padding(16.dp)
-                            ) {
-                                Text(
-                                    text = "STREAM CHAT",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = "Chatroom ID: ${channel.chatroom?.id ?: "N/A"}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                        )
                     }
                 }
             }
@@ -284,9 +294,6 @@ private fun ChannelHeaderInfo(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isLive && channel.livestream != null) {
-            /**
-             * Start/Left
-             */
             Column(
                 modifier = Modifier
                     .fillMaxWidth(0.6f)
@@ -304,23 +311,16 @@ private fun ChannelHeaderInfo(
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // TODO: Add tags chips
                     channel.livestream.tags.forEach { tag ->
                         TagChip(tag = tag)
                     }
                     TagChip(tag = channel.livestream.language ?: "")
                 }
             }
-            /**
-             * Right/End
-             */
             Column(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 horizontalAlignment = Alignment.End
             ) {
-                val green = KickVoltGreen
-                val labelStyle = MaterialTheme.typography.labelSmall
-
                 LiveBadge()
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -333,7 +333,7 @@ private fun ChannelHeaderInfo(
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "viewers",
+                        text = stringResource(R.string.viewers),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -405,7 +405,6 @@ private fun ChannelHeaderInfo(
                 )
             }
 
-            // Canlı yayın yoksa Last live gösterimi (onSurface rengi ile açık/koyu temaya uyumlu)
             if (!isLive) {
                 Text(
                     text = lastLiveText,
@@ -415,7 +414,6 @@ private fun ChannelHeaderInfo(
             }
         }
 
-        // Takip Butonu
         Button(
             onClick = onFollowClick,
             shape = RoundedCornerShape(8.dp),
@@ -475,6 +473,10 @@ private fun ChannelTabContent(
     onNavigateToVideos: () -> Unit
 ) {
     when (tab) {
+        ChannelTab.CHAT -> {
+            // Managed in ChannelScreen main layout when selected
+        }
+
         ChannelTab.HOME -> {
             Column(
                 modifier = Modifier
@@ -501,7 +503,6 @@ private fun ChannelTabContent(
                         }
                     }
 
-                    // Sadece en son 4 video gösterilecek
                     val recentLives = videos.take(4)
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),

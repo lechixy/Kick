@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelVideo
+import com.lechixy.kick.data.model.chat.ChatMessage
+import com.lechixy.kick.data.remote.ChatConnectionState
 import com.lechixy.kick.data.remote.KickNetwork
 import com.lechixy.kick.data.repository.KickRepository
 import kotlinx.coroutines.async
@@ -26,7 +28,10 @@ class ChannelViewModel(
     private val _uiState = MutableStateFlow(ChannelUiState())
     val uiState: StateFlow<ChannelUiState> = _uiState.asStateFlow()
 
-    fun loadChannel(slug: String) {
+    val chatMessages: StateFlow<List<ChatMessage>> = repository.chatWebSocketClient.messages
+    val chatConnectionState: StateFlow<ChatConnectionState> = repository.chatWebSocketClient.connectionState
+
+    fun loadChannel(slug: String, autoConnectChat: Boolean = true) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
@@ -35,7 +40,7 @@ class ChannelViewModel(
                 val videosDeferred = async {
                     try {
                         repository.getChannelVideos(slug).filterNot { it.isLive }
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         emptyList<ChannelVideo>()
                     }
                 }
@@ -49,6 +54,10 @@ class ChannelViewModel(
                     videos = videos,
                     error = null
                 )
+
+                if (autoConnectChat) {
+                    connectChat()
+                }
             } catch (e: Exception) {
                 _uiState.value = ChannelUiState(
                     isLoading = false,
@@ -56,5 +65,19 @@ class ChannelViewModel(
                 )
             }
         }
+    }
+
+    fun connectChat() {
+        val channel = _uiState.value.channel ?: return
+        val chatroomId = channel.chatroom?.id ?: return
+        repository.chatWebSocketClient.connect(
+            channelId = channel.id,
+            chatroomId = chatroomId
+        )
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        repository.chatWebSocketClient.disconnect()
     }
 }
