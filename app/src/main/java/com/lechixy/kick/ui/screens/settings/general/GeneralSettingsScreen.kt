@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -17,12 +16,17 @@ import com.lechixy.kick.ui.settings.SettingSection
 import com.lechixy.kick.ui.settings.SettingSlider
 import com.lechixy.kick.ui.settings.SettingSwitch
 import com.lechixy.kick.ui.settings.SettingTextField
+import com.lechixy.kick.ui.settings.SettingsTopBar
 
 @Composable
 fun GeneralSettingsScreen(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onBackClick: () -> Unit
 ) {
-    Scaffold(modifier = modifier.fillMaxSize()) { innerPadding ->
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = { SettingsTopBar(title = "General", onBackClick = onBackClick) }
+    ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -32,7 +36,6 @@ fun GeneralSettingsScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .widthIn(max = 840.dp) // WinUI 3 masaüstü/tablet responsive max genişlik sınırı
                     .padding(vertical = 8.dp)
             ) {
                 item {
@@ -78,8 +81,15 @@ fun GeneralSettingsScreen(
                             options = listOf(
                                 "system" to "Sistem Varsayılanı",
                                 "light" to "Açık Tema",
-                                "dark" to "Koyu Tema"
+                                "dark" to "Koyu Tema",
+                                "amoled" to "Amoled Tema"
                             )
+                        )
+
+                        SettingSwitch(
+                            key = SettingsKeys.DYNAMIC_COLOR,
+                            title = "Dinamik Renkler",
+                            description = "Sistem renk paletine göre uygulama renklerini değiştir"
                         )
 
                         SettingSlider(

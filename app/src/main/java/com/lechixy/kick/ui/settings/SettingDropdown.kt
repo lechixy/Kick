@@ -14,7 +14,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lechixy.kick.R
@@ -29,7 +28,7 @@ fun <T> SettingDropdown(
     options: List<Pair<T, String>>,
     modifier: Modifier = Modifier,
     description: String? = null,
-    icon: ImageVector? = null,
+    icon: Int? = null,
     enabled: Boolean = true
 ) {
     val repository = LocalSettingsRepository.current

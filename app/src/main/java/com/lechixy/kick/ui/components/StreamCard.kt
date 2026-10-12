@@ -97,18 +97,7 @@ fun StreamCard(
                         .padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Surface(
-                        color = Color(0xFF53FC18),
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            text = "LIVE",
-                            color = Color.Black,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
+                    LiveBadge()
 
                     if (stream.showViewCount) {
                         Surface(

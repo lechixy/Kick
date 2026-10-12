@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -114,7 +115,14 @@ fun PlayerHost(
     var pageAlpha by remember { mutableFloatStateOf(0f) }   // 0'dan başlar -> açılışta fade-in
     var fsScale by remember { mutableFloatStateOf(1f) }
     var fsDy by remember { mutableFloatStateOf(0f) }
-    val showPage = mode == PlayerMode.Expanded || mode == PlayerMode.Fullscreen || pageAlpha > 0.01f
+    val showPage by remember {
+        derivedStateOf {
+            host.mode == PlayerMode.Expanded || host.mode == PlayerMode.Fullscreen || pageAlpha > 0.01f
+        }
+    }
+    val loaded = host.channel
+    val playerVisible =
+        loaded == null || loaded.livestream != null   // yüklenirken shell, canlıysa player, offline'da yok
     var dragScale by remember { mutableFloatStateOf(1f) }   // madde 3
     var playerDy by remember { mutableFloatStateOf(0f) }    // madde 4
     var dragT by remember { mutableFloatStateOf(0f) }
@@ -133,18 +141,29 @@ fun PlayerHost(
     }
 
     LaunchedEffect(mode) {
-        animate(pageAlpha, if (mode == PlayerMode.Mini) 0f else 1f, animationSpec = tween(250)) { v, _ -> pageAlpha = v }
+        animate(
+            pageAlpha,
+            if (mode == PlayerMode.Mini) 0f else 1f,
+            animationSpec = tween(250)
+        ) { v, _ -> pageAlpha = v }
     }
 
     LaunchedEffect(targetT, isInPipMode) {
-        if (isInPipMode) { frameT.snapTo(targetT); return@LaunchedEffect }
+        if (isInPipMode) {
+            frameT.snapTo(targetT); return@LaunchedEffect
+        }
         val v = releaseVelocity; releaseVelocity = 0f
         if (v != 0f) frameT.animateTo(
             targetT,
-            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+            spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            ),
             initialVelocity = v
         ) else frameT.animateTo(targetT, tween(300, easing = FastOutSlowInEasing))
-        if (targetT == 0f) { fsScale = 1f; fsDy = 0f }
+        if (targetT == 0f) {
+            fsScale = 1f; fsDy = 0f
+        }
     }
 
     ImmersiveSystemBars(isFullScreen = mode == PlayerMode.Fullscreen, progress = frameT.asState())
@@ -186,12 +205,19 @@ fun PlayerHost(
     fun currentT() = frameT.value
     fun scaledBottomCenter(r: IntRect, s: Float): IntRect {
         val cx = (r.left + r.right) / 2f
-        val w = r.width * s; val h = r.height * s
-        return IntRect((cx - w / 2).roundToInt(), (r.bottom - h).roundToInt(), (cx + w / 2).roundToInt(), r.bottom)
+        val w = r.width * s;
+        val h = r.height * s
+        return IntRect(
+            (cx - w / 2).roundToInt(),
+            (r.bottom - h).roundToInt(),
+            (cx + w / 2).roundToInt(),
+            r.bottom
+        )
     }
 
     fun fullRect(): IntRect {
-        val w = container.width * fsScale; val h = container.height * fsScale
+        val w = container.width * fsScale;
+        val h = container.height * fsScale
         val l = (container.width - w) / 2f
         val t = (container.height - h) / 2f + fsDy
         return IntRect(l.roundToInt(), t.roundToInt(), (l + w).roundToInt(), (t + h).roundToInt())
@@ -258,156 +284,224 @@ fun PlayerHost(
         }
 
         if (showPage) {
-            Box(Modifier.fillMaxSize().graphicsLayer { translationY = playerDy; alpha = pageAlpha }) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { translationY = playerDy; alpha = pageAlpha }) {
                 host.pageSlug?.let { s -> key(s) { pageContent(s) } }
             }
         }
 
-        Box(
-            Modifier
-                .offset { frameAt(currentT()).let { IntOffset(it.left, it.top + playerDy.roundToInt()) } }
-                .layout { measurable, _ ->
-                    val f = frameAt(currentT())
-                    val p = measurable.measure(
-                        Constraints.fixed(
-                            f.width.coerceAtLeast(0),
-                            f.height.coerceAtLeast(0)
+        if (playerVisible) {
+            Box(
+                Modifier
+                    .offset {
+                        frameAt(currentT()).let {
+                            IntOffset(
+                                it.left,
+                                it.top + playerDy.roundToInt()
+                            )
+                        }
+                    }
+                    .layout { measurable, _ ->
+                        val f = frameAt(currentT())
+                        val p = measurable.measure(
+                            Constraints.fixed(
+                                f.width.coerceAtLeast(0),
+                                f.height.coerceAtLeast(0)
+                            )
                         )
-                    )
-                    layout(p.width, p.height) { p.place(0, 0) }
-                }
-                .graphicsLayer {
-                    val m = (-currentT()).coerceIn(0f, 1f)
-                    shape = RoundedCornerShape(12.dp.toPx() * m)
-                    clip = true
-                    shadowElevation = 12.dp.toPx() * m
-                }
-                // --- Mini: sürükle + pinch ile boyutlandır + bırakınca kenara/köşeye oturt; tek tık -> genişlet
-                .pointerInput(mode, isInPipMode) {
-                    if (mode != PlayerMode.Mini || isInPipMode) return@pointerInput
-                    detectTapGestures(onTap = { onExpand() })
-                }
-                .pointerInput(mode, isInPipMode) {
-                    if (mode != PlayerMode.Mini || isInPipMode) return@pointerInput
-                    awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false)
-                        var moved = false
-                        var accum = Offset.Zero
-                        do {
-                            val event = awaitPointerEvent()
-                            if (event.changes.fastAny { it.isConsumed }) break
-                            val pan = event.calculatePan()
-                            val zoom = event.calculateZoom()
-                            accum += pan
-                            if (!moved && (accum.getDistance() > viewConfiguration.touchSlop || zoom != 1f)) moved =
-                                true
-                            if (moved) {
-                                miniWidthDp = (miniWidthDp * zoom).coerceIn(
-                                    MINI_MIN_WIDTH_DP,
-                                    MINI_MAX_WIDTH_DP
-                                )
-                                fx = (fx + pan.x / miniRangeX()).coerceIn(0f, 1f)
-                                fy = (fy + pan.y / miniRangeY()).coerceIn(0f, 1f)
-                                event.changes.fastForEach { if (it.positionChanged()) it.consume() }
-                            }
-                        } while (event.changes.fastAny { it.pressed })
-                        if (moved) snapMini()
+                        layout(p.width, p.height) { p.place(0, 0) }
                     }
-                }
-                // --- Inline/Tam ekran: dikey sürükleme. Sürüklerken sadece biraz büyür/küçülür, bırakınca karar verilir.
-                .pointerInput(mode, isInPipMode) {
-                    if (mode == PlayerMode.Mini || isInPipMode) return@pointerInput
-                    var total = 0f
-                    var committed = false
-                    val tracker = VelocityTracker()
-                    val commitPx = 56.dp.toPx()
-                    val limitPx = 140.dp.toPx()
-                    val travelPx = 240.dp.toPx()
-                    val scaleDistPx = 160.dp.toPx()
-                    val back = spring<Float>(stiffness = 300f)
-
-                    fun fsDyMax() = container.height / 2f - 0.2f * container.height * fsScale  // videonun %30'u dışarıda
-
-                    fun cancelSettle() { settleJobs.forEach { it.cancel() }; settleJobs.clear() }
-                    fun settle() {
-                        cancelSettle()
-                        settleJobs += scope.launch {
-                            launch { animate(dragScale, 1f, animationSpec = back) { v, _ -> dragScale = v } }
-                            launch { animate(playerDy, 0f, animationSpec = back) { v, _ -> playerDy = v } }
-                            launch { animate(pageAlpha, 1f, animationSpec = back) { v, _ -> pageAlpha = v } }
-                            launch { animate(fsScale, 1f, animationSpec = back) { v, _ -> fsScale = v } }
-                            launch { animate(fsDy, 0f, animationSpec = back) { v, _ -> fsDy = v } }
+                    .graphicsLayer {
+                        val m = (-currentT()).coerceIn(0f, 1f)
+                        shape = RoundedCornerShape(12.dp.toPx() * m)
+                        clip = true
+                        shadowElevation = 12.dp.toPx() * m
+                    }
+                    // --- Mini: sürükle + pinch ile boyutlandır + bırakınca kenara/köşeye oturt; tek tık -> genişlet
+                    .pointerInput(mode, isInPipMode) {
+                        if (mode != PlayerMode.Mini || isInPipMode) return@pointerInput
+                        detectTapGestures(onTap = { onExpand() })
+                    }
+                    .pointerInput(mode, isInPipMode) {
+                        if (mode != PlayerMode.Mini || isInPipMode) return@pointerInput
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            var moved = false
+                            var accum = Offset.Zero
+                            do {
+                                val event = awaitPointerEvent()
+                                if (event.changes.fastAny { it.isConsumed }) break
+                                val pan = event.calculatePan()
+                                val zoom = event.calculateZoom()
+                                accum += pan
+                                if (!moved && (accum.getDistance() > viewConfiguration.touchSlop || zoom != 1f)) moved =
+                                    true
+                                if (moved) {
+                                    miniWidthDp = (miniWidthDp * zoom).coerceIn(
+                                        MINI_MIN_WIDTH_DP,
+                                        MINI_MAX_WIDTH_DP
+                                    )
+                                    fx = (fx + pan.x / miniRangeX()).coerceIn(0f, 1f)
+                                    fy = (fy + pan.y / miniRangeY()).coerceIn(0f, 1f)
+                                    event.changes.fastForEach { if (it.positionChanged()) it.consume() }
+                                }
+                            } while (event.changes.fastAny { it.pressed })
+                            if (moved) snapMini()
                         }
                     }
+                    // --- Inline/Tam ekran: dikey sürükleme. Sürüklerken sadece biraz büyür/küçülür, bırakınca karar verilir.
+                    .pointerInput(mode, isInPipMode) {
+                        if (mode == PlayerMode.Mini || isInPipMode) return@pointerInput
+                        var total = 0f
+                        var committed = false
+                        val tracker = VelocityTracker()
+                        val commitPx = 56.dp.toPx()
+                        val limitPx = 140.dp.toPx()
+                        val travelPx = 240.dp.toPx()
+                        val scaleDistPx = 160.dp.toPx()
+                        val back = spring<Float>(stiffness = 300f)
 
-                    fun goMini() {
-                        committed = true
-                        scope.launch { animate(playerDy, 0f, animationSpec = back) { v, _ -> playerDy = v } }
-                        onMinimize()
-                    }
+                        fun fsDyMax() =
+                            container.height / 2f - 0.2f * container.height * fsScale  // videonun %30'u dışarıda
 
-                    detectVerticalDragGestures(
-                        onDragStart = {
-                            cancelSettle()                       // yarım kalan geri dönüşü durdur
-                            committed = false
-                            tracker.resetTracking()
-                            // Sıfırdan değil, ekrandaki mevcut durumdan devam et (ışınlanma/anchor sıçraması olmasın)
-                            total = when (mode) {
-                                PlayerMode.Fullscreen -> fsDy
-                                PlayerMode.Expanded -> playerDy
-                                else -> 0f
-                            }
-                        },
-                        onVerticalDrag = { change, dy ->
-                            if (committed) return@detectVerticalDragGestures
-                            total += dy
-                            tracker.addPosition(change.uptimeMillis, change.position)
-                            when (mode) {
-                                PlayerMode.Expanded -> {
-                                    val up = (-total).coerceAtLeast(0f)
-                                    dragScale = 1f + 0.2f * up / (up + travelPx)
-                                    val down = total.coerceIn(0f, limitPx)
-                                    playerDy = down
-                                    pageAlpha = 1f - down / limitPx          // kaydıkça fade, arkadaki ekran belirir
-                                    if (total >= limitPx) goMini()
+                        fun cancelSettle() {
+                            settleJobs.forEach { it.cancel() }; settleJobs.clear()
+                        }
+
+                        fun settle() {
+                            cancelSettle()
+                            settleJobs += scope.launch {
+                                launch {
+                                    animate(
+                                        dragScale,
+                                        1f,
+                                        animationSpec = back
+                                    ) { v, _ -> dragScale = v }
                                 }
-                                PlayerMode.Fullscreen -> {
-                                    val y = total.coerceAtLeast(0f)
-                                    fsScale = 1f - 0.1f * (y / scaleDistPx).coerceAtMost(1f)   // scale burada durur
-                                    fsDy = y.coerceAtMost(fsDyMax())                           // kayma devam eder
+                                launch {
+                                    animate(
+                                        playerDy,
+                                        0f,
+                                        animationSpec = back
+                                    ) { v, _ -> playerDy = v }
                                 }
-                                else -> Unit
-                            }
-                        },
-                        onDragCancel = { settle() },
-                        onDragEnd = {
-                            if (committed) return@detectVerticalDragGestures
-                            val vy = tracker.calculateVelocity().y
-                            val tVel = -vy / container.height
-                            when {
-                                mode == PlayerMode.Expanded && (total < -commitPx || vy < -1800f) -> scope.launch {
-                                    releaseVelocity = tVel.coerceAtLeast(0.5f)
-                                    launch { animate(dragScale, 1f, animationSpec = back) { v, _ -> dragScale = v } }
-                                    host.setFullscreen(true)
+                                launch {
+                                    animate(
+                                        pageAlpha,
+                                        1f,
+                                        animationSpec = back
+                                    ) { v, _ -> pageAlpha = v }
                                 }
-                                mode == PlayerMode.Expanded && (total > 0.6f * limitPx || vy > 1800f) -> goMini()
-                                mode == PlayerMode.Fullscreen && (fsDy > 0.45f * fsDyMax() || vy > 1800f) -> {
-                                    releaseVelocity = tVel.coerceAtMost(-0.5f)
-                                    host.setFullscreen(false)   // bulunduğu çerçeveden 16:9'a doğru devam eder
+                                launch {
+                                    animate(
+                                        fsScale,
+                                        1f,
+                                        animationSpec = back
+                                    ) { v, _ -> fsScale = v }
                                 }
-                                else -> settle()
+                                launch {
+                                    animate(fsDy, 0f, animationSpec = back) { v, _ ->
+                                        fsDy = v
+                                    }
+                                }
                             }
                         }
-                    )
-                }
-        ) {
-            PlayerSurface(
-                host = host,
-                mode = mode,
-                isInPipMode = isInPipMode,
-                onMinimize = onMinimize,
-                onClose = onClose
-            )
+
+                        fun goMini() {
+                            committed = true
+                            scope.launch {
+                                animate(
+                                    playerDy,
+                                    0f,
+                                    animationSpec = back
+                                ) { v, _ -> playerDy = v }
+                            }
+                            onMinimize()
+                        }
+
+                        detectVerticalDragGestures(
+                            onDragStart = {
+                                cancelSettle()
+                                committed = false
+                                tracker.resetTracking()
+                                total = when (mode) {
+                                    PlayerMode.Fullscreen -> fsDy
+                                    PlayerMode.Expanded ->
+                                        if (dragScale > 1f) {
+                                            // dragScale = 1 + 0.2 * up / (up + travel)  ->  up'ı geri çöz
+                                            val k = ((dragScale - 1f) / 0.2f).coerceIn(0f, 0.95f)
+                                            -(travelPx * k / (1f - k))
+                                        } else playerDy
+
+                                    else -> 0f
+                                }
+                            },
+                            onVerticalDrag = { change, dy ->
+                                if (committed) return@detectVerticalDragGestures
+                                total += dy
+                                tracker.addPosition(change.uptimeMillis, change.position)
+                                when (mode) {
+                                    PlayerMode.Expanded -> {
+                                        val up = (-total).coerceAtLeast(0f)
+                                        dragScale = 1f + 0.2f * up / (up + travelPx)
+                                        val down = total.coerceIn(0f, limitPx)
+                                        playerDy = down
+                                        pageAlpha =
+                                            1f - down / limitPx          // kaydıkça fade, arkadaki ekran belirir
+                                        if (total >= limitPx) goMini()
+                                    }
+
+                                    PlayerMode.Fullscreen -> {
+                                        val y = total.coerceAtLeast(0f)
+                                        fsScale =
+                                            1f - 0.1f * (y / scaleDistPx).coerceAtMost(1f)   // scale burada durur
+                                        fsDy =
+                                            y.coerceAtMost(fsDyMax())                           // kayma devam eder
+                                    }
+
+                                    else -> Unit
+                                }
+                            },
+                            onDragCancel = { settle() },
+                            onDragEnd = {
+                                if (committed) return@detectVerticalDragGestures
+                                val vy = tracker.calculateVelocity().y
+                                val tVel = -vy / container.height
+                                when {
+                                    mode == PlayerMode.Expanded && (total < -commitPx || vy < -1800f) -> scope.launch {
+                                        releaseVelocity = tVel.coerceAtLeast(0.5f)
+                                        launch {
+                                            animate(
+                                                dragScale,
+                                                1f,
+                                                animationSpec = back
+                                            ) { v, _ -> dragScale = v }
+                                        }
+                                        host.setFullscreen(true)
+                                    }
+
+                                    mode == PlayerMode.Expanded && (total > 0.6f * limitPx || vy > 1800f) -> goMini()
+                                    mode == PlayerMode.Fullscreen && (fsDy > 0.45f * fsDyMax() || vy > 1800f) -> {
+                                        releaseVelocity = tVel.coerceAtMost(-0.5f)
+                                        host.setFullscreen(false)   // bulunduğu çerçeveden 16:9'a doğru devam eder
+                                    }
+
+                                    else -> settle()
+                                }
+                            }
+                        )
+                    }
+            ) {
+                PlayerSurface(
+                    host = host,
+                    mode = mode,
+                    isInPipMode = isInPipMode,
+                    onMinimize = onMinimize,
+                    onClose = onClose
+                )
+            }
         }
     }
 }
@@ -428,9 +522,11 @@ private fun PlayerSurface(
     val isLive = channel?.livestream != null
     val playbackUrl = channel?.playbackUrl
 
-    Box(Modifier
-        .fillMaxSize()
-        .background(Color.Black), contentAlignment = Alignment.Center) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black), contentAlignment = Alignment.Center
+    ) {
         if (channel != null && isLive && !playbackUrl.isNullOrBlank()) {
             // PiP parametreleri (sourceRectHint, autoEnter) KickPlayerView içinde yönetiliyor.
             KickPlayerView(

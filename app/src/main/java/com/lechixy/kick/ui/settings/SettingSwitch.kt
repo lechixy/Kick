@@ -5,7 +5,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingKey
@@ -17,7 +16,7 @@ fun SettingSwitch(
     title: String,
     modifier: Modifier = Modifier,
     description: String? = null,
-    icon: ImageVector? = null,
+    icon: Int? = null,
     enabled: Boolean = true
 ) {
     val repository = LocalSettingsRepository.current
@@ -46,7 +45,7 @@ fun SettingSwitch(
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     description: String? = null,
-    icon: ImageVector? = null,
+    icon: Int? = null,
     enabled: Boolean = true
 ) {
     SettingCard(

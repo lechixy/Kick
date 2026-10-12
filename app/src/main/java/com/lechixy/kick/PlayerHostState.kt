@@ -40,21 +40,22 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
     var dragOffsetY by mutableFloatStateOf(0f)
 
     fun open(slug: String) {
-        if (this.slug == null) this.slug = slug
+        if (this.slug != slug) channel = null
+        this.slug = slug
+        pageSlug = slug
         mode = PlayerMode.Expanded
         dragOffsetY = 0f
-        pageSlug = slug
     }
 
     fun onChannelLoaded(slug: String, detail: ChannelDetail) {
-        val isLive = detail.livestream != null && !detail.playbackUrl.isNullOrBlank()
-        val currentLive = channel?.livestream != null
-        if (slug == this.slug) {
-            channel = detail
-        } else if (isLive || !currentLive) {   // yeni kanal canlı -> ona geç; eski de canlı değilse -> yeni banner
-            this.slug = slug
-            this.pageSlug = slug
-            channel = detail
+        if (slug != this.slug) return
+        channel = detail
+        if (detail.livestream == null) {            // yayın yoksa player/mini olmasın
+            when (mode) {
+                PlayerMode.Fullscreen -> mode = PlayerMode.Expanded
+                PlayerMode.Mini -> close()
+                else -> Unit
+            }
         }
     }
 
@@ -64,7 +65,9 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
     }
 
     fun minimize() {
-        if (slug != null && mode != PlayerMode.Hidden) mode = PlayerMode.Mini
+        if (slug == null || mode == PlayerMode.Hidden) return
+        val offline = channel != null && channel?.livestream == null
+        if (offline) close() else mode = PlayerMode.Mini   // yayın yokken mini'ye geçme, direkt kapan
     }
 
     fun expand() {

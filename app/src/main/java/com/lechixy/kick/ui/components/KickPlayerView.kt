@@ -7,6 +7,8 @@ import android.content.ComponentName
 import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Rational
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -44,7 +46,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -370,7 +371,6 @@ fun KickPlayerView(
 
         if (isBuffering && playbackError == null) {
             CircularProgressIndicator(
-                color = Color(0xFF53FC18),
                 modifier = Modifier.size(if (isMini) 24.dp else 44.dp)
             )
         }
@@ -626,10 +626,18 @@ private fun rememberMediaController(): State<Player?> {
             ContextCompat.getMainExecutor(context)
         )
         onDispose {
-            // TODO: fix pauses
-//            val changing = context.findActivity()?.isChangingConfigurations == true
-//            if (!changing) playerState.value?.stop()
-            MediaController.releaseFuture(future)
+            val p = playerState.value
+            val changing = context.findActivity()?.isChangingConfigurations == true
+            if (!changing) {
+                p?.pause()
+                p?.stop()
+                p?.clearMediaItems()      // session/bildirim tamamen temizlensin
+            }
+            // Komutun servise ulaşması için release'i biraz geciktir
+            Handler(Looper.getMainLooper()).postDelayed(
+                { MediaController.releaseFuture(future) },
+                if (changing) 0L else 500L
+            )
             playerState.value = null
         }
     }
@@ -828,11 +836,11 @@ internal fun PlayerControlsOverlay(
                     onValueChange = onVolumeChange,
                     onValueChangeFinished = onVolumeChangeFinished,
                     valueRange = 0f..1f,
-                    colors = SliderDefaults.colors(
-                        thumbColor = green,
-                        activeTrackColor = green,
-                        inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                    ),
+//                    colors = SliderDefaults.colors(
+//                        thumbColor = green,
+//                        activeTrackColor = green,
+//                        inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+//                    ),
                     modifier = Modifier.width(110.dp)
                 )
                 Text(
@@ -887,14 +895,27 @@ internal fun MiniControlsOverlay(
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier
-        .fillMaxSize()
-        .background(Color.Black.copy(alpha = 0.2f))) {
+    Box(
+        modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0f))
+    ) {
         Row(
             Modifier
                 .align(Alignment.TopEnd)
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                .padding(4.dp)
+        ) {
+            PlayerChromeButton(
+                painter = painterResource(R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                contentDescription = "Close",
+                size = 30.dp,
+                onClick = onClose
+            )
+        }
+        Row(
+            Modifier
+                .align(Alignment.BottomStart)
+                .padding(4.dp)
         ) {
             PlayerChromeButton(
                 painter = painterResource(
@@ -904,12 +925,6 @@ internal fun MiniControlsOverlay(
                 contentDescription = "Play/Pause",
                 size = 30.dp,
                 onClick = onTogglePlay
-            )
-            PlayerChromeButton(
-                painter = painterResource(R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                contentDescription = "Close",
-                size = 30.dp,
-                onClick = onClose
             )
         }
     }

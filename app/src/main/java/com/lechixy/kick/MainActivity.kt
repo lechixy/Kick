@@ -24,7 +24,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -36,6 +38,7 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Surface
@@ -57,6 +60,7 @@ import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.util.Consumer
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -68,6 +72,7 @@ import androidx.navigation.navArgument
 import com.lechixy.kick.data.local.FollowManager
 import com.lechixy.kick.data.local.PlayerSettingsManager
 import com.lechixy.kick.data.settings.LocalSettingsRepository
+import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.data.settings.SettingsRepository
 import com.lechixy.kick.ui.components.PlayerHost
 import com.lechixy.kick.ui.screens.browse.BrowseScreen
@@ -80,6 +85,7 @@ import com.lechixy.kick.ui.screens.home.HomeViewModel
 import com.lechixy.kick.ui.screens.settings.SettingsScreen
 import com.lechixy.kick.ui.screens.settings.general.GeneralSettingsScreen
 import com.lechixy.kick.ui.theme.KickTheme
+import com.lechixy.kick.ui.theme.Theme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -98,7 +104,26 @@ class MainActivity : ComponentActivity() {
             CompositionLocalProvider(
                 LocalSettingsRepository provides settingsRepository
             ) {
-                KickTheme {
+                val repository = LocalSettingsRepository.current
+                val theme by repository
+                    .get(SettingsKeys.THEME)
+                    .collectAsStateWithLifecycle(initialValue = SettingsKeys.THEME.defaultValue)
+                val dynamicColor by repository
+                    .get(SettingsKeys.DYNAMIC_COLOR)
+                    .collectAsStateWithLifecycle(initialValue = SettingsKeys.DYNAMIC_COLOR.defaultValue)
+
+                val themeEnum = when (theme) {
+                    "system" -> Theme.SYSTEM
+                    "light" -> Theme.LIGHT
+                    "dark" -> Theme.DARK
+                    "amoled" -> Theme.AMOLED
+                    else -> Theme.SYSTEM
+                }
+
+                KickTheme(
+                    theme = themeEnum,
+                    dynamicColor = dynamicColor
+                ) {
                     KickApp()
                 }
             }
@@ -154,7 +179,6 @@ fun KickApp() {
     }
 
     val openChannel: (String) -> Unit = { slug -> playerHost.open(slug) }
-
     val isImmersive = playerHost.mode == PlayerMode.Fullscreen || isInPipMode
 
     Surface(
@@ -272,7 +296,9 @@ fun KickApp() {
 
                         when (settingRoute) {
                             "general" -> {
-                                GeneralSettingsScreen()
+                                GeneralSettingsScreen(
+                                    onBackClick = { navController.popBackStack() }
+                                )
                             }
 
                             else -> {
@@ -298,7 +324,8 @@ fun KickApp() {
                         ChannelScreen(
                             channelSlug = slug,
                             viewModel = viewModel(key = slug),
-                            onChannelLoaded = { playerHost.onChannelLoaded(slug, it) }
+                            onChannelLoaded = { playerHost.onChannelLoaded(slug, it) },
+                            onBackClick = playerHost::minimize,
                         )
                     }
                 )
@@ -327,28 +354,40 @@ private fun KickNavScaffold(
     val useBottomBar = type.toString().contains("NavigationBar", ignoreCase = true)
 
     @Composable
-    fun Items(rail: Boolean) {
+    fun RowScope.BottomBarItems() {
         AppDestinations.entries.forEach { destination ->
             val targetRoute = destination.name.lowercase()
             val isSelected = currentRoute == targetRoute
-            val icon: @Composable () -> Unit = {
-                Icon(
-                    painter = painterResource(id = if (isSelected) destination.activeIcon else destination.inactiveIcon),
-                    contentDescription = destination.label
-                )
-            }
-            val label: @Composable () -> Unit = { Text(destination.label) }
-            if (rail) {
-                NavigationRailItem(
-                    selected = isSelected, onClick = { onNavigate(targetRoute) },
-                    icon = icon, label = label
-                )
-            } else {
-//                NavigationBarItem(
-//                    selected = isSelected, onClick = { onNavigate(targetRoute) },
-//                    icon = icon, label = label
-//                )
-            }
+            NavigationBarItem(
+                selected = isSelected,
+                onClick = { onNavigate(targetRoute) },
+                icon = {
+                    Icon(
+                        painter = painterResource(id = if (isSelected) destination.activeIcon else destination.inactiveIcon),
+                        contentDescription = destination.label
+                    )
+                },
+                label = { Text(destination.label) }
+            )
+        }
+    }
+
+    @Composable
+    fun ColumnScope.RailBarItems() {
+        AppDestinations.entries.forEach { destination ->
+            val targetRoute = destination.name.lowercase()
+            val isSelected = currentRoute == targetRoute
+            NavigationRailItem(
+                selected = isSelected,
+                onClick = { onNavigate(targetRoute) },
+                icon = {
+                    Icon(
+                        painter = painterResource(id = if (isSelected) destination.activeIcon else destination.inactiveIcon),
+                        contentDescription = destination.label
+                    )
+                },
+                label = { Text(destination.label) }
+            )
         }
     }
 
@@ -371,7 +410,7 @@ private fun KickNavScaffold(
                 enter = slideInVertically { it } + expandVertically(),
                 exit = slideOutVertically { it } + shrinkVertically()
             ) {
-                NavigationBar { Items(rail = false) }
+                NavigationBar { BottomBarItems() }
             }
         }
     } else {
@@ -381,7 +420,7 @@ private fun KickNavScaffold(
                 enter = slideInHorizontally { -it } + expandHorizontally(),
                 exit = slideOutHorizontally { -it } + shrinkHorizontally()
             ) {
-                NavigationRail { Items(rail = true) }
+                NavigationRail { RailBarItems() }
             }
             Box(
                 Modifier

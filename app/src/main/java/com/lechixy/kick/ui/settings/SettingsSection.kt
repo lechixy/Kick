@@ -28,7 +28,7 @@ fun SettingSection(
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(horizontal = 16.dp)
@@ -38,13 +38,13 @@ fun SettingSection(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = description,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         Column(
             modifier = Modifier

@@ -1,5 +1,6 @@
 package com.lechixy.kick.service
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.annotation.OptIn
@@ -53,6 +54,11 @@ class PlaybackService : MediaSessionService() {
         }
         mediaSession = null
         super.onDestroy()
+    }
+
+    @OptIn(UnstableApi::class)
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        pauseAllPlayersAndStopSelf()   // Media3: tüm player'ları durdurup servisi kapatır
     }
 }
 

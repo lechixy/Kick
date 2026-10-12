@@ -18,7 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -26,7 +26,7 @@ fun SettingCard(
     title: String,
     modifier: Modifier = Modifier,
     description: String? = null,
-    icon: ImageVector? = null,
+    icon: Int? = null,
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
     action: @Composable (() -> Unit)? = null
@@ -61,7 +61,7 @@ fun SettingCard(
             ) {
                 if (icon != null) {
                     Icon(
-                        imageVector = icon,
+                        painter = painterResource(id = icon),
                         contentDescription = null,
                         tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                         modifier = Modifier.size(22.dp)

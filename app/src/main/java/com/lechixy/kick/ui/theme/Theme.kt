@@ -128,20 +128,51 @@ val KickLightColorScheme: ColorScheme = lightColorScheme(
     onTertiaryFixedVariant = KickBowelBrown,
 )
 
+enum class Theme {
+    SYSTEM,
+    LIGHT,
+    DARK,
+    AMOLED
+}
+
 @Composable
 fun KickTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = false,
+    theme: Theme,
+    dynamicColor: Boolean,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
+        // Is dynamic color
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+
+            if (theme == Theme.SYSTEM){
+                if (isSystemInDarkTheme()) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            } else {
+                when (theme) {
+                    Theme.LIGHT -> dynamicLightColorScheme(context)
+                    Theme.DARK -> dynamicDarkColorScheme(context)
+                    Theme.AMOLED -> dynamicDarkColorScheme(context).copy(
+                        surface = Color(0xFF0A0C08),
+                        onSurface = Color(0xFFE3E8D8),
+                        surfaceVariant = Color(0xFF2A2E22),
+                        onSurfaceVariant = Color(0xFFC5CBB8),
+                    )
+                }
+            }
         }
 
-        darkTheme -> KickDarkColorScheme
+        // Is not dynamic color
+        theme == Theme.SYSTEM -> {
+            if (isSystemInDarkTheme()) KickDarkColorScheme else KickLightColorScheme
+        }
+        theme == Theme.DARK -> KickDarkColorScheme
+        theme == Theme.AMOLED -> KickDarkColorScheme.copy(
+            surface = Color(0xFF0A0C08),
+            onSurface = Color(0xFFE3E8D8),
+            surfaceVariant = Color(0xFF2A2E22),
+            onSurfaceVariant = Color(0xFFC5CBB8),
+        )
         else -> KickLightColorScheme
     }
 

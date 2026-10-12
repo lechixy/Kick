@@ -21,16 +21,24 @@ data class SettingKey<T>(
 )
 
 object SettingsKeys {
-    val AUTOPLAY = SettingKey(
-        key = booleanPreferencesKey("autoplay"),
-        defaultValue = true,
-        type = SettingType.BooleanType
-    )
-
+    /*
+     * General
+     */
     val THEME = SettingKey(
         key = stringPreferencesKey("theme"),
         defaultValue = "system",
         type = SettingType.StringType
+    )
+    val DYNAMIC_COLOR = SettingKey(
+        key = booleanPreferencesKey("dynamic_color"),
+        defaultValue = true,
+        type = SettingType.BooleanType
+    )
+
+    val AUTOPLAY = SettingKey(
+        key = booleanPreferencesKey("autoplay"),
+        defaultValue = true,
+        type = SettingType.BooleanType
     )
 
     val VIDEO_QUALITY = SettingKey(
@@ -41,7 +49,7 @@ object SettingsKeys {
 
     val RECOMMENDED_LIVESTREAM_LANGUAGE = SettingKey(
         key = stringPreferencesKey("recommended_livestream_language"),
-        defaultValue = "",
+        defaultValue = "en",
         type = SettingType.StringType
     )
 
@@ -59,7 +67,8 @@ object SettingsKeys {
             THEME,
             VIDEO_QUALITY,
             RECOMMENDED_LIVESTREAM_LANGUAGE,
-            CHAT_FONT_SIZE
+            CHAT_FONT_SIZE,
+            DYNAMIC_COLOR
         )
     }
 }

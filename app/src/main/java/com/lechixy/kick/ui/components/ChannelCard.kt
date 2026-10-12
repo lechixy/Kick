@@ -12,14 +12,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -34,7 +32,7 @@ fun ChannelCard(
     channel: ChannelDetail,
     modifier: Modifier = Modifier,
     onChannelClick: (channelSlug: String) -> Unit = {}
-){
+) {
     val context = LocalContext.current
 
     Card(
@@ -84,7 +82,10 @@ fun ChannelCard(
                     if (channel.verified) {
                         VerifiedBadge(
                             modifier = Modifier.size(14.dp),
-                            colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimaryContainer)
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            )
                         )
                     }
                 }
@@ -96,18 +97,7 @@ fun ChannelCard(
             }
 
             if (channel.livestream != null) {
-                Surface(
-                    color = Color(0xFF53FC18),
-                    shape = RoundedCornerShape(4.dp)
-                ) {
-                    Text(
-                        text = "LIVE",
-                        color = Color.Black,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
+                LiveBadge()
             }
         }
     }

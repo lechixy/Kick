@@ -33,7 +33,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -49,18 +48,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
+import com.lechixy.kick.R
 import com.lechixy.kick.data.local.FollowManager
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelVideo
 import com.lechixy.kick.ui.components.CHAT_WIDTH_FRACTION
+import com.lechixy.kick.ui.components.LiveBadge
+import com.lechixy.kick.ui.components.PlayerChromeButton
 import com.lechixy.kick.ui.components.TagChip
 import com.lechixy.kick.ui.components.VerifiedBadge
 import com.lechixy.kick.ui.components.VideoCard
@@ -82,7 +84,8 @@ fun ChannelScreen(
     channelSlug: String,
     modifier: Modifier = Modifier,
     viewModel: ChannelViewModel = viewModel(),
-    onChannelLoaded: (ChannelDetail) -> Unit = {}
+    onChannelLoaded: (ChannelDetail) -> Unit = {},
+    onBackClick: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -119,7 +122,35 @@ fun ChannelScreen(
                         .fillMaxHeight()
                 ) {
                     // Player'ın oturduğu yer (PlayerHost bu alanı işliyor)
-                    Spacer(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                    if (channel != null && channel.livestream == null) {
+                        val bannerUrl = channel.offlineBannerImage?.src ?: channel.bannerImage?.url
+                        Box(
+                            Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!bannerUrl.isNullOrEmpty()) {
+                                AsyncImage(
+                                    model = remember(bannerUrl) {
+                                        buildOptimizedImageRequest(context = context, data = bannerUrl, targetWidthDp = 640, targetHeightDp = 360)
+                                    },
+                                    contentDescription = "Offline Banner",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Text("CHANNEL OFFLINE", color = Color.Gray, fontWeight = FontWeight.Bold)
+                            }
+                            // Player yokken kapatma tuşu da sayfada olmalı
+                            PlayerChromeButton(
+                                painter = painterResource(R.drawable.keyboard_arrow_down_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                                contentDescription = "Back",
+                                modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                                onClick = onBackClick
+                            )
+                        }
+                    } else {
+                        Spacer(Modifier.fillMaxWidth().aspectRatio(16f / 9f))   // canlı: player burada oturuyor
+                    }
 
                     if (channel != null) {
                         val isLive = channel.livestream != null
@@ -290,15 +321,7 @@ private fun ChannelHeaderInfo(
                 val green = KickVoltGreen
                 val labelStyle = MaterialTheme.typography.labelSmall
 
-                Surface(color = green, shape = RoundedCornerShape(4.dp)) {
-                    Text(
-                        text = "LIVE",
-                        color = Color.Black,
-                        style = labelStyle,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(6.dp, 2.dp)
-                    )
-                }
+                LiveBadge()
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)

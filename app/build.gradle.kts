@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.baselineprofile)
 }
 
 java {
@@ -32,6 +33,7 @@ android {
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("debug")
             optimization {
                 enable = false
             }
@@ -72,6 +74,8 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
 
+    // Baseline Profile
+    implementation(libs.androidx.profileinstaller)
     // Lifecycle
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -88,6 +92,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     // Depency Injection
     implementation(libs.hilt.android)
+    "baselineProfile"(project(":baselineprofile"))
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
     // OkHttp
