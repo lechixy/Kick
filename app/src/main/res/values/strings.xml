@@ -2,6 +2,7 @@
     <string name="app_name">Kick</string>
     <string name="github">https://github.com/lechixy/Kick</string>
     <string name="live_badge">LIVE</string>
+    <string name="go_to_live">Go to Live</string>
     <string name="viewers">viewers</string>
     <string name="home">Home</string>
     <string name="following">Following</string>

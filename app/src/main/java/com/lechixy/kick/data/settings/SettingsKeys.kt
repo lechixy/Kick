@@ -49,6 +49,11 @@ object SettingsKeys {
         defaultValue = true,
         type = SettingType.BooleanType
     )
+    val LOW_LATENCY = SettingKey(
+        key = booleanPreferencesKey("low_latency_enabled"),
+        defaultValue = false,
+        type = SettingType.BooleanType
+    )
     val VIDEO_QUALITY = SettingKey(
         key = intPreferencesKey("video_quality"),
         defaultValue = 720,
@@ -83,6 +88,7 @@ object SettingsKeys {
     val ALL_KEYS: List<SettingKey<*>> by lazy {
         listOf(
             THEME,
+            LOW_LATENCY,
             VIDEO_QUALITY,
             RECOMMENDED_LIVESTREAM_LANGUAGE,
             CHAT_FONT_SIZE,

@@ -14,6 +14,7 @@ import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.settings.SettingDropdown
 import com.lechixy.kick.ui.settings.SettingSection
 import com.lechixy.kick.ui.settings.SettingSlider
+import com.lechixy.kick.ui.settings.SettingSwitch
 import com.lechixy.kick.ui.settings.SettingsTopBar
 
 @Composable
@@ -41,6 +42,11 @@ fun PlayerPlaybackSettingsScreen(
                         title = "Player",
                         description = "Oynatıcı ve video ayarları"
                     ) {
+                        SettingSwitch(
+                            key = SettingsKeys.LOW_LATENCY,
+                            title = "Düşük Gecikme Modu (Low Latency)",
+                            description = "Web sitesi ile anlık senkronize yayın (~2s gecikme). Güçlü internet bağlantısı gerektirir."
+                        )
                         SettingDropdown(
                             key = SettingsKeys.VIDEO_QUALITY,
                             title = "Varsayılan Video Kalitesi",

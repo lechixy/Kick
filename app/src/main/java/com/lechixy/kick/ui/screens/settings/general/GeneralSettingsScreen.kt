@@ -42,38 +42,6 @@ fun GeneralSettingsScreen(
             ) {
                 item {
                     SettingSection(
-                        title = "Yayınlar ve Oynatıcı",
-                        description = "Canlı yayın akışı ve video oynatıcı tercihleri"
-                    ) {
-                        SettingSwitch(
-                            key = SettingsKeys.AUTOPLAY,
-                            title = "Otomatik Oynatma",
-                            description = "Önerilen yayınları otomatik başlat"
-                        )
-
-                        SettingDropdown(
-                            key = SettingsKeys.VIDEO_QUALITY,
-                            title = "Varsayılan Video Kalitesi",
-                            description = "Mobil ve Wi-Fi üzerindeki başlangıç çözünürlüğü",
-                            options = listOf(
-                                360 to "360p",
-                                480 to "480p",
-                                720 to "720p (HD)",
-                                1080 to "1080p (FHD)"
-                            )
-                        )
-
-                        SettingTextField(
-                            key = SettingsKeys.RECOMMENDED_LIVESTREAM_LANGUAGE,
-                            title = "Önerilen Yayın Dili",
-                            description = "Akışta öne çıkarılacak yayıncıların birincil dili (örn. tr, en)",
-                            placeholder = "tr"
-                        )
-                    }
-                }
-
-                item {
-                    SettingSection(
                         title = "Sohbet ve Arayüz",
                         description = "Görünüm ve font yapılandırması"
                     ) {
@@ -115,6 +83,38 @@ fun GeneralSettingsScreen(
                             valueRange = 12f..22f,
                             steps = 4,
                             valueFormatter = { "${it}sp" }
+                        )
+                    }
+                }
+
+                item {
+                    SettingSection(
+                        title = "Yayınlar ve Oynatıcı",
+                        description = "Canlı yayın akışı ve video oynatıcı tercihleri"
+                    ) {
+                        SettingSwitch(
+                            key = SettingsKeys.AUTOPLAY,
+                            title = "Otomatik Oynatma",
+                            description = "Önerilen yayınları otomatik başlat"
+                        )
+
+                        SettingDropdown(
+                            key = SettingsKeys.VIDEO_QUALITY,
+                            title = "Varsayılan Video Kalitesi",
+                            description = "Mobil ve Wi-Fi üzerindeki başlangıç çözünürlüğü",
+                            options = listOf(
+                                360 to "360p",
+                                480 to "480p",
+                                720 to "720p (HD)",
+                                1080 to "1080p (FHD)"
+                            )
+                        )
+
+                        SettingTextField(
+                            key = SettingsKeys.RECOMMENDED_LIVESTREAM_LANGUAGE,
+                            title = "Önerilen Yayın Dili",
+                            description = "Akışta öne çıkarılacak yayıncıların birincil dili (örn. tr, en)",
+                            placeholder = "tr"
                         )
                     }
                 }

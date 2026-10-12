@@ -3,6 +3,7 @@
     <string name="app_name">Kick</string>
     <string name="github">GitHub</string>
     <string name="live_badge">CANLI</string>
+    <string name="go_to_live">Canlıya Git</string>
     <string name="viewers">izleyici</string>
     <string name="home">Ev</string>
     <string name="following">Takip Edilenler</string>

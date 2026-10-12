@@ -102,8 +102,10 @@ fun ChatView(
         }
     }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
+    val lastMessageId = remember(messages) { messages.lastOrNull()?.id }
+
+    LaunchedEffect(lastMessageId) {
+        if (lastMessageId != null) {
             if (autoScrollEnabled) {
                 listState.scrollToItem(messages.size - 1)
                 unreadCount = 0

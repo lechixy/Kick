@@ -13,6 +13,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -30,8 +31,18 @@ class PlaybackService : MediaSessionService() {
                 mapOf("Origin" to "https://kick.com", "Referer" to "https://kick.com/")
             )
 
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 8000,
+                /* maxBufferMs = */ 30000,
+                /* bufferForPlaybackMs = */ 2500,
+                /* bufferForPlaybackAfterRebufferMs = */ 3500
+            )
+            .build()
+
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setLoadControl(loadControl)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -65,6 +76,7 @@ class PlaybackService : MediaSessionService() {
 const val EXTRA_IS_LIVE = "kick_is_live"
 const val EXTRA_START_TIME_MS = "kick_start_time_ms"
 
+@OptIn(UnstableApi::class)
 fun buildPlaybackMediaItem(
     playbackUrl: String,
     mediaId: String,
@@ -74,7 +86,8 @@ fun buildPlaybackMediaItem(
     viewersText: String?,
     artwork: Uri,
     startTimeMs: Long = 0L,
-    vodDurationMs: Long? = null
+    vodDurationMs: Long? = null,
+    isLowLatency: Boolean = false
 ): MediaItem {
     val subtitle = buildString {
         append(if (isLive) "🔴 Canlı" else "Kayıt")
@@ -100,54 +113,28 @@ fun buildPlaybackMediaItem(
         })
         .build()
 
-    return MediaItem.Builder()
+    val builder = MediaItem.Builder()
         .setMediaId(mediaId)
         .setUri(playbackUrl.toUri())
         .setMediaMetadata(metadata)
-        .build()
+
+    if (isLive) {
+        val targetOffset = if (isLowLatency) 2500L else 5000L
+        val minOffset = if (isLowLatency) 1200L else 2500L
+        val maxOffset = if (isLowLatency) 6000L else 12000L
+
+        val liveConfig = MediaItem.LiveConfiguration.Builder()
+            .setTargetOffsetMs(targetOffset)
+            .setMinOffsetMs(minOffset)
+            .setMaxOffsetMs(maxOffset)
+            .setMinPlaybackSpeed(0.97f)
+            .setMaxPlaybackSpeed(1.03f)
+            .build()
+        builder.setLiveConfiguration(liveConfig)
+    }
+
+    return builder.build()
 }
 
 @UnstableApi
-class LiveAwarePlayer(player: Player) : ForwardingPlayer(player) {
-
-    private val isLiveItem: Boolean
-        get() = wrappedPlayer.isCurrentMediaItemLive ||
-                wrappedPlayer.currentMediaItem?.mediaMetadata?.extras?.getBoolean(
-                    EXTRA_IS_LIVE,
-                    false
-                ) == true
-
-    private val seekCommands = intArrayOf(
-        COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
-        COMMAND_SEEK_BACK,
-        COMMAND_SEEK_FORWARD,
-        COMMAND_SEEK_TO_DEFAULT_POSITION
-    )
-
-    override fun getDuration(): Long = if (isLiveItem) LIVE_BAR_MS else super.getDuration()
-    override fun getContentDuration(): Long =
-        if (isLiveItem) LIVE_BAR_MS else super.getContentDuration()
-
-    override fun getCurrentPosition(): Long =
-        if (isLiveItem) LIVE_BAR_MS else super.getCurrentPosition()
-
-    override fun getContentPosition(): Long =
-        if (isLiveItem) LIVE_BAR_MS else super.getContentPosition()
-
-    override fun getBufferedPosition(): Long =
-        if (isLiveItem) LIVE_BAR_MS else super.getBufferedPosition()
-
-    override fun getContentBufferedPosition(): Long =
-        if (isLiveItem) LIVE_BAR_MS else super.getContentBufferedPosition()
-
-    override fun getAvailableCommands(): Player.Commands =
-        if (isLiveItem) super.getAvailableCommands().buildUpon().removeAll(*seekCommands).build()
-        else super.getAvailableCommands()
-
-    override fun isCommandAvailable(command: Int): Boolean =
-        if (isLiveItem && command in seekCommands) false else super.isCommandAvailable(command)
-
-    private companion object {
-        const val LIVE_BAR_MS = 1_000L
-    }
-}
+class LiveAwarePlayer(player: Player) : ForwardingPlayer(player)
