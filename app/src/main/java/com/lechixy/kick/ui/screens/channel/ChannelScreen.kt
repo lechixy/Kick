@@ -66,6 +66,7 @@ import com.lechixy.kick.data.model.ChannelVideo
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.components.CHAT_WIDTH_FRACTION
+import com.lechixy.kick.ui.components.AnimatedCounterText
 import com.lechixy.kick.ui.components.LiveBadge
 import com.lechixy.kick.ui.components.PlayerChromeButton
 import com.lechixy.kick.ui.components.TagChip
@@ -332,12 +333,14 @@ private fun ChannelHeaderInfo(
                         contentDescription = "Viewers",
                         tint = MaterialTheme.colorScheme.primary
                     )
-                    Text(
-                        text = FormatUtils.formatFollowersCount(channel.livestream.viewerCount.toString()),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    androidx.compose.runtime.key(channel.id) {
+                        AnimatedCounterText(
+                            count = channel.livestream.viewerCount,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     Text(
                         text = stringResource(R.string.viewers),
                         style = MaterialTheme.typography.bodySmall,

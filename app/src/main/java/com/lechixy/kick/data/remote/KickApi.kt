@@ -2,6 +2,7 @@ package com.lechixy.kick.data.remote
 
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelVideo
+import com.lechixy.kick.data.model.CurrentViewersResponse
 import com.lechixy.kick.data.model.LivestreamResponse
 import com.lechixy.kick.data.model.SearchResponse
 import com.lechixy.kick.data.model.chat.RealtimeAuthRequest
@@ -37,6 +38,11 @@ interface KickApi {
     suspend fun search(
         @Url url: String
     ): SearchResponse
+
+    @GET
+    suspend fun getCurrentViewers(
+        @Url url: String
+    ): List<CurrentViewersResponse>
 
     @POST("api/v1/realtime/connection")
     suspend fun getRealtimeConnection(

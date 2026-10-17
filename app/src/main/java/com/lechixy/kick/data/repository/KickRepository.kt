@@ -2,6 +2,7 @@ package com.lechixy.kick.data.repository
 
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelVideo
+import com.lechixy.kick.data.model.CurrentViewersResponse
 import com.lechixy.kick.data.model.Livestream
 import com.lechixy.kick.data.model.SearchData
 import com.lechixy.kick.data.remote.KickApi
@@ -35,5 +36,17 @@ class KickRepository(
     suspend fun search(query: String): SearchData {
         val fullUrl = "https://search.kick.com/api/v1/search?query=$query"
         return api.search(fullUrl).data
+    }
+
+    suspend fun getCurrentViewers(livestreamIds: List<Long>): List<CurrentViewersResponse> {
+        if (livestreamIds.isEmpty()) return emptyList()
+        val idsQuery = livestreamIds.joinToString("&") { "ids[]=$it" }
+        val fullUrl = "https://kick.com/current-viewers?$idsQuery"
+        return api.getCurrentViewers(fullUrl)
+    }
+
+    suspend fun getCurrentViewers(livestreamId: Long): CurrentViewersResponse? {
+        val list = getCurrentViewers(listOf(livestreamId))
+        return list.firstOrNull { it.livestreamId == livestreamId } ?: list.firstOrNull()
     }
 }
