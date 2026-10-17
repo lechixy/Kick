@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
@@ -326,6 +327,11 @@ private fun ChannelHeaderInfo(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    Icon(
+                        painter = painterResource(R.drawable.group_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                        contentDescription = "Viewers",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                     Text(
                         text = FormatUtils.formatFollowersCount(channel.livestream.viewerCount.toString()),
                         style = MaterialTheme.typography.bodySmall,

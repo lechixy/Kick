@@ -23,6 +23,29 @@ data class ChannelDetail(
     @SerialName("recent_categories") val recentCategories: List<RecentCategory> = emptyList()
 )
 
+fun ChannelDetail.toLivestream(): Livestream {
+    return Livestream(
+        channel = Channel(
+            id = this.id,
+            profilePic = this.user?.profilePic,
+            slug = this.slug,
+            username = this.user?.username ?: ""
+        ),
+        chatroomId = this.chatroom?.id,
+        id = this.id.toString(),
+        isMature = this.livestream?.isMature ?: false,
+        language = this.livestream?.language,
+        showViewCount = this.livestream?.viewerCount != null,
+        tags = this.livestream?.tags ?: emptyList(),
+        thumbnail = Thumbnail(
+            src = this.livestream?.thumbnail?.url ?: this.bannerImage?.url,
+            srcset = null
+        ),
+        title = this.livestream?.sessionTitle,
+        viewerCount = this.livestream?.viewerCount ?: 0
+    )
+}
+
 @Serializable
 data class ChannelLivestream(
     val id: Long,
@@ -38,6 +61,7 @@ data class ChannelLivestream(
     @SerialName("is_mature") val isMature: Boolean = false,
     @SerialName("viewer_count") val viewerCount: Int = 0,
     @SerialName("lang_iso") val langIso: String? = null,
+    val thumbnail: BannerImage? = null,
     val tags: List<String> = emptyList(),
     val categories: List<RecentCategory> = emptyList()
 )

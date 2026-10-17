@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -24,6 +25,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lechixy.kick.data.local.FollowManager
+import com.lechixy.kick.data.model.toLivestream
+import com.lechixy.kick.ui.components.StreamCard
 
 @Composable
 fun FollowingScreen(
@@ -108,12 +111,12 @@ fun FollowingScreen(
                             )
                         }
                     } else {
-//                        items(liveChannels, key = { "followed_${it.id}" }) { channel ->
-//                            StreamCard(
-//                                stream = channel,
-//                                onClick = { channel.channel?.slug?.let(onStreamClick) }
-//                            )
-//                        }
+                        items(online, key = { "followed_${it.id}" }) { channel ->
+                            StreamCard(
+                                stream = channel.toLivestream(),
+                                onClick = { channel.slug.let(onStreamClick) }
+                            )
+                        }
                     }
 //                    item(span = { GridItemSpan(maxLineSpan) }) {
 //                        Text(

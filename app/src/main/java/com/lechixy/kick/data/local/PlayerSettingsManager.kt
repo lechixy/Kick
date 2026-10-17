@@ -9,12 +9,12 @@ import kotlinx.coroutines.flow.asStateFlow
 object PlayerSettingsManager {
     private const val PREFS_NAME = "kick_player_settings_prefs"
     private const val KEY_PIP_ENABLED = "pip_enabled"
-    private const val KEY_LOW_LATENCY_ENABLED = "low_latency_enabled"
+    private const val KEY_LOW_LATENCY_ENABLED = "low_latency_v2_enabled"
 
     private val _pipEnabled = MutableStateFlow(true)
     val pipEnabled: StateFlow<Boolean> = _pipEnabled.asStateFlow()
 
-    private val _lowLatencyEnabled = MutableStateFlow(false)
+    private val _lowLatencyEnabled = MutableStateFlow(true)
     val lowLatencyEnabled: StateFlow<Boolean> = _lowLatencyEnabled.asStateFlow()
 
     private var sharedPreferences: SharedPreferences? = null
@@ -24,7 +24,7 @@ object PlayerSettingsManager {
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             sharedPreferences = prefs
             _pipEnabled.value = prefs.getBoolean(KEY_PIP_ENABLED, true)
-            _lowLatencyEnabled.value = prefs.getBoolean(KEY_LOW_LATENCY_ENABLED, false)
+            _lowLatencyEnabled.value = prefs.getBoolean(KEY_LOW_LATENCY_ENABLED, true)
         }
     }
 

@@ -1,32 +1,39 @@
 package com.lechixy.kick.ui.components.chat
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -48,11 +55,11 @@ import com.lechixy.kick.data.model.chat.ChatMessage
 import com.lechixy.kick.data.remote.ChatConnectionState
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
-import com.lechixy.kick.ui.settings.SettingSection
 import com.lechixy.kick.ui.settings.SettingSlider
 import com.lechixy.kick.ui.settings.SettingSwitch
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatView(
     messages: List<ChatMessage>,
@@ -124,30 +131,44 @@ fun ChatView(
         ChatHeader(
             connectionState = connectionState,
             showOptions = showOptions,
-            onToggleOptions = { showOptions = !showOptions }
+            onToggleOptions = { showOptions = true }
         )
 
-        // Expandable Chat Options Panel
-        AnimatedVisibility(
-            visible = showOptions,
-            enter = fadeIn() + expandVertically(
-                expandFrom = Alignment.Top
-            ),
-            exit = fadeOut() + shrinkVertically(
-                shrinkTowards = Alignment.Top
-            )
-        ) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.fillMaxWidth()
+        // Chat Options Modal BottomSheet
+        if (showOptions) {
+            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ModalBottomSheet(
+                onDismissRequest = { showOptions = false },
+                sheetState = sheetState,
+                sheetMaxWidth = 640.dp,
+                dragHandle = { BottomSheetDefaults.DragHandle() },
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp)
+                        .padding(horizontal = 20.dp)
+                        .padding(bottom = 16.dp)
                 ) {
-                    SettingSection(
-                        title = "Sohbet Ayarları"
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Sohbet Ayarları",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         SettingSwitch(
                             key = SettingsKeys.AUTO_CONNECT_CHAT,
@@ -172,6 +193,8 @@ fun ChatView(
                             steps = 11,
                             valueFormatter = { "${it}dp" }
                         )
+
+                        Spacer(modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars))
                     }
                 }
             }
@@ -313,7 +336,7 @@ private fun ChatHeader(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
-            text = "CHAT",
+            text = "",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
@@ -353,7 +376,7 @@ private fun ChatHeader(
                 modifier = Modifier.size(32.dp)
             ) {
                 Icon(
-                    painter = painterResource(if (showOptions) R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24 else R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                    painter = painterResource(if (showOptions) R.drawable.settings_24dp_e3e3e3_fill1_wght400_grad0_opsz24 else R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                     contentDescription = "Chat Settings",
                     modifier = Modifier.size(20.dp)
                 )

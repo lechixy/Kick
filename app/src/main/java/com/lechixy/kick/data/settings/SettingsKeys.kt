@@ -50,8 +50,8 @@ object SettingsKeys {
         type = SettingType.BooleanType
     )
     val LOW_LATENCY = SettingKey(
-        key = booleanPreferencesKey("low_latency_enabled"),
-        defaultValue = false,
+        key = booleanPreferencesKey("low_latency_v2_enabled"),
+        defaultValue = true,
         type = SettingType.BooleanType
     )
     val VIDEO_QUALITY = SettingKey(

@@ -205,6 +205,16 @@ fun KickApp() {
     FollowManager.init(context)
     PlayerSettingsManager.init(context)
 
+    val settingsRepo = LocalSettingsRepository.current
+    val dataStoreLowLatency by settingsRepo
+        .get(SettingsKeys.LOW_LATENCY)
+        .collectAsStateWithLifecycle(initialValue = PlayerSettingsManager.lowLatencyEnabled.value)
+    androidx.compose.runtime.LaunchedEffect(dataStoreLowLatency) {
+        if (PlayerSettingsManager.lowLatencyEnabled.value != dataStoreLowLatency) {
+            PlayerSettingsManager.setLowLatencyEnabled(dataStoreLowLatency)
+        }
+    }
+
     // Tek yerde tutulan player oturumu; ChannelScreen, mini player ve nav bar buradan beslenir.
     val playerHost = rememberPlayerHostState()
     var isInPipMode by remember { mutableStateOf(false) }

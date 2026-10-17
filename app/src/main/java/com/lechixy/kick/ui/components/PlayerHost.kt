@@ -82,8 +82,8 @@ internal const val CHAT_WIDTH_FRACTION = 0.35f
 
 private const val MINI_DEFAULT_WIDTH_DP = 200f
 private const val MINI_MIN_WIDTH_DP = 140f
-private const val MINI_MAX_WIDTH_DP = 360f
-private const val MINI_PADDING_DP = 12f
+private const val MINI_MAX_WIDTH_DP = 500f
+private const val MINI_PADDING_DP = 16f
 
 /**
  * NavHost'un ÜSTÜNDE duran tek player katmanı.
@@ -358,7 +358,7 @@ fun PlayerHost(
                         var committed = false
                         val tracker = VelocityTracker()
                         val commitPx = 56.dp.toPx()
-                        val limitPx = 140.dp.toPx()
+                        val limitPx = 180.dp.toPx()
                         val travelPx = 240.dp.toPx()
                         val scaleDistPx = 160.dp.toPx()
                         val back = spring<Float>(stiffness = 300f)

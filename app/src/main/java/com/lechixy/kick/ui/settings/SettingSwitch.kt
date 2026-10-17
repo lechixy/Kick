@@ -27,6 +27,9 @@ fun SettingSwitch(
         title = title,
         checked = value,
         onCheckedChange = { newValue ->
+            if (key == com.lechixy.kick.data.settings.SettingsKeys.LOW_LATENCY) {
+                com.lechixy.kick.data.local.PlayerSettingsManager.setLowLatencyEnabled(newValue)
+            }
             coroutineScope.launch {
                 repository.set(key, newValue)
             }

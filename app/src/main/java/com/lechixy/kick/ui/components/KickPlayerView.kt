@@ -15,9 +15,13 @@ import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -31,27 +35,32 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -64,11 +73,13 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
@@ -94,9 +105,13 @@ import com.lechixy.kick.PlayerMode
 import com.lechixy.kick.R
 import com.lechixy.kick.data.local.PlayerSettingsManager
 import com.lechixy.kick.data.model.ChannelDetail
+import com.lechixy.kick.data.settings.LocalSettingsRepository
+import com.lechixy.kick.data.settings.SettingsKeys
+import com.lechixy.kick.service.EXTRA_LOW_LATENCY
 import com.lechixy.kick.service.PlaybackService
 import com.lechixy.kick.service.buildPlaybackMediaItem
 import com.lechixy.kick.ui.screens.channel.findActivity
+import com.lechixy.kick.ui.settings.SettingCard
 import com.lechixy.kick.util.CastUtils
 import com.lechixy.kick.util.FormatUtils
 import com.lechixy.kick.util.FormatUtils.formatDuration
@@ -109,11 +124,12 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
 @SuppressLint("UseKtx")
 @androidx.annotation.OptIn(UnstableApi::class)
-@kotlin.OptIn(FlowPreview::class)
+@kotlin.OptIn(FlowPreview::class, ExperimentalMaterial3Api::class)
 @Composable
 fun KickPlayerView(
     playbackUrl: String,
@@ -143,6 +159,7 @@ fun KickPlayerView(
     var isAdjustingVolume by remember { mutableStateOf(false) }
 
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var settingsPage by remember { mutableStateOf(PlayerSettingsPage.MAIN) }
     var sleepTimerMinutes by remember { mutableIntStateOf(0) }
     var remainingTimerSeconds by remember { mutableIntStateOf(0) }
 
@@ -263,7 +280,7 @@ fun KickPlayerView(
     var isAtLiveEdge by remember { mutableStateOf(true) }
     val isLiveStream = channel?.livestream != null || player?.isCurrentMediaItemLive == true
 
-    LaunchedEffect(player, isLiveStream) {
+    LaunchedEffect(player, isLiveStream, lowLatencyEnabled) {
         val p = player ?: return@LaunchedEffect
         if (!isLiveStream) {
             isAtLiveEdge = true
@@ -272,19 +289,18 @@ fun KickPlayerView(
         }
 
         while (isActive) {
-            val offset = p.currentLiveOffset
-            val currentOffset = if (offset != C.TIME_UNSET) {
-                offset
-            } else if (p.duration != C.TIME_UNSET && p.duration > 0) {
-                (p.duration - p.currentPosition).coerceAtLeast(0L)
-            } else {
-                0L
-            }
+            val currentOffset = p.distanceToLiveEdgeMs()
 
             liveOffsetMs = currentOffset
-            isAtLiveEdge = currentOffset <= 7000L
+            val fallBehindThreshold = if (lowLatencyEnabled) 10500L else 14500L
+            val catchUpThreshold = if (lowLatencyEnabled) 9000L else 12500L
+            isAtLiveEdge = if (isAtLiveEdge) {
+                currentOffset <= fallBehindThreshold
+            } else {
+                currentOffset <= catchUpThreshold
+            }
 
-            delay(500.milliseconds)
+            delay(250.milliseconds)
         }
     }
 
@@ -315,15 +331,7 @@ fun KickPlayerView(
                     if (playWhenReady && !previousPlayWhenReady) {
                         val live = channel?.livestream != null || p.isCurrentMediaItemLive
                         if (live) {
-                            val offset = p.currentLiveOffset
-                            val offsetMs = if (offset != C.TIME_UNSET) {
-                                offset
-                            } else if (p.duration != C.TIME_UNSET && p.duration > 0) {
-                                (p.duration - p.currentPosition).coerceAtLeast(0L)
-                            } else {
-                                0L
-                            }
-                            if (offsetMs > 7000L) {
+                            if (p.distanceToLiveEdgeMs() > 15000L) {
                                 p.seekToDefaultPosition()
                             }
                         }
@@ -361,7 +369,12 @@ fun KickPlayerView(
 
         playbackError = null
 
-        val alreadyLoaded = p.currentMediaItem?.mediaId == stableId
+        val currentItem = p.currentMediaItem
+        val alreadyLoaded = currentItem?.mediaId == stableId &&
+                currentItem.mediaMetadata.extras?.getBoolean(
+                    EXTRA_LOW_LATENCY,
+                    lowLatencyEnabled
+                ) == lowLatencyEnabled
         if (alreadyLoaded) {
             if (p.playbackState == Player.STATE_IDLE) p.prepare()
             return@LaunchedEffect
@@ -379,7 +392,13 @@ fun KickPlayerView(
             title = streamTitle.ifBlank { "Canlı Yayın" },
             channelName = channelName.ifBlank { "Kick" },
             viewersText = channel?.livestream?.viewerCount
-                ?.let { "${FormatUtils.formatViewersCount(it)} ${context.applicationContext.getString(R.string.viewers)}" },
+                ?.let {
+                    "${FormatUtils.formatViewersCount(it)} ${
+                        context.applicationContext.getString(
+                            R.string.viewers
+                        )
+                    }"
+                },
             artwork = pic.toUri(),
             startTimeMs = parseUtcStartTimeToMillis(channel?.livestream?.startTime),
             isLowLatency = lowLatencyEnabled
@@ -441,7 +460,11 @@ fun KickPlayerView(
             }
         }
         val viewersText = remember(channel?.livestream?.viewerCount) {
-            "${FormatUtils.formatViewersCount(channel?.livestream?.viewerCount)} ${context.applicationContext.getString(R.string.viewers)}"
+            "${FormatUtils.formatViewersCount(channel?.livestream?.viewerCount)} ${
+                context.applicationContext.getString(
+                    R.string.viewers
+                )
+            }"
         }
 
         val handleTogglePlay = {
@@ -462,6 +485,7 @@ fun KickPlayerView(
         val handleGoToLive = {
             val p = player
             if (p != null) {
+                isAtLiveEdge = true
                 p.seekToDefaultPosition()
                 p.play()
             }
@@ -516,253 +540,288 @@ fun KickPlayerView(
         }
 
         if (showSettingsDialog) {
-            AlertDialog(
-                onDismissRequest = { showSettingsDialog = false },
-                modifier = Modifier.fillMaxWidth(0.95f),
-                title = { Text(stringResource(R.string.settings)) },
-                text = {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 2.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                    Text(
-                                        text = "Resim İçinde Resim (PiP)",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        text = "Uygulamadan çıkıldığında yayını küçük ekranda oynat",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.outline
-                                    )
-                                }
-                                Switch(
-                                    checked = pipEnabled,
-                                    onCheckedChange = { PlayerSettingsManager.setPipEnabled(it) }
-                                )
-                            }
-                        }
+            val closeSettings: () -> Unit = {
+                showSettingsDialog = false
+                settingsPage = PlayerSettingsPage.MAIN
+            }
 
-                        item { HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp)) }
+            val selectSleepTimer: (Int) -> Unit = { mins ->
+                sleepTimerMinutes = mins
+                closeSettings()
 
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 2.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                    Text(
-                                        text = "Düşük Gecikme Modu (Low Latency)",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        text = "Web sitesi ile anlık canlı yayın (~2s gecikme)",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.outline
-                                    )
-                                }
-                                Switch(
-                                    checked = lowLatencyEnabled,
-                                    onCheckedChange = { PlayerSettingsManager.setLowLatencyEnabled(it) }
-                                )
-                            }
-                        }
+                if (mins == 0) {
+                    remainingTimerSeconds = 0
+                    NotificationUtils.cancelTimerNotification(context)
+                } else {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val hasPermission =
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.POST_NOTIFICATIONS
+                            ) == PackageManager.PERMISSION_GRANTED
 
-                        item { HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp)) }
-
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        showSettingsDialog = false
-                                        showCastDialog = true
-                                    }
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                    Text(
-                                        text = "Cast",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        text = "Web Video Caster ve Smart TV seçenekleri",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.outline
-                                    )
-                                }
-                                Icon(
-                                    painter = painterResource(id = R.drawable.cast_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                                    contentDescription = "Cast",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-
-                        item { HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp)) }
-
-                        item {
-                            Text(
-                                text = "SLEEP TIMER",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
+                        if (hasPermission) {
+                            NotificationUtils.updateTimerNotification(context, mins * 60)
+                        } else {
+                            notificationPermissionLauncher.launch(
+                                Manifest.permission.POST_NOTIFICATIONS
                             )
                         }
-
-                        item {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                listOf(0, 15, 30, 45, 60).forEach { mins ->
-                                    val selected = sleepTimerMinutes == mins
-                                    FilterChip(
-                                        selected = selected,
-                                        onClick = {
-                                            sleepTimerMinutes = mins
-                                            showSettingsDialog = false
-
-                                            if (mins == 0) {
-                                                remainingTimerSeconds = 0
-                                                NotificationUtils.cancelTimerNotification(context)
-                                            } else {
-                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                                    val hasPermission =
-                                                        ContextCompat.checkSelfPermission(
-                                                            context,
-                                                            Manifest.permission.POST_NOTIFICATIONS
-                                                        ) == PackageManager.PERMISSION_GRANTED
-
-                                                    if (hasPermission) {
-                                                        NotificationUtils.updateTimerNotification(
-                                                            context,
-                                                            mins * 60
-                                                        )
-                                                    } else {
-                                                        notificationPermissionLauncher.launch(
-                                                            Manifest.permission.POST_NOTIFICATIONS
-                                                        )
-                                                    }
-                                                } else {
-                                                    NotificationUtils.updateTimerNotification(
-                                                        context,
-                                                        mins * 60
-                                                    )
-                                                }
-                                            }
-                                        },
-                                        label = { Text(if (mins == 0) "Off" else "${mins}m", style = MaterialTheme.typography.labelSmall) }
-                                    )
-                                }
-                            }
-                        }
-
-                        item { HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp)) }
-
-                        item {
-                            Text(
-                                text = "STREAM QUALITY",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        selectedQualityHeight = -1
-                                        player?.let {
-                                            it.trackSelectionParameters =
-                                                it.trackSelectionParameters
-                                                    .buildUpon()
-                                                    .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                                                    .setMaxVideoSizeSd()
-                                                    .build()
-                                        }
-                                        showSettingsDialog = false
-                                    }
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Auto",
-                                    fontWeight = if (selectedQualityHeight == -1) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (selectedQualityHeight == -1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    "According to network speed",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                            }
-                        }
-
-                        items(availableQualities, key = { it.height }) { quality ->
-                            val isSelected = selectedQualityHeight == quality.height
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        selectedQualityHeight = quality.height
-                                        player?.let {
-                                            it.trackSelectionParameters =
-                                                it.trackSelectionParameters
-                                                    .buildUpon()
-                                                    .setMaxVideoSize(
-                                                        quality.height * 16 / 9,
-                                                        quality.height
-                                                    )
-                                                    .setMinVideoSize(
-                                                        quality.height * 16 / 9,
-                                                        quality.height
-                                                    )
-                                                    .build()
-                                        }
-                                        showSettingsDialog = false
-                                    }
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = quality.label,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    quality.dataPerHourText,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showSettingsDialog = false }) {
-                        Text("Close")
+                    } else {
+                        NotificationUtils.updateTimerNotification(context, mins * 60)
                     }
                 }
-            )
+            }
+
+            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ModalBottomSheet(
+                onDismissRequest = closeSettings,
+                sheetState = sheetState,
+                sheetMaxWidth = 640.dp,
+                dragHandle = { BottomSheetDefaults.DragHandle() },
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                ) {
+//                    // Header
+//                    Row(
+//                        modifier = Modifier
+//                            .fillMaxWidth()
+//                            .padding(horizontal = 16.dp, vertical = 4.dp),
+//                        verticalAlignment = Alignment.CenterVertically
+//                    ) {
+//                        AnimatedVisibility(
+//                            visible = settingsPage != PlayerSettingsPage.MAIN
+//                        ) {
+//                            IconButton(
+//                                onClick = { settingsPage = PlayerSettingsPage.MAIN },
+//                                modifier = Modifier.size(36.dp)
+//                            ) {
+//                                Icon(
+//                                    painter = painterResource(id = R.drawable.arrow_back_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+//                                    contentDescription = "Back"
+//                                )
+//                            }
+//                            Spacer(modifier = Modifier.width(16.dp))
+//                        }
+//                        Text(
+//                            text = when (settingsPage) {
+//                                PlayerSettingsPage.MAIN -> stringResource(R.string.settings)
+//                                PlayerSettingsPage.QUALITY -> "Quality"
+//                                PlayerSettingsPage.SLEEP_TIMER -> "Sleep Timer"
+//                                PlayerSettingsPage.MORE -> "More"
+//                            },
+//                            style = MaterialTheme.typography.titleLarge,
+//                            fontWeight = FontWeight.Bold,
+//                            modifier = Modifier.weight(1f)
+//                        )
+//                        IconButton(
+//                            onClick = closeSettings,
+//                            modifier = Modifier.size(36.dp)
+//                        ) {
+//                            Icon(
+//                                painter = painterResource(id = R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+//                                contentDescription = "Close"
+//                            )
+//                        }
+//                    }
+
+//                    HorizontalDivider(modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+
+                    AnimatedVisibility(
+                        visible = settingsPage != PlayerSettingsPage.MAIN
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    settingsPage = PlayerSettingsPage.MAIN
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.arrow_back_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                                    contentDescription = "Back"
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = when (settingsPage) {
+                                    PlayerSettingsPage.MAIN -> stringResource(R.string.settings)
+                                    PlayerSettingsPage.QUALITY -> "Quality"
+                                    PlayerSettingsPage.SLEEP_TIMER -> "Sleep Timer"
+                                    PlayerSettingsPage.MORE -> "More"
+                                },
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    AnimatedContent(
+                        targetState = settingsPage,
+                        transitionSpec = {
+                            if (initialState == PlayerSettingsPage.MAIN) {
+                                (slideInHorizontally { it } + fadeIn()).togetherWith(
+                                    slideOutHorizontally { -it } + fadeOut())
+                            } else {
+                                (slideInHorizontally { -it } + fadeIn()).togetherWith(
+                                    slideOutHorizontally { it } + fadeOut())
+                            }
+                        },
+                        label = "PlayerSettingsPageTransition"
+                    ) { targetPage ->
+                        when (targetPage) {
+                            PlayerSettingsPage.MAIN -> {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp)
+                                ) {
+                                    PlayerSettingsCategoryRow(
+                                        icon = R.drawable.hd_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
+                                        title = "Quality",
+                                        value = qualityLabel,
+                                        onClick = { settingsPage = PlayerSettingsPage.QUALITY }
+                                    )
+                                    PlayerSettingsCategoryRow(
+                                        icon = R.drawable.timer_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
+                                        title = "Sleep Timer",
+                                        value = if (sleepTimerMinutes > 0) "${(remainingTimerSeconds + 59) / 60}m" else "Off",
+                                        onClick = { settingsPage = PlayerSettingsPage.SLEEP_TIMER }
+                                    )
+                                    PlayerSettingsCategoryRow(
+                                        icon = R.drawable.tune_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
+                                        title = "More",
+                                        value = null,
+                                        onClick = { settingsPage = PlayerSettingsPage.MORE }
+                                    )
+                                }
+                            }
+
+                            PlayerSettingsPage.QUALITY -> {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp)
+                                        .verticalScroll(rememberScrollState()),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    PlayerSettingsOptionRow(
+                                        title = "Auto",
+                                        subtitle = "According to network speed",
+                                        selected = selectedQualityHeight == -1,
+                                        onClick = {
+                                            selectedQualityHeight = -1
+                                            player?.let {
+                                                it.trackSelectionParameters =
+                                                    it.trackSelectionParameters
+                                                        .buildUpon()
+                                                        .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                                                        .setMaxVideoSizeSd()
+                                                        .build()
+                                            }
+                                            closeSettings()
+                                        }
+                                    )
+
+                                    availableQualities.forEach { quality ->
+                                        PlayerSettingsOptionRow(
+                                            title = quality.label,
+                                            subtitle = quality.dataPerHourText,
+                                            selected = selectedQualityHeight == quality.height,
+                                            onClick = {
+                                                selectedQualityHeight = quality.height
+                                                player?.let {
+                                                    it.trackSelectionParameters =
+                                                        it.trackSelectionParameters
+                                                            .buildUpon()
+                                                            .setMaxVideoSize(
+                                                                quality.height * 16 / 9,
+                                                                quality.height
+                                                            )
+                                                            .setMinVideoSize(
+                                                                quality.height * 16 / 9,
+                                                                quality.height
+                                                            )
+                                                            .build()
+                                                }
+                                                closeSettings()
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            PlayerSettingsPage.SLEEP_TIMER -> {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp)
+                                        .verticalScroll(rememberScrollState()),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    listOf(0, 15, 30, 45, 60).forEach { mins ->
+                                        PlayerSettingsOptionRow(
+                                            title = if (mins == 0) "Off" else "$mins minutes",
+                                            subtitle = if (mins != 0 && sleepTimerMinutes == mins)
+                                                "${(remainingTimerSeconds + 59) / 60}m left" else null,
+                                            selected = sleepTimerMinutes == mins,
+                                            onClick = { selectSleepTimer(mins) }
+                                        )
+                                    }
+                                }
+                            }
+
+                            PlayerSettingsPage.MORE -> {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp)
+                                        .verticalScroll(rememberScrollState()),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    PlayerSettingsSwitchRow(
+                                        title = "Resim İçinde Resim (PiP)",
+                                        description = "Uygulamadan çıkıldığında yayını küçük ekranda oynat",
+                                        checked = pipEnabled,
+                                        onCheckedChange = { PlayerSettingsManager.setPipEnabled(it) }
+                                    )
+
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                                    val settingsRepository = LocalSettingsRepository.current
+                                    val coroutineScope = rememberCoroutineScope()
+                                    PlayerSettingsSwitchRow(
+                                        title = "Düşük Gecikme Modu (Low Latency)",
+                                        description = "Web sitesi ile anlık canlı yayın (~2s gecikme)",
+                                        checked = lowLatencyEnabled,
+                                        onCheckedChange = { enabled ->
+                                            PlayerSettingsManager.setLowLatencyEnabled(enabled)
+                                            coroutineScope.launch {
+                                                settingsRepository.set(
+                                                    SettingsKeys.LOW_LATENCY,
+                                                    enabled
+                                                )
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars))
+                }
+            }
         }
 
         if (showCastDialog) {
@@ -778,99 +837,47 @@ fun KickPlayerView(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         /*
-                         * Android TV / Chromecast
+                         * Google Cast / Chromecast
                          */
                         item {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        showCastDialog = false
-                                        runCatching {
-                                            val castIntent = android.content.Intent("android.settings.CAST_SETTINGS").apply {
-                                                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            }
-                                            context.startActivity(castIntent)
-                                        }
+                            SettingCard(
+                                title = "Google Cast / Chromecast",
+                                description = "Android TV, Google TV veya Chromecast cihazlarına doğrudan kablosuz yansıtma yapmak için kullanılır.",
+                                icon = R.drawable.cast_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
+                                onClick = {
+                                    showCastDialog = false
+                                    runCatching {
+                                        val castIntent =
+                                            android.content.Intent("android.settings.CAST_SETTINGS")
+                                                .apply {
+                                                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                }
+                                        context.startActivity(castIntent)
                                     }
-                            ) {
-                                Column(modifier = Modifier.padding(10.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "Google Cast / Chromecast",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Text(
-                                            text = "Android TV",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.secondary
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "Android TV, Google TV veya Chromecast cihazlarına doğrudan kablosuz yansıtma yapmak için kullanılır.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
                                 }
-                            }
+                            )
                         }
                         /**
                          * Web Video Caster
                          */
                         item {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        showCastDialog = false
-                                        val poster = channel?.bannerImage?.url ?: channel?.user?.profilePic
-                                        CastUtils.launchWebVideoCaster(
-                                            context = context,
-                                            playbackUrl = playbackUrl,
-                                            streamTitle = streamTitle,
-                                            channelName = channelName,
-                                            posterUrl = poster
-                                        )
-                                    }
-                            ) {
-                                Column(modifier = Modifier.padding(10.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "Web Video Caster",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Text(
-                                            text = "Tüm Smart TV'ler",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.secondary
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "Samsung (Tizen), LG (webOS), Roku, Fire TV, Apple TV ve DLNA destekli televizyonlara yayın göndermek için en mükemmel yöntemdir.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                            SettingCard(
+                                title = "Web Video Caster",
+                                description = "Samsung (Tizen), LG (webOS), Roku, Fire TV, Apple TV ve DLNA destekli televizyonlara yayın göndermek için en mükemmel yöntemdir.",
+                                icon = R.drawable.webvideocasterlogo,
+                                onClick = {
+                                    showCastDialog = false
+                                    val poster =
+                                        channel?.bannerImage?.url ?: channel?.user?.profilePic
+                                    CastUtils.launchWebVideoCaster(
+                                        context = context,
+                                        playbackUrl = playbackUrl,
+                                        streamTitle = streamTitle,
+                                        channelName = channelName,
+                                        posterUrl = poster
                                     )
                                 }
-                            }
+                            )
                         }
                     }
                 },
@@ -946,6 +953,126 @@ private fun Tracks.toQualityOptions(): List<VideoQualityOption> =
         .sortedByDescending { it.height }
         .toList()
 
+/**
+ * Player ayarları dialogundaki sayfalar (YouTube tarzı kategoriler).
+ */
+private enum class PlayerSettingsPage { MAIN, QUALITY, SLEEP_TIMER, MORE }
+
+@Composable
+private fun PlayerSettingsCategoryRow(
+    icon: Int,
+    title: String,
+    value: String?,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            painter = painterResource(id = icon),
+            contentDescription = null,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f)
+        )
+        if (value != null) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.outline
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Icon(
+            painter = painterResource(id = R.drawable.arrow_forward_ios_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(14.dp)
+        )
+    }
+}
+
+@Composable
+private fun PlayerSettingsOptionRow(
+    title: String,
+    selected: Boolean,
+    subtitle: String? = null,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Spacer(modifier = Modifier.width(4.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerSettingsSwitchRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
 @Composable
 internal fun PlayerControlsOverlay(
     isFullScreen: Boolean,
@@ -1018,7 +1145,10 @@ internal fun PlayerControlsOverlay(
                     Surface(
                         color = Color.Black.copy(alpha = 0.75f),
                         shape = RoundedCornerShape(6.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                        border = BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                        )
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -1150,7 +1280,9 @@ internal fun PlayerControlsOverlay(
                     Separator()
                     Surface(
                         onClick = { if (!isAtLiveEdge) onGoToLive() },
-                        color = if (isAtLiveEdge) Color.Red.copy(alpha = 0.85f) else Color(0xFF222222),
+                        color = if (isAtLiveEdge) Color.Red.copy(alpha = 0.85f) else Color(
+                            0xFF222222
+                        ),
                         shape = RoundedCornerShape(4.dp),
                         modifier = Modifier.padding(start = 2.dp)
                     ) {
@@ -1315,3 +1447,26 @@ internal fun Separator() {
         fontWeight = FontWeight.SemiBold
     )
 }
+
+/**
+ * Yayın verisindeki canlı konuma göre mesafeyi hesaplar.
+ * Aktif HLS penceresi içindeyken (currentPosition > 1000L), cihaz saat farkından (clock skew)
+ * etkilenmemek için doğrudan pencere sonuna olan mesafeyi (duration - currentPosition) kullanır;
+ * yayın uzun süre duraklatılıp pencere gerisine düştüğünde ise currentLiveOffset değerini baz alır.
+ */
+private fun Player.distanceToLiveEdgeMs(): Long {
+    val d = duration
+    val pos = currentPosition
+    val windowDistance =
+        if (d != C.TIME_UNSET && d > 0) (d - pos).coerceAtLeast(0L) else C.TIME_UNSET
+    if (windowDistance != C.TIME_UNSET && pos > 1000L) {
+        return windowDistance
+    }
+    val live = currentLiveOffset
+    if (live != C.TIME_UNSET && windowDistance != C.TIME_UNSET) {
+        return maxOf(live, windowDistance).coerceAtLeast(0L)
+    }
+    if (live != C.TIME_UNSET) return live.coerceAtLeast(0L)
+    return if (windowDistance != C.TIME_UNSET) windowDistance else 0L
+}
+
