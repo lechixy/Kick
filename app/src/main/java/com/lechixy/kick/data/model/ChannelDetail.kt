@@ -1,5 +1,6 @@
 package com.lechixy.kick.data.model
 
+import com.lechixy.kick.util.getResponsiveImageUrl
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -14,6 +15,7 @@ data class ChannelDetail(
     @SerialName("subscription_enabled") val subscriptionEnabled: Boolean = false,
     @SerialName("is_affiliate") val isAffiliate: Boolean = false,
     @SerialName("followers_count") val followersCount: String? = null,
+    @SerialName("subscriber_badges") val subscriberBadges: List<SubscriberBadge> = emptyList(),
     @SerialName("banner_image") val bannerImage: BannerImage? = null,
     @SerialName("offline_banner_image") val offlineBannerImage: OfflineBannerImage? = null,
     val verified: Boolean = false,
@@ -21,6 +23,20 @@ data class ChannelDetail(
     val user: ChannelUser? = null,
     val chatroom: ChatroomDetail? = null,
     @SerialName("recent_categories") val recentCategories: List<RecentCategory> = emptyList()
+)
+
+@Serializable
+data class SubscriberBadge(
+    val id: Long,
+    @SerialName("channel_id") val channelId: Long? = null,
+    val months: Int = 1,
+    @SerialName("badge_image") val badgeImage: SubscriberBadgeImage? = null
+)
+
+@Serializable
+data class SubscriberBadgeImage(
+    val srcset: String? = null,
+    val src: String? = null
 )
 
 fun ChannelDetail.toLivestream(): Livestream {
@@ -68,14 +84,38 @@ data class ChannelLivestream(
 
 @kotlinx.serialization.Serializable
 data class BannerImage(
-    val url: String? = null
+    val url: String? = null,
+    val src: String? = null,
+    val srcset: String? = null,
+    val responsive: String? = null
 )
 
 @kotlinx.serialization.Serializable
 data class OfflineBannerImage(
     val src: String? = null,
-    val srcset: String? = null
+    val srcset: String? = null,
+    val url: String? = null,
+    val responsive: String? = null
 )
+
+fun ChannelDetail.getBannerUrl(targetWidthPx: Int = 1080): String? {
+    val offlineUrl = getResponsiveImageUrl(
+        srcset = offlineBannerImage?.srcset,
+        src = offlineBannerImage?.src,
+        url = offlineBannerImage?.url,
+        responsive = offlineBannerImage?.responsive,
+        targetWidthPx = targetWidthPx
+    )
+    if (!offlineUrl.isNullOrBlank()) return offlineUrl
+
+    return getResponsiveImageUrl(
+        srcset = bannerImage?.srcset,
+        src = bannerImage?.src,
+        url = bannerImage?.url,
+        responsive = bannerImage?.responsive,
+        targetWidthPx = targetWidthPx
+    )
+}
 
 @kotlinx.serialization.Serializable
 data class ChannelUser(

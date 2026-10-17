@@ -50,7 +50,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import com.lechixy.kick.data.model.getBannerUrl
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -65,8 +69,8 @@ import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelVideo
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
-import com.lechixy.kick.ui.components.CHAT_WIDTH_FRACTION
 import com.lechixy.kick.ui.components.AnimatedCounterText
+import com.lechixy.kick.ui.components.CHAT_WIDTH_FRACTION
 import com.lechixy.kick.ui.components.LiveBadge
 import com.lechixy.kick.ui.components.PlayerChromeButton
 import com.lechixy.kick.ui.components.TagChip
@@ -115,7 +119,7 @@ fun ChannelScreen(
         viewModel.loadChannel(channelSlug, autoConnectChat = autoConnectChat)
     }
 
-    LaunchedEffect(state.channel) {
+    LaunchedEffect(state.channel?.id, state.channel?.livestream?.id) {
         state.channel?.let { channel ->
             onChannelLoaded(channel)
             if (channel.livestream == null && selectedTab == ChannelTab.CHAT) {
@@ -125,16 +129,24 @@ fun ChannelScreen(
     }
 
     val inlineInsets = WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+    val density = LocalDensity.current
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .pointerInput(Unit) {
+                detectTapGestures { }
+            }
     ) {
         val channel = state.channel
 
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            val isWide = maxWidth >= WIDE_BREAKPOINT_DP.dp
+            val screenWidthDp = maxWidth
+            val isWide = screenWidthDp >= WIDE_BREAKPOINT_DP.dp
+            val bannerWidthPx = remember(screenWidthDp, density) {
+                with(density) { screenWidthDp.toPx().toInt() }
+            }
 
             Row(
                 Modifier
@@ -148,15 +160,28 @@ fun ChannelScreen(
                 ) {
                     // Player'ın oturduğu yer (PlayerHost bu alanı işliyor)
                     if (channel != null && channel.livestream == null) {
-                        val bannerUrl = channel.offlineBannerImage?.src ?: channel.bannerImage?.url
+                        val bannerUrl = remember(channel, bannerWidthPx) {
+                            channel.getBannerUrl(targetWidthPx = bannerWidthPx)
+                        }
+                        val bannerWidthDp = remember(screenWidthDp) { screenWidthDp.value.toInt() }
+                        val bannerHeightDp = remember(screenWidthDp) { (screenWidthDp.value * 9f / 16f).toInt() }
+
                         Box(
-                            Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black),
+                            Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(16f / 9f)
+                                .background(Color.Black),
                             contentAlignment = Alignment.Center
                         ) {
                             if (!bannerUrl.isNullOrEmpty()) {
                                 AsyncImage(
-                                    model = remember(bannerUrl) {
-                                        buildOptimizedImageRequest(context = context, data = bannerUrl, targetWidthDp = 640, targetHeightDp = 360)
+                                    model = remember(bannerUrl, bannerWidthDp, bannerHeightDp) {
+                                        buildOptimizedImageRequest(
+                                            context = context,
+                                            data = bannerUrl,
+                                            targetWidthDp = bannerWidthDp,
+                                            targetHeightDp = bannerHeightDp
+                                        )
                                     },
                                     contentDescription = "Offline Banner",
                                     modifier = Modifier.fillMaxSize(),
@@ -169,12 +194,16 @@ fun ChannelScreen(
                             PlayerChromeButton(
                                 painter = painterResource(R.drawable.keyboard_arrow_down_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                                 contentDescription = "Back",
-                                modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(4.dp),
                                 onClick = onBackClick
                             )
                         }
                     } else {
-                        Spacer(Modifier.fillMaxWidth().aspectRatio(16f / 9f))   // canlı: player burada oturuyor
+                        Spacer(Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f))   // canlı: player burada oturuyor
                     }
 
                     if (channel != null) {
@@ -202,6 +231,9 @@ fun ChannelScreen(
                             ChatView(
                                 messages = chatMessages,
                                 connectionState = chatConnectionState,
+                                subscriberBadges = channel.subscriberBadges,
+                                streamerUsername = channel.user?.username,
+                                streamerSlug = channel.slug,
                                 onConnectClick = viewModel::connectChat,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -224,7 +256,9 @@ fun ChannelScreen(
                             }
                         }
                     } else {
-                        Box(Modifier.fillMaxWidth().weight(1f)) {
+                        Box(Modifier
+                            .fillMaxWidth()
+                            .weight(1f)) {
                             if (state.error != null) {
                                 Text(
                                     text = state.error ?: "Unknown error",
@@ -254,6 +288,9 @@ fun ChannelScreen(
                         ChatView(
                             messages = chatMessages,
                             connectionState = chatConnectionState,
+                            subscriberBadges = channel.subscriberBadges,
+                            streamerUsername = channel.user?.username,
+                            streamerSlug = channel.slug,
                             onConnectClick = viewModel::connectChat,
                             modifier = Modifier
                                 .weight(1f)

@@ -68,6 +68,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import coil3.compose.AsyncImage
 import com.lechixy.kick.PlayerHostState
 import com.lechixy.kick.PlayerMode
+import com.lechixy.kick.data.model.getBannerUrl
 import com.lechixy.kick.ui.screens.channel.findActivity
 import com.lechixy.kick.util.buildOptimizedImageRequest
 import kotlinx.coroutines.Job
@@ -287,7 +288,11 @@ fun PlayerHost(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .graphicsLayer { translationY = playerDy; alpha = pageAlpha }) {
+                    .graphicsLayer { translationY = playerDy; alpha = pageAlpha }
+                    .pointerInput(Unit) {
+                        detectTapGestures { }
+                    }
+            ) {
                 host.pageSlug?.let { s -> key(s) { pageContent(s) } }
             }
         }
@@ -543,7 +548,7 @@ private fun PlayerSurface(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            val bannerUrl = channel?.offlineBannerImage?.src ?: channel?.bannerImage?.url
+            val bannerUrl = remember(channel) { channel?.getBannerUrl(targetWidthPx = 1080) }
             if (!bannerUrl.isNullOrEmpty()) {
                 AsyncImage(
                     model = remember(bannerUrl) {

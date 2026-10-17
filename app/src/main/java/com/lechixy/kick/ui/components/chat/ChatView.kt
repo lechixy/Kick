@@ -4,6 +4,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lechixy.kick.R
+import com.lechixy.kick.data.model.SubscriberBadge
 import com.lechixy.kick.data.model.chat.ChatMessage
 import com.lechixy.kick.data.remote.ChatConnectionState
 import com.lechixy.kick.data.settings.LocalSettingsRepository
@@ -65,6 +67,9 @@ fun ChatView(
     messages: List<ChatMessage>,
     connectionState: ChatConnectionState,
     modifier: Modifier = Modifier,
+    subscriberBadges: List<SubscriberBadge> = emptyList(),
+    streamerUsername: String? = null,
+    streamerSlug: String? = null,
     onConnectClick: () -> Unit = {}
 ) {
     val repository = LocalSettingsRepository.current
@@ -81,6 +86,7 @@ fun ChatView(
     var showOptions by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
+    val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     val scope = rememberCoroutineScope()
 
     var autoScrollEnabled by remember { mutableStateOf(true) }
@@ -96,25 +102,21 @@ fun ChatView(
         }
     }
 
-    LaunchedEffect(isAtBottom) {
-        if (isAtBottom) {
+    LaunchedEffect(isAtBottom, isUserDragging) {
+        if (isAtBottom && !isUserDragging) {
             autoScrollEnabled = true
             unreadCount = 0
-        }
-    }
-
-    LaunchedEffect(listState.isScrollInProgress) {
-        if (listState.isScrollInProgress && !isAtBottom) {
+        } else if (isUserDragging && !isAtBottom) {
             autoScrollEnabled = false
         }
     }
 
-    val lastMessageId = remember(messages) { messages.lastOrNull()?.id }
+    val lastMessageId = messages.lastOrNull()?.id
 
     LaunchedEffect(lastMessageId) {
-        if (lastMessageId != null) {
-            if (autoScrollEnabled) {
-                listState.scrollToItem(messages.size - 1)
+        if (lastMessageId != null && messages.isNotEmpty()) {
+            if (autoScrollEnabled && !isUserDragging) {
+                listState.scrollToItem(messages.lastIndex)
                 unreadCount = 0
             } else {
                 unreadCount++
@@ -189,8 +191,8 @@ fun ChatView(
                             key = SettingsKeys.CHAT_MESSAGE_SPACING,
                             title = "Mesaj Aralığı",
                             description = "Mesajlar arasındaki dikey aralık",
-                            valueRange = 0f..12f,
-                            steps = 11,
+                            valueRange = 0f..25f,
+                            steps = 24,
                             valueFormatter = { "${it}dp" }
                         )
 
@@ -268,7 +270,10 @@ fun ChatView(
                     ) { message ->
                         ChatMessageItem(
                             message = message,
-                            fontSizeSp = fontSize
+                            fontSizeSp = fontSize,
+                            subscriberBadges = subscriberBadges,
+                            streamerUsername = streamerUsername,
+                            streamerSlug = streamerSlug
                         )
                     }
                 }

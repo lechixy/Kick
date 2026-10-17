@@ -98,6 +98,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import com.lechixy.kick.data.model.getBannerUrl
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.media3.ui.PlayerView
@@ -381,7 +382,7 @@ fun KickPlayerView(
         }
 
         isBuffering = true
-        val pic: String = (channel?.bannerImage?.url ?: channel?.user?.profilePic
+        val pic: String = (channel?.getBannerUrl() ?: channel?.user?.profilePic
         ?: "https://placehold.co/600x400/EEE/31343C?font=open-sans&text=No%20banner") as String
 
         val isLive = channel?.livestream != null
@@ -868,7 +869,7 @@ fun KickPlayerView(
                                 onClick = {
                                     showCastDialog = false
                                     val poster =
-                                        channel?.bannerImage?.url ?: channel?.user?.profilePic
+                                        channel?.getBannerUrl() ?: channel?.user?.profilePic
                                     CastUtils.launchWebVideoCaster(
                                         context = context,
                                         playbackUrl = playbackUrl,
@@ -1126,11 +1127,16 @@ internal fun PlayerControlsOverlay(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                PlayerChromeButton(
-                    painter = painterResource(R.drawable.keyboard_arrow_down_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                    contentDescription = "Minimize",
-                    onClick = onMinimize
-                )
+                IconButton(
+                    onClick = onMinimize,
+                    modifier = modifier
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.keyboard_arrow_down_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                        contentDescription = "Minimize",
+                        tint = Color.White,
+                    )
+                }
                 Surface(color = Color.Black.copy(alpha = 0.6f), shape = RoundedCornerShape(4.dp)) {
                     Text(
                         text = qualityLabel,

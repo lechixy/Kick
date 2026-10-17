@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelVideo
 import com.lechixy.kick.data.model.chat.ChatMessage
+import com.lechixy.kick.data.model.chat.ChatWebSocketEvent
+import com.lechixy.kick.data.model.chat.PointsUpdatedEvent
 import com.lechixy.kick.data.remote.ChatConnectionState
 import com.lechixy.kick.data.remote.KickNetwork
 import com.lechixy.kick.data.repository.KickRepository
@@ -12,6 +14,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -37,6 +40,8 @@ class ChannelViewModel(
     val uiState: StateFlow<ChannelUiState> = _uiState.asStateFlow()
 
     val chatMessages: StateFlow<List<ChatMessage>> = repository.chatWebSocketClient.messages
+    val chatEvents: SharedFlow<ChatWebSocketEvent> = repository.chatWebSocketClient.events
+    val pointsUpdated: StateFlow<PointsUpdatedEvent?> = repository.chatWebSocketClient.pointsUpdated
     val chatConnectionState: StateFlow<ChatConnectionState> = repository.chatWebSocketClient.connectionState
 
     private var viewersPollingJob: Job? = null

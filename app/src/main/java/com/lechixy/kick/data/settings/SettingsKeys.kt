@@ -74,7 +74,7 @@ object SettingsKeys {
         key = intPreferencesKey("chat_message_spacing"),
         defaultValue = 2,
         type = SettingType.IntType,
-        validator = { it in 0..16 }
+        validator = { it in 0..25 }
     )
 
     val RECOMMENDED_LIVESTREAM_LANGUAGE = SettingKey(

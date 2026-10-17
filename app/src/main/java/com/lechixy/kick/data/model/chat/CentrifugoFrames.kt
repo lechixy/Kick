@@ -31,7 +31,9 @@ data class CentrifugoSubscribeFrame(
 
 @Serializable
 data class CentrifugoPushFrame(
-    val push: CentrifugoPushData? = null
+    val push: CentrifugoPushData? = null,
+    val channel: String? = null,
+    val pub: CentrifugoPublication? = null
 )
 
 @Serializable
@@ -42,7 +44,8 @@ data class CentrifugoPushData(
 
 @Serializable
 data class CentrifugoPublication(
-    val data: CentrifugoEventData? = null
+    val data: CentrifugoEventData? = null,
+    val tags: Map<String, String>? = null
 )
 
 @Serializable
@@ -50,3 +53,4 @@ data class CentrifugoEventData(
     val event: String? = null,
     val data: JsonElement? = null
 )
+

@@ -4,25 +4,39 @@ import android.util.Log
 import com.lechixy.kick.data.model.chat.CentrifugoConnectFrame
 import com.lechixy.kick.data.model.chat.CentrifugoPushFrame
 import com.lechixy.kick.data.model.chat.CentrifugoSubscribeFrame
+import com.lechixy.kick.data.model.chat.ChannelSubscriptionEvent
 import com.lechixy.kick.data.model.chat.ChatMessage
+import com.lechixy.kick.data.model.chat.ChatWebSocketEvent
 import com.lechixy.kick.data.model.chat.ConnectPayload
+import com.lechixy.kick.data.model.chat.MessageDeletedEvent
+import com.lechixy.kick.data.model.chat.PointsUpdatedEvent
 import com.lechixy.kick.data.model.chat.RealtimeAuthRequest
 import com.lechixy.kick.data.model.chat.RealtimeClientInfo
 import com.lechixy.kick.data.model.chat.RealtimeConnectionRequest
+import com.lechixy.kick.data.model.chat.RewardRedeemedEvent
 import com.lechixy.kick.data.model.chat.SubscribePayload
+import com.lechixy.kick.data.model.chat.UserBannedEvent
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -42,33 +56,51 @@ class KickChatWebSocketClient(
     private val tag = "KickChatWS"
     private val maxMessagesBuffer = 250
 
+    companion object {
+        private const val WATCHDOG_CHECK_INTERVAL_MS = 30_000L
+        private const val INACTIVITY_TIMEOUT_MS = 90_000L
+    }
+
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
         encodeDefaults = true
+        coerceInputValues = true
     }
 
-    private val client = OkHttpClient.Builder().build()
+    private val client = OkHttpClient.Builder()
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
+
     private var webSocket: WebSocket? = null
-    private val clientScope = CoroutineScope(Dispatchers.IO + Job())
+    private val clientScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var currentChannelId: Long? = null
     private var currentChatroomId: Long? = null
     private var reconnectJob: Job? = null
+    private var heartbeatJob: Job? = null
     private var isIntentionallyClosed = false
+    private val lastServerActivityMs = AtomicLong(0L)
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
+
+    private val _events = MutableSharedFlow<ChatWebSocketEvent>(extraBufferCapacity = 64)
+    val events: SharedFlow<ChatWebSocketEvent> = _events.asSharedFlow()
+
+    private val _pointsUpdated = MutableStateFlow<PointsUpdatedEvent?>(null)
+    val pointsUpdated: StateFlow<PointsUpdatedEvent?> = _pointsUpdated.asStateFlow()
 
     private val _connectionState = MutableStateFlow(ChatConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ChatConnectionState> = _connectionState.asStateFlow()
 
     fun connect(channelId: Long, chatroomId: Long) {
-        if (currentChannelId == channelId && currentChatroomId == chatroomId && _connectionState.value == ChatConnectionState.CONNECTED) {
+        val isSameChannel = currentChannelId == channelId && currentChatroomId == chatroomId
+        if (isSameChannel && _connectionState.value == ChatConnectionState.CONNECTED) {
             return
         }
 
-        disconnectInternal()
+        disconnectInternal(clearMessages = !isSameChannel)
 
         currentChannelId = channelId
         currentChatroomId = chatroomId
@@ -117,12 +149,34 @@ class KickChatWebSocketClient(
                 .header("Origin", "https://kick.com")
                 .build()
 
+            webSocket?.cancel()
             val listener = createWebSocketListener(token, guestClientId, channelId, chatroomId)
             webSocket = client.newWebSocket(request, listener)
         } catch (e: Exception) {
             Log.e(tag, "Failed to initiate chat connection: ${e.message}", e)
             _connectionState.value = ChatConnectionState.ERROR
             scheduleReconnect(channelId, chatroomId)
+        }
+    }
+
+    private fun startHeartbeatWatchdog(activeSocket: WebSocket, channelId: Long, chatroomId: Long) {
+        heartbeatJob?.cancel()
+        lastServerActivityMs.set(System.currentTimeMillis())
+
+        heartbeatJob = clientScope.launch {
+            while (isActive && !isIntentionallyClosed && webSocket === activeSocket) {
+                delay(WATCHDOG_CHECK_INTERVAL_MS)
+                if (isIntentionallyClosed || webSocket !== activeSocket) break
+
+                val elapsedSinceLastActivity = System.currentTimeMillis() - lastServerActivityMs.get()
+
+                // Centrifugo sends "{}" every ~25s; only reconnect if server is completely silent for >90s
+                if (elapsedSinceLastActivity > INACTIVITY_TIMEOUT_MS) {
+                    Log.w(tag, "Chat watchdog detected silent connection (${elapsedSinceLastActivity}ms), reconnecting...")
+                    scheduleReconnect(channelId, chatroomId, delayMs = 500L)
+                    break
+                }
+            }
         }
     }
 
@@ -134,7 +188,9 @@ class KickChatWebSocketClient(
     ) = object : WebSocketListener() {
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
+            if (this@KickChatWebSocketClient.webSocket !== webSocket) return
             Log.d(tag, "WebSocket connected successfully")
+            lastServerActivityMs.set(System.currentTimeMillis())
 
             // Frame 1: Connect
             val connectFrame = CentrifugoConnectFrame(
@@ -166,9 +222,13 @@ class KickChatWebSocketClient(
             }
 
             _connectionState.value = ChatConnectionState.CONNECTED
+            startHeartbeatWatchdog(webSocket, channelId, chatroomId)
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
+            if (this@KickChatWebSocketClient.webSocket !== webSocket) return
+            lastServerActivityMs.set(System.currentTimeMillis())
+
             val trimmed = text.trim()
             if (trimmed == "{}" || trimmed.isEmpty()) {
                 webSocket.send("{}")
@@ -178,33 +238,21 @@ class KickChatWebSocketClient(
                 return
             }
 
-            try {
-                val pushFrame = json.decodeFromString<CentrifugoPushFrame>(trimmed)
-                val eventData = pushFrame.push?.pub?.data ?: return
-                val eventType = eventData.event
-
-                if (eventType == "App\\Events\\ChatMessageEvent" || eventType == "ChatMessageEvent" || pushFrame.push.channel?.startsWith("chatrooms.") == true) {
-                    val rawData = eventData.data ?: return
-                    val chatMessage: ChatMessage? = when {
-                        rawData is JsonPrimitive && rawData.isString -> {
-                            json.decodeFromString<ChatMessage>(rawData.content)
-                        }
-                        rawData is JsonObject -> {
-                            json.decodeFromJsonElement<ChatMessage>(rawData)
-                        }
-                        else -> null
+            // Centrifugo can batch multiple JSON frames separated by newline in a single WebSocket message
+            trimmed.lineSequence()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .forEach { frameText ->
+                    if (frameText == "{}") {
+                        webSocket.send("{}")
+                        return@forEach
                     }
-
-                    if (chatMessage != null && chatMessage.content.isNotBlank()) {
-                        addMessage(chatMessage)
-                    }
+                    handleFrame(frameText, channelId, chatroomId)
                 }
-            } catch (_: Exception) {
-                // Ignore non-chat or unparseable frames
-            }
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            if (this@KickChatWebSocketClient.webSocket !== webSocket) return
             Log.e(tag, "WebSocket failure: ${t.message}")
             if (!isIntentionallyClosed) {
                 _connectionState.value = ChatConnectionState.ERROR
@@ -213,27 +261,112 @@ class KickChatWebSocketClient(
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            if (this@KickChatWebSocketClient.webSocket !== webSocket) return
             Log.d(tag, "WebSocket closed: $reason")
             if (!isIntentionallyClosed) {
                 _connectionState.value = ChatConnectionState.DISCONNECTED
+                scheduleReconnect(channelId, chatroomId)
             }
         }
     }
 
-    private fun addMessage(message: ChatMessage) {
-        val currentList = _messages.value
-        val updatedList = if (currentList.size >= maxMessagesBuffer) {
-            currentList.drop(currentList.size - maxMessagesBuffer + 1) + message
-        } else {
-            currentList + message
+    private fun handleFrame(frameText: String, channelId: Long, chatroomId: Long) {
+        try {
+            // Check for Centrifugo disconnect or unsubscribe frames (e.g., token expired)
+            if (frameText.contains("\"disconnect\"") || frameText.contains("\"unsubscribe\"")) {
+                val rootObj = json.parseToJsonElement(frameText) as? JsonObject
+                if (rootObj?.containsKey("disconnect") == true ||
+                    (rootObj?.get("push") as? JsonObject)?.containsKey("unsubscribe") == true ||
+                    (rootObj?.get("push") as? JsonObject)?.containsKey("disconnect") == true
+                ) {
+                    Log.w(tag, "Centrifugo disconnect/unsubscribe received, reconnecting...")
+                    scheduleReconnect(channelId, chatroomId, delayMs = 500L)
+                    return
+                }
+            }
+
+            val pushFrame = json.decodeFromString<CentrifugoPushFrame>(frameText)
+            val publication = pushFrame.push?.pub ?: pushFrame.pub ?: return
+            val eventData = publication.data ?: return
+            val rawData = eventData.data ?: return
+            val eventType = eventData.event ?: publication.tags?.get("event") ?: return
+
+            when (eventType) {
+                "App\\Events\\ChatMessageEvent",
+                "ChatMessageEvent" -> {
+                    val chatMessage = decodeEventPayload<ChatMessage>(rawData)
+                    if (chatMessage != null && chatMessage.content.isNotBlank()) {
+                        addMessage(chatMessage)
+                        _events.tryEmit(ChatWebSocketEvent.MessageReceived(chatMessage))
+                    }
+                }
+
+                "RewardRedeemedEvent",
+                "App\\Events\\RewardRedeemedEvent" -> {
+                    val event = decodeEventPayload<RewardRedeemedEvent>(rawData) ?: return
+                    _events.tryEmit(ChatWebSocketEvent.RewardRedeemed(event))
+                }
+
+                "App\\Events\\ChannelSubscriptionEvent",
+                "ChannelSubscriptionEvent" -> {
+                    val event = decodeEventPayload<ChannelSubscriptionEvent>(rawData) ?: return
+                    _events.tryEmit(ChatWebSocketEvent.ChannelSubscribed(event))
+                }
+
+                "App\\Events\\UserBannedEvent",
+                "UserBannedEvent" -> {
+                    val event = decodeEventPayload<UserBannedEvent>(rawData) ?: return
+                    _events.tryEmit(ChatWebSocketEvent.UserBanned(event))
+                }
+
+                "App\\Events\\MessageDeletedEvent",
+                "MessageDeletedEvent" -> {
+                    val event = decodeEventPayload<MessageDeletedEvent>(rawData) ?: return
+                    _events.tryEmit(ChatWebSocketEvent.MessageDeleted(event))
+                }
+
+                "PointsUpdated",
+                "App\\Events\\PointsUpdated" -> {
+                    val event = decodeEventPayload<PointsUpdatedEvent>(rawData) ?: return
+                    _pointsUpdated.value = event
+                    _events.tryEmit(ChatWebSocketEvent.PointsUpdated(event))
+                }
+            }
+        } catch (_: Exception) {
+            // Ignore non-chat or unparseable frames
         }
-        _messages.value = updatedList
     }
 
-    private fun scheduleReconnect(channelId: Long, chatroomId: Long) {
+    private inline fun <reified T> decodeEventPayload(rawData: JsonElement): T? {
+        return when {
+            rawData is JsonPrimitive && rawData.isString -> {
+                json.decodeFromString<T>(rawData.content)
+            }
+            rawData is JsonObject -> {
+                json.decodeFromJsonElement<T>(rawData)
+            }
+            else -> null
+        }
+    }
+
+    private fun addMessage(message: ChatMessage) {
+        _messages.update { currentList ->
+            if (currentList.any { it.id == message.id }) {
+                return@update currentList
+            }
+            if (currentList.size >= maxMessagesBuffer) {
+                currentList.drop(currentList.size - maxMessagesBuffer + 1) + message
+            } else {
+                currentList + message
+            }
+        }
+    }
+
+    private fun scheduleReconnect(channelId: Long, chatroomId: Long, delayMs: Long = 2500L) {
         reconnectJob?.cancel()
+        heartbeatJob?.cancel()
         reconnectJob = clientScope.launch {
-            delay(3000)
+            delay(delayMs)
             if (!isIntentionallyClosed && currentChannelId == channelId && currentChatroomId == chatroomId) {
                 Log.d(tag, "Attempting reconnect...")
                 startConnectionFlow(channelId, chatroomId)
@@ -243,16 +376,22 @@ class KickChatWebSocketClient(
 
     fun disconnect() {
         isIntentionallyClosed = true
-        disconnectInternal()
+        disconnectInternal(clearMessages = true)
     }
 
-    private fun disconnectInternal() {
+    private fun disconnectInternal(clearMessages: Boolean = true) {
         reconnectJob?.cancel()
+        heartbeatJob?.cancel()
         webSocket?.close(1000, "Disconnect requested")
         webSocket = null
-        currentChannelId = null
-        currentChatroomId = null
+        if (clearMessages) {
+            currentChannelId = null
+            currentChatroomId = null
+            _messages.value = emptyList()
+            _pointsUpdated.value = null
+        }
         _connectionState.value = ChatConnectionState.DISCONNECTED
-        _messages.value = emptyList()
     }
 }
+
+
