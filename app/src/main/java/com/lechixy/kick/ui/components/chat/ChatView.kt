@@ -141,7 +141,8 @@ fun ChatView(
             val layoutInfo = listState.layoutInfo
             val totalItems = layoutInfo.totalItemsCount
             if (totalItems == 0) return@derivedStateOf true
-            val lastVisibleItem = layoutInfo.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
+            val lastVisibleItem =
+                layoutInfo.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
             lastVisibleItem.index >= totalItems - 2
         }
     }
@@ -293,6 +294,7 @@ fun ChatView(
                                 )
                             }
                         }
+
                         ChatConnectionState.DISCONNECTED -> {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -315,6 +317,7 @@ fun ChatView(
                                 }
                             }
                         }
+
                         else -> {
                             Text(
                                 text = "Henüz mesaj yok. İlk mesajı bekle!",
@@ -367,6 +370,7 @@ fun ChatView(
                                 primaryColor = currentPrimaryColor
                             )
                         }
+
                         is ChatWebSocketEvent.ChannelSubscribed -> {
                             buildChannelSubscriptionTickerItem(
                                 event = wsEvent.event,
@@ -374,19 +378,23 @@ fun ChatView(
                                 primaryColor = currentPrimaryColor
                             )
                         }
+
                         is ChatWebSocketEvent.Celebration -> {
                             buildCelebrationTickerItem(
                                 celebration = wsEvent.event,
-                                senderUsername = wsEvent.event.sender?.username ?: wsEvent.event.username,
+                                senderUsername = wsEvent.event.sender?.username
+                                    ?: wsEvent.event.username,
                                 senderColorHex = wsEvent.event.sender?.identity?.color,
                                 userColors = currentUserColors,
                                 primaryColor = currentPrimaryColor
                             )
                         }
+
                         is ChatWebSocketEvent.MessageReceived -> {
                             val msg = wsEvent.message
                             if (msg.isCelebration) {
-                                val celebration = msg.metadata?.celebration ?: ChatCelebration(id = msg.id)
+                                val celebration =
+                                    msg.metadata?.celebration ?: ChatCelebration(id = msg.id)
                                 buildCelebrationTickerItem(
                                     celebration = celebration,
                                     senderUsername = msg.sender?.username,
@@ -398,6 +406,7 @@ fun ChatView(
                                 null
                             }
                         }
+
                         else -> null
                     }
                     if (tickerItem != null) {
@@ -482,7 +491,8 @@ fun ChatView(
                             contentDescription = "Scroll to bottom",
                             modifier = Modifier.size(18.dp)
                         )
-                        val buttonText = if (unreadCount > 0) "En son mesajlara git (+$unreadCount)" else "En son mesajlara git"
+                        val buttonText =
+                            if (unreadCount > 0) "En son mesajlara git (+$unreadCount)" else "En son mesajlara git"
                         Text(
                             text = buttonText,
                             style = MaterialTheme.typography.labelSmall,
@@ -674,10 +684,16 @@ private fun PinnedMessageOverlay(
                     if (isExpanded && pinnedBy != null) {
                         val isPinnedBySameSender = remember(sender, pinnedBy) {
                             sender != null && (
-                                (sender.id != null && pinnedBy.id != null && sender.id == pinnedBy.id) ||
-                                    (sender.username.isNotBlank() && sender.username.equals(pinnedBy.username, ignoreCase = true)) ||
-                                    (!sender.slug.isNullOrBlank() && sender.slug.equals(pinnedBy.slug, ignoreCase = true))
-                                )
+                                    (sender.id != null && pinnedBy.id != null && sender.id == pinnedBy.id) ||
+                                            (sender.username.isNotBlank() && sender.username.equals(
+                                                pinnedBy.username,
+                                                ignoreCase = true
+                                            )) ||
+                                            (!sender.slug.isNullOrBlank() && sender.slug.equals(
+                                                pinnedBy.slug,
+                                                ignoreCase = true
+                                            ))
+                                    )
                         }
 
                         if (isPinnedBySameSender) {
@@ -837,7 +853,9 @@ private fun ChatHeader(
 
 sealed interface ChatTickerEventSource {
     data class GiftedSubscriptions(val event: GiftedSubscriptionsEvent) : ChatTickerEventSource
-    data class Celebration(val event: ChatCelebration, val username: String = "") : ChatTickerEventSource
+    data class Celebration(val event: ChatCelebration, val username: String = "") :
+        ChatTickerEventSource
+
     data class ChannelSubscription(val event: ChannelSubscriptionEvent) : ChatTickerEventSource
 }
 
@@ -903,10 +921,10 @@ private fun buildCelebrationTickerItem(
 
     return ChatTickerOverlayItem(
         id = "celebration_${celebration.id.ifBlank { username }}_${System.nanoTime()}",
-        iconRes = R.drawable.kid_star_24dp_e3e3e3_fill1_wght400_grad0_opsz24,
+        iconRes = R.drawable.celebration_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
         segments = segments,
         accentColor = primaryColor,
-        durationMillis = 7_000L,
+        durationMillis = 12_000L,
         isInfinite = false,
         source = ChatTickerEventSource.Celebration(celebration, username)
     )
@@ -956,10 +974,10 @@ private fun buildChannelSubscriptionTickerItem(
 
     return ChatTickerOverlayItem(
         id = "sub_${username}_${System.nanoTime()}",
-        iconRes = R.drawable.kid_star_24dp_e3e3e3_fill1_wght400_grad0_opsz24,
+        iconRes = R.drawable.star_shine_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
         segments = segments,
         accentColor = primaryColor,
-        durationMillis = 7_000L,
+        durationMillis = 12_000L,
         isInfinite = false,
         source = ChatTickerEventSource.ChannelSubscription(event)
     )
@@ -997,7 +1015,7 @@ private fun buildGiftedSubscriptionsTickerItem(
             add(ChatTextParser.EventTextSegment(text = " gifted a sub to ", isBold = false))
         }
 
-        if (recipients.isEmpty()) {
+        if (recipients.isEmpty() || giftedCount < 5) {
             add(
                 ChatTextParser.EventTextSegment(
                     text = "the community",
@@ -1006,6 +1024,8 @@ private fun buildGiftedSubscriptionsTickerItem(
                 )
             )
         } else {
+            // If there is less than 5 people being gifted, just show their names
+
             recipients.forEachIndexed { index, recipient ->
                 if (index > 0) {
                     add(ChatTextParser.EventTextSegment(text = ", ", isBold = false))
@@ -1021,6 +1041,7 @@ private fun buildGiftedSubscriptionsTickerItem(
                         color = recipientColor
                     )
                 )
+
             }
         }
     }
@@ -1030,7 +1051,7 @@ private fun buildGiftedSubscriptionsTickerItem(
         iconRes = R.drawable.featured_seasonal_and_gifts_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
         segments = segments,
         accentColor = primaryColor,
-        durationMillis = 7_000L,
+        durationMillis = 15_000L,
         isInfinite = false,
         source = ChatTickerEventSource.GiftedSubscriptions(event)
     )

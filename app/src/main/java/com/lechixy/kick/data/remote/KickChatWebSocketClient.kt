@@ -7,6 +7,7 @@ import com.lechixy.kick.data.model.chat.CentrifugoSubscribeFrame
 import com.lechixy.kick.data.model.chat.ChannelSubscriptionEvent
 import com.lechixy.kick.data.model.chat.ChatCelebration
 import com.lechixy.kick.data.model.chat.ChatMessage
+import com.lechixy.kick.data.model.chat.ChatMessageMetadata
 import com.lechixy.kick.data.model.chat.ChatMessageType
 import com.lechixy.kick.data.model.chat.ChatWebSocketEvent
 import com.lechixy.kick.data.model.chat.ConnectPayload
@@ -327,13 +328,9 @@ class KickChatWebSocketClient(
                 "ChatMessageEvent" -> {
                     val data = rawData ?: return
                     val chatMessage = decodeEventPayload<ChatMessage>(data)?.withSelectedBadgesOnly()
-                    if (chatMessage != null) {
-                        if (chatMessage.content.isNotBlank()) {
-                            addMessage(chatMessage)
-                        }
-                        if (chatMessage.content.isNotBlank() || chatMessage.isCelebration) {
-                            _events.tryEmit(ChatWebSocketEvent.MessageReceived(chatMessage))
-                        }
+                    if (chatMessage != null && (chatMessage.content.isNotBlank() || chatMessage.isCelebration)) {
+                        addMessage(chatMessage)
+                        _events.tryEmit(ChatWebSocketEvent.MessageReceived(chatMessage))
                     }
                 }
 
@@ -342,12 +339,22 @@ class KickChatWebSocketClient(
                     val data = rawData ?: return
                     val chatMessage = decodeEventPayload<ChatMessage>(data)?.withSelectedBadgesOnly()
                     if (chatMessage != null && (chatMessage.isCelebration || chatMessage.sender != null)) {
-                        if (chatMessage.content.isNotBlank()) {
-                            addMessage(chatMessage)
+                        val normalizedMsg = if (chatMessage.isCelebration) {
+                            chatMessage
+                        } else {
+                            chatMessage.copy(type = ChatMessageType.CELEBRATION)
                         }
-                        _events.tryEmit(ChatWebSocketEvent.MessageReceived(chatMessage))
+                        addMessage(normalizedMsg)
+                        _events.tryEmit(ChatWebSocketEvent.MessageReceived(normalizedMsg))
                     } else {
                         val celebration = decodeEventPayload<ChatCelebration>(data) ?: return
+                        val eventMessage = ChatMessage(
+                            id = "celebration_${System.nanoTime()}_${celebration.id.ifBlank { celebration.username }}",
+                            type = ChatMessageType.CELEBRATION,
+                            sender = celebration.sender,
+                            metadata = ChatMessageMetadata(celebration = celebration)
+                        )
+                        addMessage(eventMessage)
                         _events.tryEmit(ChatWebSocketEvent.Celebration(celebration))
                     }
                 }
@@ -401,6 +408,12 @@ class KickChatWebSocketClient(
                 "SubscriptionEvent" -> {
                     val data = rawData ?: return
                     val event = decodeEventPayload<ChannelSubscriptionEvent>(data) ?: return
+                    val eventMessage = ChatMessage(
+                        id = "sub_${System.nanoTime()}_${event.username.ifBlank { event.userIds.firstOrNull() ?: "sub" }}",
+                        type = ChatMessageType.CHANNEL_SUBSCRIPTION,
+                        channelSubscription = event
+                    )
+                    addMessage(eventMessage)
                     _events.tryEmit(ChatWebSocketEvent.ChannelSubscribed(event))
                 }
 

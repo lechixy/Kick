@@ -87,20 +87,48 @@ fun ChatMessageItem(
     // 2. Gifted Subscriptions Event
     val giftedEvent = message.giftedSubscriptions
     if (message.isGiftedSubscriptions && giftedEvent != null) {
-        val segments = remember(giftedEvent.gifterUsername, giftedEvent.giftedUsernames) {
+        val defaultPrimaryColor = MaterialTheme.colorScheme.primary
+        val gifterName = giftedEvent.gifterUsername.ifBlank { "Anonymous" }
+        val gifterColor = remember(gifterName, userColors, defaultPrimaryColor) {
+            ChatTextParser.parseHexColor(userColors[gifterName.lowercase()], defaultPrimaryColor)
+        }
+        val segments = remember(
+            giftedEvent.gifterUsername,
+            giftedEvent.giftedUsernames,
+            giftedEvent.giftedTotal,
+            giftedEvent.gifterTotal,
+            gifterColor,
+            userColors,
+            defaultPrimaryColor
+        ) {
+            val recipients = giftedEvent.giftedUsernames.filter { it.isNotBlank() }
+            val giftedCount = giftedEvent.giftedTotal?.takeIf { it > 0 } ?: recipients.size.coerceAtLeast(1)
             buildList {
-                add(ChatTextParser.EventTextSegment(giftedEvent.gifterUsername.ifBlank { "Anonymous" }, isBold = true))
-                add(ChatTextParser.EventTextSegment(" gifted a sub to ", isBold = false))
-                val recipients = giftedEvent.giftedUsernames.filter { it.isNotBlank() }
+                add(ChatTextParser.EventTextSegment(gifterName, isBold = true, color = gifterColor))
+                if (giftedCount > 1) {
+                    add(ChatTextParser.EventTextSegment(" gifted ", isBold = false))
+                    add(ChatTextParser.EventTextSegment("$giftedCount subs", isBold = true, color = defaultPrimaryColor))
+                    add(ChatTextParser.EventTextSegment(" to ", isBold = false))
+                } else {
+                    add(ChatTextParser.EventTextSegment(" gifted a sub to ", isBold = false))
+                }
                 if (recipients.isEmpty()) {
-                    add(ChatTextParser.EventTextSegment("the community", isBold = true))
+                    add(ChatTextParser.EventTextSegment("the community", isBold = true, color = defaultPrimaryColor))
                 } else {
                     recipients.forEachIndexed { index, recipient ->
                         if (index > 0) {
                             add(ChatTextParser.EventTextSegment(", ", isBold = false))
                         }
-                        add(ChatTextParser.EventTextSegment(recipient, isBold = true))
+                        val recipientColor = ChatTextParser.parseHexColor(
+                            userColors[recipient.lowercase()],
+                            defaultPrimaryColor
+                        )
+                        add(ChatTextParser.EventTextSegment(recipient, isBold = true, color = recipientColor))
                     }
+                }
+                val totalByGifter = giftedEvent.gifterTotal
+                if (totalByGifter != null && totalByGifter > 1) {
+                    add(ChatTextParser.EventTextSegment(" ($totalByGifter total)", isBold = false))
                 }
             }
         }
@@ -109,7 +137,92 @@ fun ChatMessageItem(
             segments = segments,
             bodyContent = null,
             fontSizeSp = fontSizeSp,
+            stripeColor = gifterColor,
             contentPadding = 10.dp,
+            streamerUsername = streamerUsername,
+            streamerSlug = streamerSlug,
+            modifier = modifier
+        )
+        return
+    }
+
+    // 3. Chat Celebration Event (Resub / Celebration message)
+    if (message.isCelebration) {
+        val defaultPrimaryColor = MaterialTheme.colorScheme.primary
+        val celebration = message.metadata?.celebration
+        val senderName = message.sender?.username?.takeIf { it.isNotBlank() }
+            ?: celebration?.sender?.username?.takeIf { it.isNotBlank() }
+            ?: celebration?.username?.takeIf { it.isNotBlank() }
+            ?: "Someone"
+        val rawColor = message.sender?.identity?.color
+            ?: celebration?.sender?.identity?.color
+            ?: userColors[senderName.lowercase()]
+        val userColor = remember(rawColor, defaultPrimaryColor) {
+            ChatTextParser.parseHexColor(rawColor, defaultPrimaryColor)
+        }
+        val months = celebration?.totalMonths
+
+        val segments = remember(senderName, months, userColor, defaultPrimaryColor) {
+            buildList {
+                add(ChatTextParser.EventTextSegment(senderName, isBold = true, color = userColor))
+                if (months != null && months > 0) {
+                    add(ChatTextParser.EventTextSegment(" has subscribed for ", isBold = false))
+                    val monthLabel = if (months == 1) "1 month" else "$months months"
+                    add(ChatTextParser.EventTextSegment(monthLabel, isBold = true, color = defaultPrimaryColor))
+                } else {
+                    add(ChatTextParser.EventTextSegment(" has subscribed!", isBold = false))
+                }
+            }
+        }
+        ChatEventBaseItem(
+            iconRes = R.drawable.celebration_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
+            segments = segments,
+            bodyContent = message.content.takeIf { it.isNotBlank() },
+            fontSizeSp = fontSizeSp,
+            stripeColor = userColor,
+            iconTint = defaultPrimaryColor,
+            streamerUsername = streamerUsername,
+            streamerSlug = streamerSlug,
+            modifier = modifier
+        )
+        return
+    }
+
+    // 4. Channel Subscription Event (SubscriptionEvent)
+    val subEvent = message.channelSubscription
+    if (message.isChannelSubscription && subEvent != null) {
+        val defaultPrimaryColor = MaterialTheme.colorScheme.primary
+        val subUsername = subEvent.username.ifBlank { "Someone" }
+        val userColor = remember(subUsername, userColors, defaultPrimaryColor) {
+            ChatTextParser.parseHexColor(userColors[subUsername.lowercase()], defaultPrimaryColor)
+        }
+        val months = subEvent.totalMonths ?: subEvent.months
+        val extraSubscribers = (subEvent.userIds.size - 1).coerceAtLeast(0)
+
+        val segments = remember(subUsername, months, extraSubscribers, userColor, defaultPrimaryColor) {
+            buildList {
+                add(ChatTextParser.EventTextSegment(subUsername, isBold = true, color = userColor))
+                if (months != null && months > 0) {
+                    add(ChatTextParser.EventTextSegment(" has subscribed for ", isBold = false))
+                    val monthLabel = if (months == 1) "1 month" else "$months months"
+                    add(ChatTextParser.EventTextSegment(monthLabel, isBold = true, color = defaultPrimaryColor))
+                } else if (extraSubscribers > 0) {
+                    add(ChatTextParser.EventTextSegment(" and ", isBold = false))
+                    val othersLabel = if (extraSubscribers == 1) "1 other" else "$extraSubscribers others"
+                    add(ChatTextParser.EventTextSegment(othersLabel, isBold = true, color = defaultPrimaryColor))
+                    add(ChatTextParser.EventTextSegment(" just subscribed!", isBold = false))
+                } else {
+                    add(ChatTextParser.EventTextSegment(" just subscribed!", isBold = false))
+                }
+            }
+        }
+        ChatEventBaseItem(
+            iconRes = R.drawable.star_shine_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
+            segments = segments,
+            bodyContent = message.content.takeIf { it.isNotBlank() },
+            fontSizeSp = fontSizeSp,
+            stripeColor = userColor,
+            iconTint = defaultPrimaryColor,
             streamerUsername = streamerUsername,
             streamerSlug = streamerSlug,
             modifier = modifier

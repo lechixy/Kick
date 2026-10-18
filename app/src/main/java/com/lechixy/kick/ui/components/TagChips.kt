@@ -53,6 +53,8 @@ fun TagChip(
             Text(
                 text = tag,
                 color = contentColor,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.labelSmall
             )
         }

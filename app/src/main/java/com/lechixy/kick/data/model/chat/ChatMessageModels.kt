@@ -23,6 +23,7 @@ object ChatMessageType {
     const val CELEBRATION = "celebration"
     const val REWARD_REDEEMED = "reward_redeemed"
     const val GIFTED_SUBSCRIPTIONS = "gifted_subscriptions"
+    const val CHANNEL_SUBSCRIPTION = "channel_subscription"
 }
 
 @Serializable
@@ -44,7 +45,8 @@ data class ChatMessage(
     @SerialName("thread_parent_id")
     val threadParentId: String? = null,
     val rewardRedeemed: RewardRedeemedEvent? = null,
-    val giftedSubscriptions: GiftedSubscriptionsEvent? = null
+    val giftedSubscriptions: GiftedSubscriptionsEvent? = null,
+    val channelSubscription: ChannelSubscriptionEvent? = null
 ) {
     val isReply: Boolean
         get() = type == ChatMessageType.REPLY || metadata?.originalMessage != null
@@ -57,6 +59,9 @@ data class ChatMessage(
 
     val isGiftedSubscriptions: Boolean
         get() = type == ChatMessageType.GIFTED_SUBSCRIPTIONS || giftedSubscriptions != null
+
+    val isChannelSubscription: Boolean
+        get() = type == ChatMessageType.CHANNEL_SUBSCRIPTION || channelSubscription != null
 }
 
 @Serializable
