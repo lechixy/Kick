@@ -1,10 +1,12 @@
 package com.lechixy.kick.data.remote
 
 import com.lechixy.kick.data.model.ChannelDetail
+import com.lechixy.kick.data.model.ChannelEventResponse
 import com.lechixy.kick.data.model.ChannelVideo
 import com.lechixy.kick.data.model.CurrentViewersResponse
 import com.lechixy.kick.data.model.LivestreamResponse
 import com.lechixy.kick.data.model.SearchResponse
+import com.lechixy.kick.data.model.chat.ChatHistoryResponse
 import com.lechixy.kick.data.model.chat.RealtimeAuthRequest
 import com.lechixy.kick.data.model.chat.RealtimeAuthResponse
 import com.lechixy.kick.data.model.chat.RealtimeConnectionRequest
@@ -29,6 +31,11 @@ interface KickApi {
         @Url url: String
     ): ChannelDetail
 
+    @GET("api/v1/channels/{channelId}/event")
+    suspend fun getChannelEvent(
+        @Path("channelId") channelId: Long
+    ): ChannelEventResponse
+
     @GET
     suspend fun getChannelVideos(
         @Url url: String
@@ -43,6 +50,12 @@ interface KickApi {
     suspend fun getCurrentViewers(
         @Url url: String
     ): List<CurrentViewersResponse>
+
+    @GET("api/v1/chat/{channelId}/history")
+    suspend fun getChatHistory(
+        @Path("channelId") channelId: Long,
+        @Query("cursor") cursor: String? = null
+    ): ChatHistoryResponse
 
     @POST("api/v1/realtime/connection")
     suspend fun getRealtimeConnection(

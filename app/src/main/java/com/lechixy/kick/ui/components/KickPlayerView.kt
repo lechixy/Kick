@@ -108,6 +108,7 @@ import com.lechixy.kick.data.local.PlayerSettingsManager
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lechixy.kick.service.EXTRA_LOW_LATENCY
 import com.lechixy.kick.service.PlaybackService
 import com.lechixy.kick.service.buildPlaybackMediaItem
@@ -140,6 +141,8 @@ fun KickPlayerView(
     isFullScreen: Boolean = false,
     isInPipMode: Boolean = false,
     isMini: Boolean = false,
+    pendingAutoFullscreen: Boolean = false,
+    onConsumeAutoFullscreen: (Boolean) -> Unit = {},
     onFullScreenChange: (Boolean) -> Unit = {},
     onMinimize: () -> Unit = {},
     onClose: () -> Unit = {},
@@ -152,6 +155,8 @@ fun KickPlayerView(
     val player by rememberMediaController()
 
     var isBuffering by remember { mutableStateOf(true) }
+    var isPlayerReady by remember { mutableStateOf(false) }
+    var loadedMediaId by remember { mutableStateOf<String?>(null) }
     var isPlaying by remember { mutableStateOf(true) }
     var isMuted by remember { mutableStateOf(false) }
     var volume by remember { mutableFloatStateOf(1f) }
@@ -164,9 +169,23 @@ fun KickPlayerView(
     var sleepTimerMinutes by remember { mutableIntStateOf(0) }
     var remainingTimerSeconds by remember { mutableIntStateOf(0) }
 
-    var selectedQualityHeight by remember { mutableIntStateOf(-1) }
+    val settingsRepository = LocalSettingsRepository.current
+    val coroutineScope = rememberCoroutineScope()
+    val preferredQuality by settingsRepository
+        .get(SettingsKeys.VIDEO_QUALITY)
+        .collectAsStateWithLifecycle(initialValue = SettingsKeys.VIDEO_QUALITY.defaultValue)
+
+    var selectedQualityHeight by remember { mutableIntStateOf(preferredQuality) }
     val availableQualities = remember { mutableStateListOf<VideoQualityOption>() }
     var currentVideoHeight by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(preferredQuality) {
+        selectedQualityHeight = preferredQuality
+    }
+
+    LaunchedEffect(player, selectedQualityHeight, availableQualities.toList()) {
+        applyQualityToPlayer(player, selectedQualityHeight, availableQualities)
+    }
 
     val latestIsFullScreen by rememberUpdatedState(isFullScreen)
     val latestOnFullScreenChange by rememberUpdatedState(onFullScreenChange)
@@ -231,6 +250,7 @@ fun KickPlayerView(
 
     val pipEnabled by PlayerSettingsManager.pipEnabled.collectAsState()
     val lowLatencyEnabled by PlayerSettingsManager.lowLatencyEnabled.collectAsState()
+    val autoFullscreenLive by PlayerSettingsManager.autoFullscreenLive.collectAsState()
     var showCastDialog by remember { mutableStateOf(false) }
     var playerBounds by remember { mutableStateOf<Rect?>(null) }
 
@@ -322,6 +342,13 @@ fun KickPlayerView(
             val listener = object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     isBuffering = playbackState == Player.STATE_BUFFERING
+                    isPlayerReady = playbackState == Player.STATE_READY
+                    loadedMediaId = p.currentMediaItem?.mediaId
+                }
+
+                override fun onRenderedFirstFrame() {
+                    isPlayerReady = true
+                    loadedMediaId = p.currentMediaItem?.mediaId
                 }
 
                 override fun onIsPlayingChanged(playing: Boolean) {
@@ -351,11 +378,14 @@ fun KickPlayerView(
                 override fun onPlayerError(error: PlaybackException) {
                     playbackError = error.message ?: "Oynatma hatası"
                     isBuffering = false
+                    isPlayerReady = false
                 }
             }
 
             isPlaying = p.isPlaying
             isBuffering = p.playbackState == Player.STATE_BUFFERING
+            isPlayerReady = p.playbackState == Player.STATE_READY
+            loadedMediaId = p.currentMediaItem?.mediaId
             refreshQualities(p.currentTracks)
 
             p.addListener(listener)
@@ -377,11 +407,15 @@ fun KickPlayerView(
                     lowLatencyEnabled
                 ) == lowLatencyEnabled
         if (alreadyLoaded) {
+            loadedMediaId = stableId
+            isPlayerReady = p.playbackState == Player.STATE_READY
             if (p.playbackState == Player.STATE_IDLE) p.prepare()
             return@LaunchedEffect
         }
 
         isBuffering = true
+        isPlayerReady = false
+        loadedMediaId = stableId
         val pic: String = (channel?.getBannerUrl() ?: channel?.user?.profilePic
         ?: "https://placehold.co/600x400/EEE/31343C?font=open-sans&text=No%20banner") as String
 
@@ -408,6 +442,28 @@ fun KickPlayerView(
         p.setMediaItem(mediaItem)
         p.prepare()
         p.play()
+    }
+
+    LaunchedEffect(
+        pendingAutoFullscreen,
+        autoFullscreenLive,
+        isPlayerReady,
+        loadedMediaId,
+        stableId,
+        channel?.livestream,
+        isMini,
+        isInPipMode
+    ) {
+        if (
+            pendingAutoFullscreen &&
+            channel?.livestream != null &&
+            isPlayerReady &&
+            loadedMediaId == stableId &&
+            !isMini &&
+            !isInPipMode
+        ) {
+            onConsumeAutoFullscreen(autoFullscreenLive)
+        }
     }
 
     Box(
@@ -722,14 +778,10 @@ fun KickPlayerView(
                                         selected = selectedQualityHeight == -1,
                                         onClick = {
                                             selectedQualityHeight = -1
-                                            player?.let {
-                                                it.trackSelectionParameters =
-                                                    it.trackSelectionParameters
-                                                        .buildUpon()
-                                                        .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                                                        .setMaxVideoSizeSd()
-                                                        .build()
+                                            coroutineScope.launch {
+                                                settingsRepository.set(SettingsKeys.VIDEO_QUALITY, -1)
                                             }
+                                            applyQualityToPlayer(player, -1, availableQualities)
                                             closeSettings()
                                         }
                                     )
@@ -741,20 +793,17 @@ fun KickPlayerView(
                                             selected = selectedQualityHeight == quality.height,
                                             onClick = {
                                                 selectedQualityHeight = quality.height
-                                                player?.let {
-                                                    it.trackSelectionParameters =
-                                                        it.trackSelectionParameters
-                                                            .buildUpon()
-                                                            .setMaxVideoSize(
-                                                                quality.height * 16 / 9,
-                                                                quality.height
-                                                            )
-                                                            .setMinVideoSize(
-                                                                quality.height * 16 / 9,
-                                                                quality.height
-                                                            )
-                                                            .build()
+                                                coroutineScope.launch {
+                                                    settingsRepository.set(
+                                                        SettingsKeys.VIDEO_QUALITY,
+                                                        quality.height
+                                                    )
                                                 }
+                                                applyQualityToPlayer(
+                                                    player,
+                                                    quality.height,
+                                                    availableQualities
+                                                )
                                                 closeSettings()
                                             }
                                         )
@@ -799,8 +848,6 @@ fun KickPlayerView(
 
                                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
-                                    val settingsRepository = LocalSettingsRepository.current
-                                    val coroutineScope = rememberCoroutineScope()
                                     PlayerSettingsSwitchRow(
                                         title = "Düşük Gecikme Modu (Low Latency)",
                                         description = "Web sitesi ile anlık canlı yayın (~2s gecikme)",
@@ -810,6 +857,23 @@ fun KickPlayerView(
                                             coroutineScope.launch {
                                                 settingsRepository.set(
                                                     SettingsKeys.LOW_LATENCY,
+                                                    enabled
+                                                )
+                                            }
+                                        }
+                                    )
+
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                                    PlayerSettingsSwitchRow(
+                                        title = "Otomatik Tam Ekran (Auto Fullscreen)",
+                                        description = "Kanala girildiğinde yayın canlıysa ve oynatıcı yüklendiyse hemen tam ekrana geç",
+                                        checked = autoFullscreenLive,
+                                        onCheckedChange = { enabled ->
+                                            PlayerSettingsManager.setAutoFullscreenLive(enabled)
+                                            coroutineScope.launch {
+                                                settingsRepository.set(
+                                                    SettingsKeys.AUTO_FULLSCREEN_LIVE,
                                                     enabled
                                                 )
                                             }
@@ -921,6 +985,40 @@ private fun rememberMediaController(): State<Player?> {
         }
     }
     return playerState
+}
+
+@androidx.annotation.OptIn(UnstableApi::class)
+private fun applyQualityToPlayer(
+    player: Player?,
+    selectedHeight: Int,
+    availableQualities: List<VideoQualityOption>
+) {
+    val p = player ?: return
+    if (selectedHeight == -1) {
+        p.trackSelectionParameters = p.trackSelectionParameters
+            .buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+            .setMinVideoSize(0, 0)
+            .build()
+    } else {
+        val resolvedHeight = if (availableQualities.isNotEmpty()) {
+            availableQualities.firstOrNull { it.height == selectedHeight }?.height
+                ?: availableQualities.firstOrNull { it.height <= selectedHeight }?.height
+                ?: availableQualities.lastOrNull()?.height
+                ?: selectedHeight
+        } else {
+            selectedHeight
+        }
+
+        val targetWidth = resolvedHeight * 16 / 9
+        p.trackSelectionParameters = p.trackSelectionParameters
+            .buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .setMaxVideoSize(targetWidth, resolvedHeight)
+            .setMinVideoSize(targetWidth, resolvedHeight)
+            .build()
+    }
 }
 
 @RequiresApi(Build.VERSION_CODES.S)

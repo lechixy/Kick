@@ -33,15 +33,14 @@ import kotlin.time.Duration.Companion.milliseconds
 /** Hızlı başlayıp yumuşakça yerine oturan (easeOutQuint benzeri) odometer eğrisi. */
 private val OdometerEasing = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
 
-private const val INITIAL_DURATION_MS = 2000
-private const val UPDATE_DURATION_MS = 1500
-private const val INITIAL_STAGGER_MS = 90L
-
-private const val INITIAL_EXTRA_SPINS = 1
+private const val ANIMATION_DURATION_MS = 2400
+private const val DIGIT_STAGGER_MS = 90L
+private const val EXTRA_SPINS = 1
 
 private class CountTracker {
     var last: Int = 0
-    var isInitial: Boolean = true
+    var spinGeneration: Int = 0
+    var hasRendered: Boolean = false
 }
 
 /**
@@ -63,11 +62,18 @@ fun AnimatedCounterText(
     }
 
     val tracker = remember { CountTracker() }
-    val isIncreasing = remember(count) { count >= tracker.last }
-    val isInitial = tracker.isInitial
+    val isIncreasing = remember(count) {
+        if (!tracker.hasRendered) true else count >= tracker.last
+    }
+    val spinGeneration = remember(count) {
+        if (!tracker.hasRendered || count != tracker.last) {
+            tracker.spinGeneration++
+        }
+        tracker.spinGeneration
+    }
     SideEffect {
         tracker.last = count
-        tracker.isInitial = false
+        tracker.hasRendered = true
     }
 
     // "tnum": tüm rakamlar eşit genişlikte olsun ki tekerlekler dönerken yazı zıplamasın
@@ -83,7 +89,7 @@ fun AnimatedCounterText(
 
     Row(
         modifier = modifier
-            .animateContentSize(animationSpec = tween(UPDATE_DURATION_MS / 2, easing = OdometerEasing))
+            .animateContentSize(animationSpec = tween(ANIMATION_DURATION_MS / 2, easing = OdometerEasing))
             .clearAndSetSemantics { contentDescription = formatted },
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -95,9 +101,9 @@ fun AnimatedCounterText(
                 if (char.isDigit()) {
                     OdometerDigit(
                         digit = char - '0',
+                        spinGeneration = spinGeneration,
                         isIncreasing = isIncreasing,
-                        isInitial = isInitial,
-                        startDelayMs = if (isInitial) index * INITIAL_STAGGER_MS else 0L,
+                        startDelayMs = index * DIGIT_STAGGER_MS,
                         style = textStyle
                     )
                 } else {
@@ -111,30 +117,31 @@ fun AnimatedCounterText(
 @Composable
 private fun OdometerDigit(
     digit: Int,
+    spinGeneration: Int,
     isIncreasing: Boolean,
-    isInitial: Boolean,
     startDelayMs: Long,
     style: TextStyle
 ) {
     // Sürekli (sınırsız) tekerlek pozisyonu: 12.4f → "2" ile "3" arasında, %40 kaymış
     val position = remember { Animatable(0f) }
 
-    LaunchedEffect(digit) {
+    LaunchedEffect(digit, spinGeneration) {
         val from = position.targetValue
         val fromDigit = from.roundToInt().mod(10)
         var steps = digit - fromDigit
         if (isIncreasing) {
             if (steps < 0) steps += 10      // artışta hep yukarı dön (7 → 8 → 9 → 0 → 1 → 2)
+            steps += 10 * EXTRA_SPINS
         } else {
             if (steps > 0) steps -= 10      // azalışta hep aşağı dön
+            steps -= 10 * EXTRA_SPINS
         }
-        if (isInitial) steps += 10 * INITIAL_EXTRA_SPINS
 
         if (startDelayMs > 0) delay(startDelayMs.milliseconds)
         position.animateTo(
             targetValue = from + steps,
             animationSpec = tween(
-                durationMillis = if (isInitial) INITIAL_DURATION_MS else UPDATE_DURATION_MS,
+                durationMillis = ANIMATION_DURATION_MS,
                 easing = OdometerEasing
             )
         )

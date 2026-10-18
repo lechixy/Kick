@@ -1,33 +1,62 @@
 package com.lechixy.kick.data.model.chat
 
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.JsonNames
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 object ChatMessageType {
     const val MESSAGE = "message"
     const val REPLY = "reply"
     const val CELEBRATION = "celebration"
+    const val REWARD_REDEEMED = "reward_redeemed"
+    const val GIFTED_SUBSCRIPTIONS = "gifted_subscriptions"
 }
 
 @Serializable
 data class ChatMessage(
-    val id: String,
+    val id: String = "",
     @SerialName("chatroom_id")
     val chatroomId: Long? = null,
+    @SerialName("chat_id")
+    val chatId: Long? = null,
+    @SerialName("user_id")
+    val userId: Long? = null,
     val content: String = "",
     val type: String = ChatMessageType.MESSAGE,
     @SerialName("created_at")
     val createdAt: String? = null,
     val sender: ChatSender? = null,
+    @Serializable(with = ChatMessageMetadataSerializer::class)
     val metadata: ChatMessageMetadata? = null,
     @SerialName("thread_parent_id")
-    val threadParentId: String? = null
+    val threadParentId: String? = null,
+    val rewardRedeemed: RewardRedeemedEvent? = null,
+    val giftedSubscriptions: GiftedSubscriptionsEvent? = null
 ) {
     val isReply: Boolean
         get() = type == ChatMessageType.REPLY || metadata?.originalMessage != null
 
     val isCelebration: Boolean
         get() = type == ChatMessageType.CELEBRATION || metadata?.celebration != null
+
+    val isRewardRedeemed: Boolean
+        get() = type == ChatMessageType.REWARD_REDEEMED || rewardRedeemed != null
+
+    val isGiftedSubscriptions: Boolean
+        get() = type == ChatMessageType.GIFTED_SUBSCRIPTIONS || giftedSubscriptions != null
 }
 
 @Serializable
@@ -41,17 +70,64 @@ data class ChatMessageMetadata(
     val celebration: ChatCelebration? = null
 )
 
+object ChatMessageMetadataSerializer : KSerializer<ChatMessageMetadata?> {
+    private val delegateSerializer = ChatMessageMetadata.serializer()
+    private val lenientJson = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        coerceInputValues = true
+    }
+
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("ChatMessageMetadataNullable")
+
+    override fun deserialize(decoder: Decoder): ChatMessageMetadata? {
+        val jsonDecoder = decoder as? JsonDecoder ?: return null
+        val element = try {
+            jsonDecoder.decodeJsonElement()
+        } catch (_: Exception) {
+            return null
+        }
+
+        return try {
+            when (element) {
+                is JsonNull -> null
+                is JsonObject -> lenientJson.decodeFromJsonElement(delegateSerializer, element)
+                is JsonPrimitive -> {
+                    if (!element.isString) return null
+                    val raw = element.content.trim()
+                    if (raw.isEmpty() || raw == "null" || raw == "[]") return null
+                    lenientJson.decodeFromString(delegateSerializer, raw)
+                }
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: ChatMessageMetadata?) {
+        val jsonEncoder = encoder as? JsonEncoder
+        if (value == null) {
+            jsonEncoder?.encodeJsonElement(JsonNull)
+        } else {
+            jsonEncoder?.encodeSerializableValue(delegateSerializer, value)
+        }
+    }
+}
+
 @Serializable
 data class ChatOriginalSender(
     val id: Long? = null,
     val username: String = "",
-    val slug: String? = null
+    val slug: String? = null,
+    val identity: ChatIdentity? = null
 )
 
 @Serializable
 data class ChatOriginalMessage(
     val id: String = "",
-    val content: String = ""
+    val content: String = "",
+    val sender: ChatSender? = null
 )
 
 @Serializable
@@ -97,15 +173,33 @@ data class ChatBadge(
     val badgeType: String? = null,
     @SerialName("image_url")
     val imageUrl: String? = null,
-    val metadata: ChatBadgeMetadata? = null,
+    val metadata: JsonElement? = null,
     val selected: Boolean = false,
     @SerialName("sort_order")
     val sortOrder: Int? = null
 )
 
 @Serializable
-data class ChatBadgeMetadata(
-    val level: Int? = null
+data class ChatHistoryResponse(
+    val data: ChatHistoryData? = null,
+    val message: String? = null
+)
+
+@Serializable
+data class ChatHistoryData(
+    val messages: List<ChatMessage> = emptyList(),
+    val cursor: String? = null,
+    @SerialName("pinned_message")
+    val pinnedMessage: PinnedMessageInfo? = null
+)
+
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class PinnedMessageInfo(
+    val message: ChatMessage? = null,
+    @JsonNames("pinned_by", "pinnedBy")
+    val pinnedBy: ChatSender? = null,
+    val duration: JsonElement? = null
 )
 
 @Serializable
@@ -121,6 +215,24 @@ data class RewardRedeemedEvent(
     val userInput: String = "",
     @SerialName("reward_background_color")
     val rewardBackgroundColor: String? = null
+)
+
+@Serializable
+data class GiftedSubscriptionsEvent(
+    @SerialName("chatroom_id")
+    val chatroomId: Long? = null,
+    @SerialName("correlation_id")
+    val correlationId: String? = null,
+    @SerialName("gifted_usernames")
+    val giftedUsernames: List<String> = emptyList(),
+    @SerialName("gifter_username")
+    val gifterUsername: String = "",
+    @SerialName("gifted_total")
+    val giftedTotal: Int? = null,
+    @SerialName("gifter_total")
+    val gifterTotal: Int? = null,
+    @SerialName("chunk_details")
+    val chunkDetails: JsonElement? = null
 )
 
 @Serializable
@@ -178,9 +290,48 @@ data class PointsUpdatedEvent(
 sealed interface ChatWebSocketEvent {
     data class MessageReceived(val message: ChatMessage) : ChatWebSocketEvent
     data class RewardRedeemed(val event: RewardRedeemedEvent) : ChatWebSocketEvent
+    data class GiftedSubscriptions(val event: GiftedSubscriptionsEvent) : ChatWebSocketEvent
     data class ChannelSubscribed(val event: ChannelSubscriptionEvent) : ChatWebSocketEvent
     data class UserBanned(val event: UserBannedEvent) : ChatWebSocketEvent
     data class MessageDeleted(val event: MessageDeletedEvent) : ChatWebSocketEvent
     data class PointsUpdated(val event: PointsUpdatedEvent) : ChatWebSocketEvent
+    data class PinnedMessageCreated(val event: PinnedMessageInfo) : ChatWebSocketEvent
+    data object PinnedMessageDeleted : ChatWebSocketEvent
 }
+
+fun ChatIdentity.withSelectedBadgesOnly(): ChatIdentity = copy(
+    badgesV2 = badgesV2.filter { badge ->
+        val isGlobalLevelBadge = badge.name.equals("level", ignoreCase = true) ||
+            badge.badgeType.equals("global", ignoreCase = true)
+        if (isGlobalLevelBadge) badge.selected else badge.selected
+    }
+)
+
+fun ChatSender.withSelectedBadgesOnly(): ChatSender = copy(
+    identity = identity?.withSelectedBadgesOnly()
+)
+
+fun ChatMessage.withSelectedBadgesOnly(): ChatMessage = copy(
+    sender = sender?.withSelectedBadgesOnly(),
+    metadata = metadata?.copy(
+        originalSender = metadata.originalSender?.copy(
+            identity = metadata.originalSender.identity?.withSelectedBadgesOnly()
+        ),
+        originalMessage = metadata.originalMessage?.copy(
+            sender = metadata.originalMessage.sender?.withSelectedBadgesOnly()
+        )
+    )
+)
+
+fun PinnedMessageInfo.withSelectedBadgesOnly(): PinnedMessageInfo = copy(
+    message = message?.withSelectedBadgesOnly(),
+    pinnedBy = pinnedBy?.withSelectedBadgesOnly()
+)
+
+fun ChatHistoryData.withSelectedBadgesOnly(): ChatHistoryData = copy(
+    messages = messages.map { it.withSelectedBadgesOnly() },
+    pinnedMessage = pinnedMessage?.withSelectedBadgesOnly()
+)
+
+
 

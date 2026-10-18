@@ -1,10 +1,13 @@
 package com.lechixy.kick.data.repository
 
 import com.lechixy.kick.data.model.ChannelDetail
+import com.lechixy.kick.data.model.ChannelEvent
 import com.lechixy.kick.data.model.ChannelVideo
 import com.lechixy.kick.data.model.CurrentViewersResponse
 import com.lechixy.kick.data.model.Livestream
 import com.lechixy.kick.data.model.SearchData
+import com.lechixy.kick.data.model.chat.ChatHistoryData
+import com.lechixy.kick.data.model.chat.withSelectedBadgesOnly
 import com.lechixy.kick.data.remote.KickApi
 import com.lechixy.kick.data.remote.KickChatWebSocketClient
 
@@ -28,6 +31,10 @@ class KickRepository(
         return api.getChannel(fullUrl)
     }
 
+    suspend fun getChannelEvent(channelId: Long): ChannelEvent? {
+        return api.getChannelEvent(channelId).data
+    }
+
     suspend fun getChannelVideos(slug: String): List<ChannelVideo> {
         val fullUrl = "https://kick.com/api/v2/channels/$slug/videos"
         return api.getChannelVideos(fullUrl)
@@ -48,5 +55,9 @@ class KickRepository(
     suspend fun getCurrentViewers(livestreamId: Long): CurrentViewersResponse? {
         val list = getCurrentViewers(listOf(livestreamId))
         return list.firstOrNull { it.livestreamId == livestreamId } ?: list.firstOrNull()
+    }
+
+    suspend fun getChatHistory(channelId: Long, cursor: String? = null): ChatHistoryData? {
+        return api.getChatHistory(channelId = channelId, cursor = cursor).data?.withSelectedBadgesOnly()
     }
 }

@@ -43,10 +43,12 @@ fun SettingSlider(
     val coroutineScope = rememberCoroutineScope()
     val persistentValue by repository.get(key).collectAsStateWithLifecycle(initialValue = key.defaultValue)
 
-    var sliderPosition by remember { mutableFloatStateOf(persistentValue.toFloat()) }
+    var sliderPosition by remember {
+        mutableFloatStateOf(persistentValue.toFloat().coerceIn(valueRange.start, valueRange.endInclusive))
+    }
 
-    LaunchedEffect(persistentValue) {
-        sliderPosition = persistentValue.toFloat()
+    LaunchedEffect(persistentValue, valueRange.start, valueRange.endInclusive) {
+        sliderPosition = persistentValue.toFloat().coerceIn(valueRange.start, valueRange.endInclusive)
     }
 
     Surface(
@@ -92,8 +94,8 @@ fun SettingSlider(
             Spacer(modifier = Modifier.height(8.dp))
 
             Slider(
-                value = sliderPosition,
-                onValueChange = { sliderPosition = it },
+                value = sliderPosition.coerceIn(valueRange.start, valueRange.endInclusive),
+                onValueChange = { sliderPosition = it.coerceIn(valueRange.start, valueRange.endInclusive) },
                 onValueChangeFinished = {
                     val finalValue = sliderPosition.roundToInt()
                     if (finalValue != persistentValue) {

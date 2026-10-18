@@ -16,8 +16,8 @@ fun buildOptimizedImageRequest(
     targetHeightDp: Int = 202
 ): ImageRequest {
     val density = context.resources.displayMetrics.density
-    val pxWidth = (targetWidthDp * density).toInt()
-    val pxHeight = (targetHeightDp * density).toInt()
+    val pxWidth = (targetWidthDp * density).toInt().coerceAtLeast(1)
+    val pxHeight = (targetHeightDp * density).toInt().coerceAtLeast(1)
 
     return ImageRequest.Builder(context)
         .data(data)

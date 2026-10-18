@@ -98,14 +98,14 @@ fun HomeScreen(
                         state.streams.filter { stream ->
                             val slug = stream.channel?.slug?.trim()?.lowercase() ?: ""
                             normalizedFollowed.contains(slug)
-                        }
+                        }.distinctBy { it.id }
                     }
 
                     val otherStreams = remember(state.streams, normalizedFollowed) {
                         state.streams.filterNot { stream ->
                             val slug = stream.channel?.slug?.trim()?.lowercase() ?: ""
                             normalizedFollowed.contains(slug)
-                        }
+                        }.distinctBy { it.id }
                     }
 
                     val categories = remember(state.streams) {

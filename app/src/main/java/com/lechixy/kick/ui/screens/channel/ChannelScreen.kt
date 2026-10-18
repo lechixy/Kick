@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -49,12 +50,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import com.lechixy.kick.data.model.getBannerUrl
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -66,7 +65,9 @@ import coil3.compose.AsyncImage
 import com.lechixy.kick.R
 import com.lechixy.kick.data.local.FollowManager
 import com.lechixy.kick.data.model.ChannelDetail
+import com.lechixy.kick.data.model.ChannelEvent
 import com.lechixy.kick.data.model.ChannelVideo
+import com.lechixy.kick.data.model.getBannerUrl
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.components.AnimatedCounterText
@@ -78,8 +79,11 @@ import com.lechixy.kick.ui.components.VerifiedBadge
 import com.lechixy.kick.ui.components.VideoCard
 import com.lechixy.kick.ui.components.WIDE_BREAKPOINT_DP
 import com.lechixy.kick.ui.components.chat.ChatView
+import com.lechixy.kick.ui.components.resolveEventChipColors
+import com.lechixy.kick.ui.components.resolveLanguageChipColors
 import com.lechixy.kick.util.FormatUtils
 import com.lechixy.kick.util.buildOptimizedImageRequest
+import kotlinx.coroutines.flow.first
 
 enum class ChannelTab(val title: String) {
     CHAT("Chat"),
@@ -101,11 +105,10 @@ fun ChannelScreen(
     val state by viewModel.uiState.collectAsState()
     val chatMessages by viewModel.chatMessages.collectAsState()
     val chatConnectionState by viewModel.chatConnectionState.collectAsState()
+    val pinnedMessage by viewModel.pinnedMessage.collectAsState()
+    val userColors by viewModel.userColors.collectAsState()
 
     val settingsRepository = LocalSettingsRepository.current
-    val autoConnectChat by settingsRepository
-        .get(SettingsKeys.AUTO_CONNECT_CHAT)
-        .collectAsStateWithLifecycle(initialValue = SettingsKeys.AUTO_CONNECT_CHAT.defaultValue)
 
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(ChannelTab.CHAT) }
@@ -115,8 +118,9 @@ fun ChannelScreen(
         FollowManager.isFollowing(channelSlug)
     }
 
-    LaunchedEffect(channelSlug, autoConnectChat) {
-        viewModel.loadChannel(channelSlug, autoConnectChat = autoConnectChat)
+    LaunchedEffect(channelSlug) {
+        val autoConnect = settingsRepository.get(SettingsKeys.AUTO_CONNECT_CHAT).first()
+        viewModel.loadChannel(channelSlug, autoConnectChat = autoConnect)
     }
 
     LaunchedEffect(state.channel?.id, state.channel?.livestream?.id) {
@@ -215,6 +219,7 @@ fun ChannelScreen(
 
                         ChannelHeaderInfo(
                             channel = channel,
+                            event = state.event,
                             isLive = isLive,
                             lastLiveText = lastLiveText,
                             isFollowing = isFollowing,
@@ -232,9 +237,12 @@ fun ChannelScreen(
                                 messages = chatMessages,
                                 connectionState = chatConnectionState,
                                 subscriberBadges = channel.subscriberBadges,
+                                userColors = userColors,
+                                pinnedMessage = pinnedMessage,
                                 streamerUsername = channel.user?.username,
                                 streamerSlug = channel.slug,
                                 onConnectClick = viewModel::connectChat,
+                                onDisconnectClick = viewModel::disconnectChat,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .weight(1f)
@@ -289,9 +297,12 @@ fun ChannelScreen(
                             messages = chatMessages,
                             connectionState = chatConnectionState,
                             subscriberBadges = channel.subscriberBadges,
+                            userColors = userColors,
+                            pinnedMessage = pinnedMessage,
                             streamerUsername = channel.user?.username,
                             streamerSlug = channel.slug,
                             onConnectClick = viewModel::connectChat,
+                            onDisconnectClick = viewModel::disconnectChat,
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
@@ -319,48 +330,102 @@ internal fun Context.findActivity(): Activity? {
 @Composable
 private fun ChannelHeaderInfo(
     channel: ChannelDetail,
+    event: ChannelEvent?,
     isLive: Boolean,
     lastLiveText: String,
     isFollowing: Boolean,
     onFollowClick: () -> Unit,
     context: Context
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp, 16.dp, 16.dp, 0.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (isLive && channel.livestream != null) {
-            Column(
+    if (isLive && channel.livestream != null) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp, 16.dp, 16.dp, 0.dp)
+        ) {
+            Row(
                 modifier = Modifier
-                    .fillMaxWidth(0.6f)
-                    .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                    .fillMaxWidth()
+                    .padding(bottom = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = channel.livestream.sessionTitle ?: "No title",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
                 )
+                LiveBadge()
+            }
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    channel.livestream.categories.forEach { category ->
+                        TagChip(tag = category.name)
+                    }
+                    event?.title?.takeIf { it.isNotBlank() }?.let { eventTitle ->
+                        val defaultContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                        val defaultContentColor = MaterialTheme.colorScheme.primary
+                        val (eventContainerColor, eventContentColor) = remember(
+                            event.palette?.accentPromoPoster,
+                            defaultContainerColor,
+                            defaultContentColor
+                        ) {
+                            resolveEventChipColors(
+                                accentHex = event.palette?.accentPromoPoster,
+                                defaultContainerColor = defaultContainerColor,
+                                defaultContentColor = defaultContentColor
+                            )
+                        }
+                        TagChip(
+                            tag = eventTitle,
+                            icon = R.drawable.stars_2_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
+                            containerColor = eventContainerColor,
+                            contentColor = eventContentColor
+                        )
+                    }
                     channel.livestream.tags.forEach { tag ->
                         TagChip(tag = tag)
                     }
-                    TagChip(tag = channel.livestream.language ?: "")
+                    val languageLabel = channel.livestream.language?.takeIf { it.isNotBlank() }
+                        ?: channel.livestream.langIso?.takeIf { it.isNotBlank() }
+                    if (!languageLabel.isNullOrBlank()) {
+                        val defaultContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                        val defaultContentColor = MaterialTheme.colorScheme.primary
+                        val (langContainerColor, langContentColor) = remember(
+                            channel.livestream.langIso,
+                            defaultContainerColor,
+                            defaultContentColor
+                        ) {
+                            resolveLanguageChipColors(
+                                langIso = channel.livestream.langIso,
+                                defaultContainerColor = defaultContainerColor,
+                                defaultContentColor = defaultContentColor
+                            )
+                        }
+                        TagChip(
+                            tag = languageLabel,
+                            containerColor = langContainerColor,
+                            contentColor = langContentColor
+                        )
+                    }
                 }
-            }
-            Column(
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                horizontalAlignment = Alignment.End
-            ) {
-                LiveBadge()
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)

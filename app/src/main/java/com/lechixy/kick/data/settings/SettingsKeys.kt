@@ -54,6 +54,11 @@ object SettingsKeys {
         defaultValue = true,
         type = SettingType.BooleanType
     )
+    val AUTO_FULLSCREEN_LIVE = SettingKey(
+        key = booleanPreferencesKey("auto_fullscreen_live"),
+        defaultValue = false,
+        type = SettingType.BooleanType
+    )
     val VIDEO_QUALITY = SettingKey(
         key = intPreferencesKey("video_quality"),
         defaultValue = 720,
@@ -89,6 +94,7 @@ object SettingsKeys {
         listOf(
             THEME,
             LOW_LATENCY,
+            AUTO_FULLSCREEN_LIVE,
             VIDEO_QUALITY,
             RECOMMENDED_LIVESTREAM_LANGUAGE,
             CHAT_FONT_SIZE,

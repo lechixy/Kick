@@ -55,6 +55,7 @@ object ChatTextParser {
         val result = mutableListOf<ResolvedChatBadge>()
 
         identity.badgesV2.forEachIndexed { index, badge ->
+            if (!badge.selected) return@forEachIndexed
             val url = badge.imageUrl
             if (!url.isNullOrBlank()) {
                 result.add(
@@ -69,7 +70,7 @@ object ChatTextParser {
         }
 
         val v2BadgeNames = identity.badgesV2
-            .filter { !it.imageUrl.isNullOrBlank() }
+            .filter { it.selected && !it.imageUrl.isNullOrBlank() }
             .map { it.name.lowercase() }
             .toSet()
 
@@ -113,10 +114,13 @@ object ChatTextParser {
 
                 "sub_gifter", "subgifter", "gifter" -> {
                     val count = badgeInfo.count ?: 1
-                    val drawableRes = if (count >= 10) {
-                        R.drawable.gifter_10_badge
-                    } else {
-                        R.drawable.gifter_1_badge
+                    val drawableRes = when {
+                        count >= 100 -> R.drawable.gifter_100_badge
+                        count >= 50 -> R.drawable.gifter_50_badge
+                        count >= 25 -> R.drawable.gifter_25_badge
+                        count >= 10 -> R.drawable.gifter_10_badge
+                        count >= 5 -> R.drawable.gifter_5_badge
+                        else -> R.drawable.gifter_1_badge
                     }
                     result.add(
                         ResolvedChatBadge(
@@ -197,14 +201,15 @@ object ChatTextParser {
         streamerMentionBrush: Brush? = null,
         streamerMentionShadow: Shadow? = null
     ): ParsedChatMessage {
+        val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
         val secondaryColor = MaterialTheme.colorScheme.secondary
         val inlineContentMap = mutableMapOf<String, InlineTextContent>()
 
         val annotatedString = buildAnnotatedString {
             // 1. Inline Badges (so wrapped text lines start at the very beginning under the badges)
             if (badges.isNotEmpty()) {
-                val badgeHeightSp = (fontSizeSp + 2).sp
-                val badgeWidthSp = (fontSizeSp + 5).sp
+                val badgeHeightSp = (safeFontSizeSp + 2).sp
+                val badgeWidthSp = (safeFontSizeSp + 5).sp
                 for (badge in badges) {
                     val inlineId = badge.key
                     if (!inlineContentMap.containsKey(inlineId)) {
@@ -240,7 +245,7 @@ object ChatTextParser {
                             }
                         }
                     }
-                    appendInlineContent(inlineId, alternateText = "[${badge.name}]")
+                    appendSafeInlineContent(inlineId, alternateText = "[${badge.name.ifBlank { "badge" }}]")
                 }
             }
 
@@ -251,62 +256,377 @@ object ChatTextParser {
             append(": ")
 
             // 3. Parse Content for Emotes and Mentions
-            if (content.isEmpty()) return@buildAnnotatedString
+            appendParsedContent(
+                content = content,
+                fontSizeSp = safeFontSizeSp,
+                secondaryColor = secondaryColor,
+                inlineContentMap = inlineContentMap,
+                streamerUsername = streamerUsername,
+                streamerSlug = streamerSlug,
+                streamerMentionBrush = streamerMentionBrush,
+                streamerMentionShadow = streamerMentionShadow
+            )
+        }
 
-            val tokens = findTokens(content)
+        return ParsedChatMessage(annotatedString, inlineContentMap)
+    }
 
-            for (token in tokens) {
-                when (token) {
-                    is ChatToken.Emote -> {
-                        val inlineId = "emote_${token.id}"
-                        if (!inlineContentMap.containsKey(inlineId)) {
-                            val emoteUrl = "https://files.kick.com/emotes/${token.id}/fullsize"
-                            val sizeSp = (fontSizeSp + 4).sp
-                            inlineContentMap[inlineId] = InlineTextContent(
-                                Placeholder(
-                                    width = sizeSp,
-                                    height = sizeSp,
-                                    placeholderVerticalAlign = PlaceholderVerticalAlign.Center
-                                )
-                            ) {
-                                AsyncImage(
-                                    model = emoteUrl,
-                                    contentDescription = token.name,
-                                    modifier = Modifier.fillMaxSize()
-                                )
+    private fun AnnotatedString.Builder.appendSafeInlineContent(
+        id: String,
+        alternateText: String
+    ) {
+        appendInlineContent(id, alternateText = alternateText.ifBlank { "[inline]" })
+    }
+
+    @Composable
+    fun parseReplyHeader(
+        originalSenderName: String,
+        originalSenderColor: Color,
+        originalContent: String,
+        fontSizeSp: Int,
+        mutedColor: Color
+    ): ParsedChatMessage {
+        val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
+        val inlineContentMap = mutableMapOf<String, InlineTextContent>()
+        val iconSizeSp = (safeFontSizeSp + 2).sp
+        val iconWidthSp = (safeFontSizeSp + 5).sp
+
+        val annotatedString = buildAnnotatedString {
+            val replyIconId = "reply_header_icon"
+            inlineContentMap[replyIconId] = InlineTextContent(
+                Placeholder(
+                    width = iconWidthSp,
+                    height = iconSizeSp,
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(end = 3.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.material3.Icon(
+                        painter = painterResource(R.drawable.reply_24dp),
+                        contentDescription = "Reply",
+                        tint = mutedColor,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+            appendSafeInlineContent(replyIconId, alternateText = "↩ ")
+
+            withStyle(SpanStyle(color = mutedColor)) {
+                append("Replying to ")
+            }
+            withStyle(SpanStyle(color = originalSenderColor, fontWeight = FontWeight.SemiBold)) {
+                append(originalSenderName)
+            }
+            withStyle(SpanStyle(color = mutedColor)) {
+                append(": ")
+            }
+
+            if (originalContent.isNotEmpty()) {
+                val tokens = findTokens(originalContent)
+                for (token in tokens) {
+                    when (token) {
+                        is ChatToken.Emote -> {
+                            val inlineId = "reply_emote_${token.id}"
+                            if (!inlineContentMap.containsKey(inlineId)) {
+                                val emoteUrl = "https://files.kick.com/emotes/${token.id}/fullsize"
+                                val sizeSp = (safeFontSizeSp + 2).sp
+                                inlineContentMap[inlineId] = InlineTextContent(
+                                    Placeholder(
+                                        width = sizeSp,
+                                        height = sizeSp,
+                                        placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                                    )
+                                ) {
+                                    AsyncImage(
+                                        model = emoteUrl,
+                                        contentDescription = token.name,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+                            appendSafeInlineContent(inlineId, alternateText = ":${token.name.ifBlank { "emote" }}:")
+                        }
+                        is ChatToken.Mention -> {
+                            withStyle(SpanStyle(color = mutedColor, fontWeight = FontWeight.Medium)) {
+                                append(token.text)
                             }
                         }
-                        appendInlineContent(inlineId, alternateText = ":${token.name.ifBlank { "emote" }}:")
-                    }
-                    is ChatToken.Mention -> {
-                        val mentionedUser = token.text.removePrefix("@")
-                        val isStreamer = isStreamerMatch(mentionedUser, streamerUsername, streamerSlug)
-
-                        val mentionSpanStyle = if (isStreamer && streamerMentionBrush != null) {
-                            SpanStyle(
-                                brush = streamerMentionBrush,
-                                fontWeight = FontWeight.ExtraBold,
-                                shadow = streamerMentionShadow
-                            )
-                        } else {
-                            SpanStyle(
-                                color = secondaryColor,
-                                fontWeight = FontWeight.Bold
-                            )
+                        is ChatToken.PlainText -> {
+                            withStyle(SpanStyle(color = mutedColor)) {
+                                append(token.text)
+                            }
                         }
-
-                        withStyle(mentionSpanStyle) {
-                            append(token.text)
-                        }
-                    }
-                    is ChatToken.PlainText -> {
-                        append(token.text)
                     }
                 }
             }
         }
 
         return ParsedChatMessage(annotatedString, inlineContentMap)
+    }
+
+    @Composable
+    fun parseUserHeaderWithBadges(
+        prefixText: String,
+        prefixColor: Color,
+        senderName: String,
+        senderColor: Color,
+        fontSizeSp: Int,
+        badges: List<ResolvedChatBadge> = emptyList(),
+        @DrawableRes leadingIconRes: Int? = null,
+        leadingIconTint: Color = prefixColor
+    ): ParsedChatMessage {
+        val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
+        val inlineContentMap = mutableMapOf<String, InlineTextContent>()
+        val badgeHeightSp = (safeFontSizeSp + 2).sp
+        val badgeWidthSp = (safeFontSizeSp + 5).sp
+
+        val annotatedString = buildAnnotatedString {
+            if (leadingIconRes != null) {
+                val iconId = "leading_header_icon_$leadingIconRes"
+                inlineContentMap[iconId] = InlineTextContent(
+                    Placeholder(
+                        width = badgeWidthSp,
+                        height = badgeHeightSp,
+                        placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                    )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(end = 3.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.material3.Icon(
+                            painter = painterResource(leadingIconRes),
+                            contentDescription = null,
+                            tint = leadingIconTint,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+                appendSafeInlineContent(iconId, alternateText = "[icon]")
+            }
+
+            if (prefixText.isNotEmpty()) {
+                withStyle(SpanStyle(color = prefixColor, fontWeight = FontWeight.Medium)) {
+                    append(prefixText)
+                }
+            }
+
+            for (badge in badges) {
+                val inlineId = badge.key
+                if (!inlineContentMap.containsKey(inlineId)) {
+                    inlineContentMap[inlineId] = InlineTextContent(
+                        Placeholder(
+                            width = badgeWidthSp,
+                            height = badgeHeightSp,
+                            placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                        )
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(end = 3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            when {
+                                badge.drawableRes != null -> {
+                                    Image(
+                                        painter = painterResource(badge.drawableRes),
+                                        contentDescription = badge.name,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                                !badge.imageUrl.isNullOrBlank() -> {
+                                    AsyncImage(
+                                        model = badge.imageUrl,
+                                        contentDescription = badge.name,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                appendSafeInlineContent(inlineId, alternateText = "[${badge.name.ifBlank { "badge" }}]")
+            }
+
+            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = senderColor)) {
+                append(senderName)
+            }
+        }
+
+        return ParsedChatMessage(annotatedString, inlineContentMap)
+    }
+
+    data class EventTextSegment(
+        val text: String,
+        val isBold: Boolean = false
+    )
+
+    @Composable
+    fun parseEventHeader(
+        @DrawableRes iconRes: Int,
+        iconTint: Color,
+        segments: List<EventTextSegment>,
+        boldColor: Color,
+        mutedColor: Color,
+        fontSizeSp: Int
+    ): ParsedChatMessage {
+        val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
+        val inlineContentMap = mutableMapOf<String, InlineTextContent>()
+        val iconSizeSp = (safeFontSizeSp + 2).sp
+        val iconWidthSp = (safeFontSizeSp + 5).sp
+
+        val annotatedString = buildAnnotatedString {
+            val iconId = "event_header_icon_$iconRes"
+            inlineContentMap[iconId] = InlineTextContent(
+                Placeholder(
+                    width = iconWidthSp,
+                    height = iconSizeSp,
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(end = 3.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.material3.Icon(
+                        painter = painterResource(iconRes),
+                        contentDescription = null,
+                        tint = iconTint,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+            appendSafeInlineContent(iconId, alternateText = "[icon]")
+
+            for (segment in segments) {
+                if (segment.text.isEmpty()) continue
+                val style = if (segment.isBold) {
+                    SpanStyle(color = boldColor, fontWeight = FontWeight.Bold)
+                } else {
+                    SpanStyle(color = mutedColor, fontWeight = FontWeight.Normal)
+                }
+                withStyle(style) {
+                    append(segment.text)
+                }
+            }
+        }
+
+        return ParsedChatMessage(annotatedString, inlineContentMap)
+    }
+
+    @Composable
+    fun parseContentOnly(
+        content: String,
+        fontSizeSp: Int,
+        streamerUsername: String? = null,
+        streamerSlug: String? = null,
+        streamerMentionBrush: Brush? = null,
+        streamerMentionShadow: Shadow? = null
+    ): ParsedChatMessage {
+        val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
+        val secondaryColor = MaterialTheme.colorScheme.secondary
+        val inlineContentMap = mutableMapOf<String, InlineTextContent>()
+
+        val annotatedString = buildAnnotatedString {
+            appendParsedContent(
+                content = content,
+                fontSizeSp = safeFontSizeSp,
+                secondaryColor = secondaryColor,
+                inlineContentMap = inlineContentMap,
+                streamerUsername = streamerUsername,
+                streamerSlug = streamerSlug,
+                streamerMentionBrush = streamerMentionBrush,
+                streamerMentionShadow = streamerMentionShadow
+            )
+        }
+
+        return ParsedChatMessage(annotatedString, inlineContentMap)
+    }
+
+    private fun AnnotatedString.Builder.appendParsedContent(
+        content: String,
+        fontSizeSp: Int,
+        secondaryColor: Color,
+        inlineContentMap: MutableMap<String, InlineTextContent>,
+        streamerUsername: String?,
+        streamerSlug: String?,
+        streamerMentionBrush: Brush?,
+        streamerMentionShadow: Shadow?
+    ) {
+        if (content.isEmpty()) return
+        val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
+
+        val tokens = findTokens(content)
+
+        for (token in tokens) {
+            when (token) {
+                is ChatToken.Emote -> {
+                    val inlineId = "emote_${token.id}"
+                    if (!inlineContentMap.containsKey(inlineId)) {
+                        val emoteUrl = "https://files.kick.com/emotes/${token.id}/fullsize"
+                        val sizeSp = (safeFontSizeSp + 4).sp
+                        inlineContentMap[inlineId] = InlineTextContent(
+                            Placeholder(
+                                width = sizeSp,
+                                height = sizeSp,
+                                placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                            )
+                        ) {
+                            AsyncImage(
+                                model = emoteUrl,
+                                contentDescription = token.name,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                    appendSafeInlineContent(inlineId, alternateText = ":${token.name.ifBlank { "emote" }}:")
+                }
+                is ChatToken.Mention -> {
+                    val mentionedUser = token.text.removePrefix("@")
+                    val isStreamer = isStreamerMatch(mentionedUser, streamerUsername, streamerSlug)
+
+                    val mentionSpanStyle = if (isStreamer && streamerMentionBrush != null) {
+                        SpanStyle(
+                            brush = streamerMentionBrush,
+                            fontWeight = FontWeight.ExtraBold,
+                            shadow = streamerMentionShadow
+                        )
+                    } else {
+                        SpanStyle(
+                            color = secondaryColor,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    withStyle(mentionSpanStyle) {
+                        append(token.text)
+                    }
+                }
+                is ChatToken.PlainText -> {
+                    append(token.text)
+                }
+            }
+        }
+    }
+
+    fun parseHexColor(colorStr: String?, defaultColor: Color): Color {
+        if (colorStr.isNullOrBlank()) return defaultColor
+        return try {
+            val hex = if (colorStr.startsWith("#")) colorStr else "#$colorStr"
+            Color(android.graphics.Color.parseColor(hex))
+        } catch (_: Exception) {
+            defaultColor
+        }
     }
 
     private sealed class ChatToken {
@@ -358,4 +678,5 @@ object ChatTextParser {
     private enum class MatchType { EMOTE, MENTION }
     private data class MatchItem(val range: IntRange, val type: MatchType, val matchResult: MatchResult)
 }
+
 

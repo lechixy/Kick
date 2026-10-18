@@ -209,9 +209,17 @@ fun KickApp() {
     val dataStoreLowLatency by settingsRepo
         .get(SettingsKeys.LOW_LATENCY)
         .collectAsStateWithLifecycle(initialValue = PlayerSettingsManager.lowLatencyEnabled.value)
+    val dataStoreAutoFullscreen by settingsRepo
+        .get(SettingsKeys.AUTO_FULLSCREEN_LIVE)
+        .collectAsStateWithLifecycle(initialValue = PlayerSettingsManager.autoFullscreenLive.value)
     androidx.compose.runtime.LaunchedEffect(dataStoreLowLatency) {
         if (PlayerSettingsManager.lowLatencyEnabled.value != dataStoreLowLatency) {
             PlayerSettingsManager.setLowLatencyEnabled(dataStoreLowLatency)
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(dataStoreAutoFullscreen) {
+        if (PlayerSettingsManager.autoFullscreenLive.value != dataStoreAutoFullscreen) {
+            PlayerSettingsManager.setAutoFullscreenLive(dataStoreAutoFullscreen)
         }
     }
 
@@ -347,6 +355,12 @@ fun KickApp() {
                         when (settingRoute) {
                             "general" -> {
                                 GeneralSettingsScreen(
+                                    onBackClick = { navController.popBackStack() }
+                                )
+                            }
+
+                            "playback" -> {
+                                com.lechixy.kick.ui.screens.settings.playback.PlayerPlaybackSettingsScreen(
                                     onBackClick = { navController.popBackStack() }
                                 )
                             }

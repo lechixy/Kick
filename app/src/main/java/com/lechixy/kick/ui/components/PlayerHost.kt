@@ -473,7 +473,7 @@ fun PlayerHost(
                             onDragEnd = {
                                 if (committed) return@detectVerticalDragGestures
                                 val vy = tracker.calculateVelocity().y
-                                val tVel = -vy / container.height
+                                val tVel = -vy / container.height.coerceAtLeast(1)
                                 when {
                                     mode == PlayerMode.Expanded && (total < -commitPx || vy < -1800f) -> scope.launch {
                                         releaseVelocity = tVel.coerceAtLeast(0.5f)
@@ -542,6 +542,8 @@ private fun PlayerSurface(
                 isFullScreen = mode == PlayerMode.Fullscreen,
                 isInPipMode = isInPipMode,
                 isMini = mode == PlayerMode.Mini,
+                pendingAutoFullscreen = host.pendingAutoFullscreen,
+                onConsumeAutoFullscreen = host::consumeAutoFullscreen,
                 onFullScreenChange = host::setFullscreen,
                 onMinimize = onMinimize,
                 onClose = onClose,

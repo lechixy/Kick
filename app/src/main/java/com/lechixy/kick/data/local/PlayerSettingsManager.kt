@@ -10,12 +10,16 @@ object PlayerSettingsManager {
     private const val PREFS_NAME = "kick_player_settings_prefs"
     private const val KEY_PIP_ENABLED = "pip_enabled"
     private const val KEY_LOW_LATENCY_ENABLED = "low_latency_v2_enabled"
+    private const val KEY_AUTO_FULLSCREEN_LIVE = "auto_fullscreen_live"
 
     private val _pipEnabled = MutableStateFlow(true)
     val pipEnabled: StateFlow<Boolean> = _pipEnabled.asStateFlow()
 
     private val _lowLatencyEnabled = MutableStateFlow(true)
     val lowLatencyEnabled: StateFlow<Boolean> = _lowLatencyEnabled.asStateFlow()
+
+    private val _autoFullscreenLive = MutableStateFlow(false)
+    val autoFullscreenLive: StateFlow<Boolean> = _autoFullscreenLive.asStateFlow()
 
     private var sharedPreferences: SharedPreferences? = null
 
@@ -25,6 +29,7 @@ object PlayerSettingsManager {
             sharedPreferences = prefs
             _pipEnabled.value = prefs.getBoolean(KEY_PIP_ENABLED, true)
             _lowLatencyEnabled.value = prefs.getBoolean(KEY_LOW_LATENCY_ENABLED, true)
+            _autoFullscreenLive.value = prefs.getBoolean(KEY_AUTO_FULLSCREEN_LIVE, false)
         }
     }
 
@@ -36,5 +41,10 @@ object PlayerSettingsManager {
     fun setLowLatencyEnabled(enabled: Boolean) {
         _lowLatencyEnabled.value = enabled
         sharedPreferences?.edit()?.putBoolean(KEY_LOW_LATENCY_ENABLED, enabled)?.apply()
+    }
+
+    fun setAutoFullscreenLive(enabled: Boolean) {
+        _autoFullscreenLive.value = enabled
+        sharedPreferences?.edit()?.putBoolean(KEY_AUTO_FULLSCREEN_LIVE, enabled)?.apply()
     }
 }

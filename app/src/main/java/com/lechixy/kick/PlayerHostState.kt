@@ -39,18 +39,23 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
 
     var dragOffsetY by mutableFloatStateOf(0f)
 
+    var pendingAutoFullscreen by mutableStateOf(false)
+        private set
+
     fun open(slug: String) {
         if (this.slug != slug) channel = null
         this.slug = slug
         pageSlug = slug
         mode = PlayerMode.Expanded
         dragOffsetY = 0f
+        pendingAutoFullscreen = true
     }
 
     fun onChannelLoaded(slug: String, detail: ChannelDetail) {
         if (slug != this.slug) return
         channel = detail
         if (detail.livestream == null) {            // yayın yoksa player/mini olmasın
+            pendingAutoFullscreen = false
             when (mode) {
                 PlayerMode.Fullscreen -> mode = PlayerMode.Expanded
                 PlayerMode.Mini -> close()
@@ -59,12 +64,22 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
         }
     }
 
+    fun consumeAutoFullscreen(enterFullscreen: Boolean) {
+        if (!pendingAutoFullscreen) return
+        pendingAutoFullscreen = false
+        if (enterFullscreen && mode == PlayerMode.Expanded && channel?.livestream != null) {
+            mode = PlayerMode.Fullscreen
+        }
+    }
+
     fun setFullscreen(enabled: Boolean) {
+        pendingAutoFullscreen = false
         if (enabled && mode == PlayerMode.Expanded) mode = PlayerMode.Fullscreen
         else if (!enabled && mode == PlayerMode.Fullscreen) mode = PlayerMode.Expanded
     }
 
     fun minimize() {
+        pendingAutoFullscreen = false
         if (slug == null || mode == PlayerMode.Hidden) return
         val offline = channel != null && channel?.livestream == null
         if (offline) close() else mode = PlayerMode.Mini   // yayın yokken mini'ye geçme, direkt kapan
@@ -76,6 +91,7 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
     }
 
     fun close() {
+        pendingAutoFullscreen = false
         mode = PlayerMode.Hidden
         slug = null
         channel = null

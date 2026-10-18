@@ -16,6 +16,7 @@ object KickNetwork {
         ignoreUnknownKeys = true
         isLenient = true
         encodeDefaults = true
+        coerceInputValues = true
     }
 
     private val logging = HttpLoggingInterceptor().apply {

@@ -47,11 +47,17 @@ fun PlayerPlaybackSettingsScreen(
                             title = "Düşük Gecikme Modu (Low Latency)",
                             description = "Web sitesi ile anlık senkronize yayın (~2s gecikme). Güçlü internet bağlantısı gerektirir."
                         )
+                        SettingSwitch(
+                            key = SettingsKeys.AUTO_FULLSCREEN_LIVE,
+                            title = "Otomatik Tam Ekran (Auto Fullscreen)",
+                            description = "Kanala girildiğinde yayın canlıysa ve oynatıcı yüklendiyse hemen tam ekrana geç"
+                        )
                         SettingDropdown(
                             key = SettingsKeys.VIDEO_QUALITY,
                             title = "Varsayılan Video Kalitesi",
                             description = "Mobil ve Wi-Fi üzerindeki başlangıç çözünürlüğü",
                             options = listOf(
+                                -1 to "Auto",
                                 160 to "160p",
                                 360 to "360p",
                                 480 to "480p",
@@ -63,8 +69,8 @@ fun PlayerPlaybackSettingsScreen(
                             key = SettingsKeys.CHAT_FONT_SIZE,
                             title = "Sohbet Yazı Boyutu",
                             description = "Yayın içi sohbet mesajlarının yazı tipi boyutu",
-                            valueRange = 12f..22f,
-                            steps = 4,
+                            valueRange = 10f..24f,
+                            steps = 13,
                             valueFormatter = { "${it}sp" }
                         )
                     }

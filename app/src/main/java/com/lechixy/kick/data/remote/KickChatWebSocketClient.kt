@@ -6,9 +6,12 @@ import com.lechixy.kick.data.model.chat.CentrifugoPushFrame
 import com.lechixy.kick.data.model.chat.CentrifugoSubscribeFrame
 import com.lechixy.kick.data.model.chat.ChannelSubscriptionEvent
 import com.lechixy.kick.data.model.chat.ChatMessage
+import com.lechixy.kick.data.model.chat.ChatMessageType
 import com.lechixy.kick.data.model.chat.ChatWebSocketEvent
 import com.lechixy.kick.data.model.chat.ConnectPayload
+import com.lechixy.kick.data.model.chat.GiftedSubscriptionsEvent
 import com.lechixy.kick.data.model.chat.MessageDeletedEvent
+import com.lechixy.kick.data.model.chat.PinnedMessageInfo
 import com.lechixy.kick.data.model.chat.PointsUpdatedEvent
 import com.lechixy.kick.data.model.chat.RealtimeAuthRequest
 import com.lechixy.kick.data.model.chat.RealtimeClientInfo
@@ -16,6 +19,7 @@ import com.lechixy.kick.data.model.chat.RealtimeConnectionRequest
 import com.lechixy.kick.data.model.chat.RewardRedeemedEvent
 import com.lechixy.kick.data.model.chat.SubscribePayload
 import com.lechixy.kick.data.model.chat.UserBannedEvent
+import com.lechixy.kick.data.model.chat.withSelectedBadgesOnly
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
@@ -85,6 +89,12 @@ class KickChatWebSocketClient(
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
+    private val _pinnedMessage = MutableStateFlow<PinnedMessageInfo?>(null)
+    val pinnedMessage: StateFlow<PinnedMessageInfo?> = _pinnedMessage.asStateFlow()
+
+    private val _userColors = MutableStateFlow<Map<String, String>>(emptyMap())
+    val userColors: StateFlow<Map<String, String>> = _userColors.asStateFlow()
+
     private val _events = MutableSharedFlow<ChatWebSocketEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<ChatWebSocketEvent> = _events.asSharedFlow()
 
@@ -94,20 +104,40 @@ class KickChatWebSocketClient(
     private val _connectionState = MutableStateFlow(ChatConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ChatConnectionState> = _connectionState.asStateFlow()
 
+    fun updatePinnedMessage(pinned: PinnedMessageInfo?) {
+        _pinnedMessage.value = pinned?.takeIf { it.message != null }?.withSelectedBadgesOnly()
+    }
+
+    fun cacheUserColorsFromMessages(messages: List<ChatMessage>) {
+        if (messages.isEmpty()) return
+        _userColors.update { current ->
+            val updated = current.toMutableMap()
+            messages.forEach { msg ->
+                val username = msg.sender?.username
+                val color = msg.sender?.identity?.color
+                if (!username.isNullOrBlank() && !color.isNullOrBlank()) {
+                    updated[username.lowercase()] = color
+                }
+            }
+            updated
+        }
+    }
+
     fun connect(channelId: Long, chatroomId: Long) {
         val isSameChannel = currentChannelId == channelId && currentChatroomId == chatroomId
         if (isSameChannel && _connectionState.value == ChatConnectionState.CONNECTED) {
             return
         }
 
-        disconnectInternal(clearMessages = !isSameChannel)
+        val isSwitchingChannel = currentChannelId != null && currentChannelId != channelId
+        disconnectInternal(clearMessages = isSwitchingChannel)
 
         currentChannelId = channelId
         currentChatroomId = chatroomId
         isIntentionallyClosed = false
 
+        _connectionState.value = ChatConnectionState.CONNECTING
         clientScope.launch {
-            _connectionState.value = ChatConnectionState.CONNECTING
             startConnectionFlow(channelId, chatroomId)
         }
     }
@@ -288,46 +318,88 @@ class KickChatWebSocketClient(
             val pushFrame = json.decodeFromString<CentrifugoPushFrame>(frameText)
             val publication = pushFrame.push?.pub ?: pushFrame.pub ?: return
             val eventData = publication.data ?: return
-            val rawData = eventData.data ?: return
+            val rawData = eventData.data
             val eventType = eventData.event ?: publication.tags?.get("event") ?: return
 
             when (eventType) {
                 "App\\Events\\ChatMessageEvent",
                 "ChatMessageEvent" -> {
-                    val chatMessage = decodeEventPayload<ChatMessage>(rawData)
+                    val data = rawData ?: return
+                    val chatMessage = decodeEventPayload<ChatMessage>(data)?.withSelectedBadgesOnly()
                     if (chatMessage != null && chatMessage.content.isNotBlank()) {
                         addMessage(chatMessage)
                         _events.tryEmit(ChatWebSocketEvent.MessageReceived(chatMessage))
                     }
                 }
 
+                "App\\Events\\PinnedMessageCreatedEvent",
+                "PinnedMessageCreatedEvent" -> {
+                    val data = rawData ?: return
+                    val pinnedInfo = decodeEventPayload<PinnedMessageInfo>(data)?.withSelectedBadgesOnly() ?: return
+                    if (pinnedInfo.message != null) {
+                        _pinnedMessage.value = pinnedInfo
+                        _events.tryEmit(ChatWebSocketEvent.PinnedMessageCreated(pinnedInfo))
+                    }
+                }
+
+                "App\\Events\\PinnedMessageDeletedEvent",
+                "PinnedMessageDeletedEvent" -> {
+                    _pinnedMessage.value = null
+                    _events.tryEmit(ChatWebSocketEvent.PinnedMessageDeleted)
+                }
+
                 "RewardRedeemedEvent",
                 "App\\Events\\RewardRedeemedEvent" -> {
-                    val event = decodeEventPayload<RewardRedeemedEvent>(rawData) ?: return
+                    val data = rawData ?: return
+                    val event = decodeEventPayload<RewardRedeemedEvent>(data) ?: return
+                    val eventMessage = ChatMessage(
+                        id = "reward_${System.nanoTime()}_${event.userId ?: event.username}",
+                        type = ChatMessageType.REWARD_REDEEMED,
+                        content = event.userInput,
+                        rewardRedeemed = event
+                    )
+                    addMessage(eventMessage)
                     _events.tryEmit(ChatWebSocketEvent.RewardRedeemed(event))
+                }
+
+                "GiftedSubscriptionsEvent",
+                "App\\Events\\GiftedSubscriptionsEvent" -> {
+                    val data = rawData ?: return
+                    val event = decodeEventPayload<GiftedSubscriptionsEvent>(data) ?: return
+                    val eventMessage = ChatMessage(
+                        id = "gift_${System.nanoTime()}_${event.correlationId ?: event.gifterUsername}",
+                        type = ChatMessageType.GIFTED_SUBSCRIPTIONS,
+                        giftedSubscriptions = event
+                    )
+                    addMessage(eventMessage)
+                    _events.tryEmit(ChatWebSocketEvent.GiftedSubscriptions(event))
                 }
 
                 "App\\Events\\ChannelSubscriptionEvent",
                 "ChannelSubscriptionEvent" -> {
-                    val event = decodeEventPayload<ChannelSubscriptionEvent>(rawData) ?: return
+                    val data = rawData ?: return
+                    val event = decodeEventPayload<ChannelSubscriptionEvent>(data) ?: return
                     _events.tryEmit(ChatWebSocketEvent.ChannelSubscribed(event))
                 }
 
                 "App\\Events\\UserBannedEvent",
                 "UserBannedEvent" -> {
-                    val event = decodeEventPayload<UserBannedEvent>(rawData) ?: return
+                    val data = rawData ?: return
+                    val event = decodeEventPayload<UserBannedEvent>(data) ?: return
                     _events.tryEmit(ChatWebSocketEvent.UserBanned(event))
                 }
 
                 "App\\Events\\MessageDeletedEvent",
                 "MessageDeletedEvent" -> {
-                    val event = decodeEventPayload<MessageDeletedEvent>(rawData) ?: return
+                    val data = rawData ?: return
+                    val event = decodeEventPayload<MessageDeletedEvent>(data) ?: return
                     _events.tryEmit(ChatWebSocketEvent.MessageDeleted(event))
                 }
 
                 "PointsUpdated",
                 "App\\Events\\PointsUpdated" -> {
-                    val event = decodeEventPayload<PointsUpdatedEvent>(rawData) ?: return
+                    val data = rawData ?: return
+                    val event = decodeEventPayload<PointsUpdatedEvent>(data) ?: return
                     _pointsUpdated.value = event
                     _events.tryEmit(ChatWebSocketEvent.PointsUpdated(event))
                 }
@@ -350,6 +422,18 @@ class KickChatWebSocketClient(
     }
 
     private fun addMessage(message: ChatMessage) {
+        val senderUsername = message.sender?.username
+        val senderColor = message.sender?.identity?.color
+        if (!senderUsername.isNullOrBlank() && !senderColor.isNullOrBlank()) {
+            _userColors.update { current ->
+                if (current[senderUsername.lowercase()] == senderColor) {
+                    current
+                } else {
+                    current + (senderUsername.lowercase() to senderColor)
+                }
+            }
+        }
+
         _messages.update { currentList ->
             if (currentList.any { it.id == message.id }) {
                 return@update currentList
@@ -388,6 +472,8 @@ class KickChatWebSocketClient(
             currentChannelId = null
             currentChatroomId = null
             _messages.value = emptyList()
+            _pinnedMessage.value = null
+            _userColors.value = emptyMap()
             _pointsUpdated.value = null
         }
         _connectionState.value = ChatConnectionState.DISCONNECTED
