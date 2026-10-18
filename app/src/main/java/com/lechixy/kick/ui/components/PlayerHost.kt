@@ -5,6 +5,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -171,10 +172,26 @@ fun PlayerHost(
 
     fun px(dp: Float) = with(density) { dp.dp.toPx() }
 
+
+    val theaterProgress by animateFloatAsState(
+        targetValue = if (host.isTheaterMode) 1f else 0f,
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "theaterProgress"
+    )
+
     fun inlineRect(): IntRect {
         val wide = container.width >= with(density) { WIDE_BREAKPOINT_DP.dp.roundToPx() }
-        val w = if (wide) (area.width * (1f - CHAT_WIDTH_FRACTION)).roundToInt() else area.width
-        return IntRect(area.left, area.top, area.left + w, area.top + (w * 9f / 16f).roundToInt())
+        val effectiveChatFraction = if (wide) host.animatedChatFraction else 0f
+        val w = if (wide) (area.width * (1f - effectiveChatFraction)).roundToInt() else area.width
+        val playerHeight = (w * 9f / 16f).roundToInt()
+        val headerPx = if (host.channelHeaderHeightPx > 0) host.channelHeaderHeightPx else (area.height * 0.24f).roundToInt()
+        val theaterTargetHeight = (area.height - headerPx).coerceIn(0, area.height)
+        val h = if (wide) {
+            (playerHeight + (theaterTargetHeight - playerHeight) * theaterProgress).roundToInt()
+        } else {
+            playerHeight
+        }
+        return IntRect(area.left, area.top, area.left + w, area.top + h)
     }
 
     fun miniWidthPx(): Float {
@@ -217,9 +234,11 @@ fun PlayerHost(
     }
 
     fun fullRect(): IntRect {
-        val w = container.width * fsScale;
+        val effectiveChatFraction = host.animatedChatFraction
+        val totalW = container.width * fsScale
+        val w = totalW * (1f - effectiveChatFraction)
         val h = container.height * fsScale
-        val l = (container.width - w) / 2f
+        val l = (container.width - totalW) / 2f
         val t = (container.height - h) / 2f + fsDy
         return IntRect(l.roundToInt(), t.roundToInt(), (l + w).roundToInt(), (t + h).roundToInt())
     }
@@ -540,13 +559,18 @@ private fun PlayerSurface(
                 streamTitle = channel.livestream.sessionTitle ?: "Canlı Yayın",
                 channel = channel,
                 isFullScreen = mode == PlayerMode.Fullscreen,
+                isTheaterMode = host.isTheaterMode,
+                isChatVisible = host.isChatVisible,
+                onToggleChat = host::toggleChatVisibility,
                 isInPipMode = isInPipMode,
                 isMini = mode == PlayerMode.Mini,
                 pendingAutoFullscreen = host.pendingAutoFullscreen,
                 onConsumeAutoFullscreen = host::consumeAutoFullscreen,
                 onFullScreenChange = host::setFullscreen,
+                onToggleTheater = host::toggleTheaterMode,
                 onMinimize = onMinimize,
                 onClose = onClose,
+                onControlsVisibilityChanged = { host.isControlsVisible = it },
                 modifier = Modifier.fillMaxSize()
             )
         } else {

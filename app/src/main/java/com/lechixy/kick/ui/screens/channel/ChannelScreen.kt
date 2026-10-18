@@ -3,7 +3,19 @@ package com.lechixy.kick.ui.screens.channel
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import androidx.annotation.StringRes
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,12 +32,16 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,11 +54,11 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -52,6 +68,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -59,9 +76,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
+import com.lechixy.kick.PlayerHostState
+import com.lechixy.kick.PlayerMode
 import com.lechixy.kick.R
 import com.lechixy.kick.data.local.FollowManager
 import com.lechixy.kick.data.model.ChannelDetail
@@ -85,12 +103,18 @@ import com.lechixy.kick.util.FormatUtils
 import com.lechixy.kick.util.buildOptimizedImageRequest
 import kotlinx.coroutines.flow.first
 
-enum class ChannelTab(val title: String) {
-    CHAT("Chat"),
-    HOME("Home"),
-    ABOUT("About"),
-    VIDEOS("Videos"),
-    CLIPS("Clips")
+enum class ChannelTab(
+    @StringRes val label: Int,
+) {
+    CHAT(R.string.chat),
+    HOME(R.string.home),
+    ABOUT(R.string.about),
+    VIDEOS(R.string.videos),
+    CLIPS(R.string.clips);
+
+    fun getLabel(context: Context): String {
+        return context.getString(this.label)
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -98,6 +122,7 @@ enum class ChannelTab(val title: String) {
 fun ChannelScreen(
     channelSlug: String,
     modifier: Modifier = Modifier,
+    playerHost: PlayerHostState? = null,
     viewModel: ChannelViewModel = viewModel(),
     onChannelLoaded: (ChannelDetail) -> Unit = {},
     onBackClick: () -> Unit = {}
@@ -117,6 +142,11 @@ fun ChannelScreen(
     val isFollowing = remember(followedSlugs, channelSlug) {
         FollowManager.isFollowing(channelSlug)
     }
+
+    val isControlsVisible = playerHost?.isControlsVisible ?: true
+    val isChatVisible = playerHost?.isChatVisible ?: true
+    val chatWidthFraction = playerHost?.chatWidthFraction ?: CHAT_WIDTH_FRACTION
+    val isTheaterMode = playerHost?.isTheaterMode ?: false
 
     LaunchedEffect(channelSlug) {
         val autoConnect = settingsRepository.get(SettingsKeys.AUTO_CONNECT_CHAT).first()
@@ -145,21 +175,41 @@ fun ChannelScreen(
     ) {
         val channel = state.channel
 
-        BoxWithConstraints(Modifier.fillMaxSize()) {
+        BoxWithConstraints(
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(inlineInsets)
+        ) {
             val screenWidthDp = maxWidth
+            val screenHeightDp = maxHeight
             val isWide = screenWidthDp >= WIDE_BREAKPOINT_DP.dp
             val bannerWidthPx = remember(screenWidthDp, density) {
                 with(density) { screenWidthDp.toPx().toInt() }
             }
 
+            var isDraggingHandle by remember { mutableStateOf(false) }
+            var dragAccumulatedPx by remember { mutableFloatStateOf(0f) }
+            var dragStartFraction by remember { mutableFloatStateOf(chatWidthFraction) }
+
+            val isFullScreen = playerHost?.mode == PlayerMode.Fullscreen
+            val isChatActuallyVisible = if (isFullScreen) (isTheaterMode && isChatVisible) else (isWide && isChatVisible)
+            val targetChatFraction = if (isChatActuallyVisible) chatWidthFraction else 0f
+            val animatedChatFraction by animateFloatAsState(
+                targetValue = targetChatFraction,
+                animationSpec = if (isDraggingHandle) snap() else tween(300, easing = FastOutSlowInEasing),
+                label = "chatWidthFraction"
+            )
+
+            LaunchedEffect(animatedChatFraction) {
+                playerHost?.animatedChatFraction = animatedChatFraction
+            }
+
             Row(
-                Modifier
-                    .fillMaxSize()
-                    .windowInsetsPadding(inlineInsets)
+                Modifier.fillMaxSize()
             ) {
                 Column(
                     Modifier
-                        .weight(if (isWide) 1f - CHAT_WIDTH_FRACTION else 1f)
+                        .weight(if (isWide) (1f - animatedChatFraction).coerceAtLeast(0.01f) else 1f)
                         .fillMaxHeight()
                 ) {
                     // Player'ın oturduğu yer (PlayerHost bu alanı işliyor)
@@ -205,9 +255,30 @@ fun ChannelScreen(
                             )
                         }
                     } else {
-                        Spacer(Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(16f / 9f))   // canlı: player burada oturuyor
+                        val theaterProgress by animateFloatAsState(
+                            targetValue = if (isTheaterMode) 1f else 0f,
+                            animationSpec = tween(300, easing = FastOutSlowInEasing),
+                            label = "theaterProgress"
+                        )
+                        val normalHeightDp = remember(screenWidthDp, animatedChatFraction, isWide) {
+                            val contentWidth = if (isWide) screenWidthDp * (1f - animatedChatFraction) else screenWidthDp
+                            contentWidth * 9f / 16f
+                        }
+                        val headerHeightPx = playerHost?.channelHeaderHeightPx ?: 0
+                        val headerHeightDp = if (headerHeightPx > 0) {
+                            with(density) { headerHeightPx.toDp() }
+                        } else {
+                            screenHeightDp * 0.24f
+                        }
+                        val theaterTargetHeightDp = remember(screenHeightDp, headerHeightDp) {
+                            (screenHeightDp - headerHeightDp).coerceAtLeast(0.dp)
+                        }
+                        val playerHeightDp = if (isWide) {
+                            normalHeightDp + (theaterTargetHeightDp - normalHeightDp) * theaterProgress
+                        } else {
+                            normalHeightDp
+                        }
+                        Spacer(Modifier.fillMaxWidth().height(playerHeightDp))
                     }
 
                     if (channel != null) {
@@ -217,20 +288,39 @@ fun ChannelScreen(
                             FormatUtils.formatLastLive(latestVideo?.startTime ?: latestVideo?.createdAt, true)
                         }
 
-                        ChannelHeaderInfo(
-                            channel = channel,
-                            event = state.event,
-                            isLive = isLive,
-                            lastLiveText = lastLiveText,
-                            isFollowing = isFollowing,
-                            onFollowClick = { FollowManager.toggleFollow(channelSlug) },
-                            context = context
-                        )
+                        // ChannelHeaderInfo: geniş ekranda (tablet) theater mod dahil her zaman görünür, mobilde kontrollerle senkronize
+                        AnimatedVisibility(
+                            visible = if (isWide) true else isControlsVisible,
+                            enter = expandVertically(tween(300)) + fadeIn(tween(300)),
+                            exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
+                        ) {
+                            ChannelHeaderInfo(
+                                channel = channel,
+                                event = state.event,
+                                isLive = isLive,
+                                lastLiveText = lastLiveText,
+                                isFollowing = isFollowing,
+                                onFollowClick = { FollowManager.toggleFollow(channelSlug) },
+                                context = context,
+                                onHeightMeasured = { heightPx ->
+                                    if (heightPx > 0) {
+                                        playerHost?.channelHeaderHeightPx = heightPx
+                                    }
+                                }
+                            )
+                        }
 
-                        ChannelTabsRow(
-                            selectedTab = selectedTab,
-                            onTabSelected = { selectedTab = it }
-                        )
+                        // ChannelTabsRow: geniş ekranda theater modda gizlenir, mobilde kontrollerle senkronize
+                        AnimatedVisibility(
+                            visible = if (isWide) !isTheaterMode else isControlsVisible,
+                            enter = expandVertically(tween(300)) + fadeIn(tween(300)),
+                            exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
+                        ) {
+                            ChannelTabsRow(
+                                selectedTab = selectedTab,
+                                onTabSelected = { selectedTab = it }
+                            )
+                        }
 
                         if (selectedTab == ChannelTab.CHAT && !isWide) {
                             ChatView(
@@ -249,18 +339,25 @@ fun ChannelScreen(
                                     .weight(1f)
                             )
                         } else {
-                            LazyColumn(
+                            AnimatedVisibility(
+                                visible = if (isWide) !isTheaterMode else true,
+                                enter = expandVertically(tween(300)) + fadeIn(tween(300)),
+                                exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .weight(1f)
                             ) {
-                                item {
-                                    ChannelTabContent(
-                                        tab = selectedTab,
-                                        channel = channel,
-                                        videos = state.videos,
-                                        onNavigateToVideos = { selectedTab = ChannelTab.VIDEOS }
-                                    )
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    item {
+                                        ChannelTabContent(
+                                            tab = selectedTab,
+                                            channel = channel,
+                                            videos = state.videos,
+                                            onNavigateToVideos = { selectedTab = ChannelTab.VIDEOS }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -284,16 +381,12 @@ fun ChannelScreen(
                     }
                 }
 
-                if (isWide && channel != null) {
-                    Row(
+                if (isWide && channel != null && animatedChatFraction > 0.001f) {
+                    Box(
                         Modifier
                             .fillMaxHeight()
-                            .weight(CHAT_WIDTH_FRACTION)
+                            .weight(animatedChatFraction)
                     ) {
-                        VerticalDivider(
-                            thickness = 1.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
                         ChatView(
                             messages = chatMessages,
                             connectionState = chatConnectionState,
@@ -305,9 +398,39 @@ fun ChannelScreen(
                             streamerSlug = channel.slug,
                             onConnectClick = viewModel::connectChat,
                             onDisconnectClick = viewModel::disconnectChat,
+                            onHideChat = { playerHost?.isChatVisible = false },
+                            modifier = Modifier.fillMaxSize()
+                        )
+
+                        ChatResizeHandle(
+                            isDragging = isDraggingHandle,
+                            onDragStart = {
+                                isDraggingHandle = true
+                                dragAccumulatedPx = 0f
+                                dragStartFraction = chatWidthFraction
+                            },
+                            onDragEnd = {
+                                isDraggingHandle = false
+                            },
+                            onDrag = { dragAmountPx ->
+                                dragAccumulatedPx += dragAmountPx
+                                val screenWidthPx = with(density) { screenWidthDp.toPx() }
+                                if (screenWidthPx > 0f) {
+                                    val deltaFraction = -dragAccumulatedPx / screenWidthPx
+                                    val newFraction = dragStartFraction + deltaFraction
+                                    if (newFraction < 0.18f) {
+                                        playerHost?.isChatVisible = false
+                                        isDraggingHandle = false
+                                    } else {
+                                        playerHost?.updateChatWidthFraction(newFraction)
+                                    }
+                                }
+                            },
                             modifier = Modifier
-                                .weight(1f)
+                                .align(Alignment.CenterStart)
                                 .fillMaxHeight()
+                                .width(24.dp)
+                                .offset(x = (-12).dp)
                         )
                     }
                 }
@@ -337,93 +460,175 @@ private fun ChannelHeaderInfo(
     lastLiveText: String,
     isFollowing: Boolean,
     onFollowClick: () -> Unit,
-    context: Context
+    context: Context,
+    onHeightMeasured: (Int) -> Unit = {}
 ) {
-    if (isLive && channel.livestream != null) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp, 16.dp, 16.dp, 0.dp)
-        ) {
-            Row(
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .wrapContentHeight(Alignment.Top, unbounded = true)
+            .onSizeChanged { onHeightMeasured(it.height) }
+    ) {
+        if (isLive && channel.livestream != null) {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(16.dp, 16.dp, 16.dp, 0.dp)
             ) {
-                Text(
-                    text = channel.livestream.sessionTitle ?: "No title",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .padding(end = 8.dp)
-                )
-                LiveBadge()
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                FlowRow(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                        .fillMaxWidth()
+                        .padding(bottom = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    channel.livestream.categories.forEach { category ->
-                        TagChip(tag = category.name)
-                    }
-                    event?.title?.takeIf { it.isNotBlank() }?.let { eventTitle ->
-                        val defaultContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                        val defaultContentColor = MaterialTheme.colorScheme.primary
-                        val (eventContainerColor, eventContentColor) = remember(
-                            event.palette?.accentPromoPoster,
-                            defaultContainerColor,
-                            defaultContentColor
-                        ) {
-                            resolveEventChipColors(
-                                accentHex = event.palette?.accentPromoPoster,
-                                defaultContainerColor = defaultContainerColor,
-                                defaultContentColor = defaultContentColor
+                    Text(
+                        text = channel.livestream.sessionTitle ?: "No title",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp)
+                    )
+                    LiveBadge()
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FlowRow(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        channel.livestream.categories.forEach { category ->
+                            var translatedName = category.name
+                            if (translatedName == "Just Chatting") translatedName = stringResource(R.string.category_just_chatting)
+                            TagChip(tag = translatedName)
+                        }
+                        event?.title?.takeIf { it.isNotBlank() }?.let { eventTitle ->
+                            val defaultContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                            val defaultContentColor = MaterialTheme.colorScheme.primary
+                            val (eventContainerColor, eventContentColor) = remember(
+                                event.palette?.accentPromoPoster,
+                                defaultContainerColor,
+                                defaultContentColor
+                            ) {
+                                resolveEventChipColors(
+                                    accentHex = event.palette?.accentPromoPoster,
+                                    defaultContainerColor = defaultContainerColor,
+                                    defaultContentColor = defaultContentColor
+                                )
+                            }
+                            TagChip(
+                                tag = eventTitle,
+                                icon = R.drawable.stars_2_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
+                                containerColor = eventContainerColor,
+                                contentColor = eventContentColor
                             )
                         }
-                        TagChip(
-                            tag = eventTitle,
-                            icon = R.drawable.stars_2_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
-                            containerColor = eventContainerColor,
-                            contentColor = eventContentColor
+                        channel.livestream.tags.forEach { tag ->
+                            TagChip(tag = tag)
+                        }
+                        val languageLabel = channel.livestream.language?.takeIf { it.isNotBlank() }
+                            ?: channel.livestream.langIso?.takeIf { it.isNotBlank() }
+                        if (!languageLabel.isNullOrBlank()) {
+                            val defaultContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                            val defaultContentColor = MaterialTheme.colorScheme.primary
+                            val (langContainerColor, langContentColor) = remember(
+                                channel.livestream.langIso,
+                                defaultContainerColor,
+                                defaultContentColor
+                            ) {
+                                resolveLanguageChipColors(
+                                    langIso = channel.livestream.langIso,
+                                    defaultContainerColor = defaultContainerColor,
+                                    defaultContentColor = defaultContentColor
+                                )
+                            }
+                            TagChip(
+                                tag = languageLabel,
+                                containerColor = langContainerColor,
+                                contentColor = langContentColor
+                            )
+                        }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.group_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                            contentDescription = "Viewers",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        androidx.compose.runtime.key(channel.id) {
+                            AnimatedCounterText(
+                                count = channel.livestream.viewerCount,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.viewers),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
                         )
                     }
-                    channel.livestream.tags.forEach { tag ->
-                        TagChip(tag = tag)
-                    }
-                    val languageLabel = channel.livestream.language?.takeIf { it.isNotBlank() }
-                        ?: channel.livestream.langIso?.takeIf { it.isNotBlank() }
-                    if (!languageLabel.isNullOrBlank()) {
-                        val defaultContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                        val defaultContentColor = MaterialTheme.colorScheme.primary
-                        val (langContainerColor, langContentColor) = remember(
-                            channel.livestream.langIso,
-                            defaultContainerColor,
-                            defaultContentColor
-                        ) {
-                            resolveLanguageChipColors(
-                                langIso = channel.livestream.langIso,
-                                defaultContainerColor = defaultContainerColor,
-                                defaultContentColor = defaultContentColor
+                }
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AsyncImage(
+                model = remember(channel.user?.profilePic) {
+                    buildOptimizedImageRequest(
+                        context = context,
+                        data = channel.user?.profilePic,
+                        targetWidthDp = 64,
+                        targetHeightDp = 64
+                    )
+                },
+                contentDescription = channel.user?.username,
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = channel.user?.username ?: channel.slug,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (channel.verified) {
+                        VerifiedBadge(
+                            modifier = Modifier.size(16.dp),
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.onPrimaryContainer
                             )
-                        }
-                        TagChip(
-                            tag = languageLabel,
-                            containerColor = langContainerColor,
-                            contentColor = langContentColor
                         )
                     }
                 }
@@ -432,122 +637,50 @@ private fun ChannelHeaderInfo(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(
-                        painter = painterResource(R.drawable.group_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                        contentDescription = "Viewers",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    androidx.compose.runtime.key(channel.id) {
-                        AnimatedCounterText(
-                            count = channel.livestream.viewerCount,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
                     Text(
-                        text = stringResource(R.string.viewers),
+                        text = FormatUtils.formatFollowersCount(channel.followersCount),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = stringResource(R.string.followers),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
                 }
-            }
-        }
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        AsyncImage(
-            model = remember(channel.user?.profilePic) {
-                buildOptimizedImageRequest(
-                    context = context,
-                    data = channel.user?.profilePic,
-                    targetWidthDp = 64,
-                    targetHeightDp = 64
-                )
-            },
-            contentDescription = channel.user?.username,
-            modifier = Modifier
-                .size(56.dp)
-                .clip(CircleShape),
-            contentScale = ContentScale.Crop
-        )
 
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = channel.user?.username ?: channel.slug,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                if (channel.verified) {
-                    VerifiedBadge(
-                        modifier = Modifier.size(16.dp),
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                if (!isLive) {
+                    Text(
+                        text = lastLiveText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            Button(
+                onClick = onFollowClick,
+                shape = RoundedCornerShape(8.dp),
+                colors = if (isFollowing) {
+                    ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                },
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text = FormatUtils.formatFollowersCount(channel.followersCount),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "followers",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
+                    text = if (isFollowing) "Following" else "Follow",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
                 )
             }
-
-            if (!isLive) {
-                Text(
-                    text = lastLiveText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
-
-        Button(
-            onClick = onFollowClick,
-            shape = RoundedCornerShape(8.dp),
-            colors = if (isFollowing) {
-                ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            },
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-        ) {
-            Text(
-                text = if (isFollowing) "Following" else "Follow",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold
-            )
         }
     }
 }
@@ -568,7 +701,7 @@ private fun ChannelTabsRow(
                 onClick = { onTabSelected(tab) },
                 text = {
                     Text(
-                        text = tab.title,
+                        text = tab.getLabel(LocalContext.current),
                         fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal
                     )
                 }
@@ -713,3 +846,72 @@ private fun ChannelTabContent(
         }
     }
 }
+
+@Composable
+private fun ChatResizeHandle(
+    isDragging: Boolean,
+    onDragStart: () -> Unit,
+    onDragEnd: () -> Unit,
+    onDrag: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val glowAlpha by animateFloatAsState(
+        targetValue = if (isDragging) 1f else 0f,
+        animationSpec = tween(150),
+        label = "handleGlow"
+    )
+    val handleColor = if (isDragging) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+    }
+
+    Box(
+        modifier = modifier
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { onDragStart() },
+                    onDragEnd = { onDragEnd() },
+                    onDragCancel = { onDragEnd() }
+                ) { change, dragAmount ->
+                    change.consume()
+                    onDrag(dragAmount)
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (glowAlpha > 0.01f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(10.dp)
+                    .background(
+                        brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0f),
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f * glowAlpha),
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0f)
+                            )
+                        )
+                    )
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(1.5.dp)
+                .background(handleColor)
+        )
+
+        if (glowAlpha > 0.01f) {
+            Box(
+                modifier = Modifier
+                    .size(width = 4.dp, height = 40.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.primary)
+            )
+        }
+    }
+}
+

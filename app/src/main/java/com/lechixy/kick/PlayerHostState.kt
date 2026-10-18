@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -41,6 +42,43 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
 
     var pendingAutoFullscreen by mutableStateOf(false)
         private set
+
+    var isTheaterMode by mutableStateOf(false)
+
+    var isChatVisible by mutableStateOf(true)
+
+    var chatWidthFraction by mutableFloatStateOf(0.35f)
+
+    var animatedChatFraction by mutableFloatStateOf(0.35f)
+
+    var channelHeaderHeightPx by mutableIntStateOf(0)
+
+    var isControlsVisible by mutableStateOf(false)
+
+    fun toggleTheaterMode() {
+        isTheaterMode = !isTheaterMode
+        if (isTheaterMode) {
+            isChatVisible = true
+        }
+    }
+
+    fun toggleChatVisibility() {
+        if (mode == PlayerMode.Fullscreen) {
+            if (isTheaterMode && isChatVisible) {
+                isChatVisible = false
+                isTheaterMode = false
+            } else {
+                isTheaterMode = true
+                isChatVisible = true
+            }
+        } else {
+            isChatVisible = !isChatVisible
+        }
+    }
+
+    fun updateChatWidthFraction(fraction: Float) {
+        chatWidthFraction = fraction.coerceIn(0.18f, 0.60f)
+    }
 
     fun open(slug: String) {
         if (this.slug != slug) channel = null
@@ -96,6 +134,10 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
         slug = null
         channel = null
         pageSlug = null
+        isTheaterMode = false
+        isChatVisible = true
+        chatWidthFraction = 0.35f
+        animatedChatFraction = 0.35f
     }
 
     companion object {

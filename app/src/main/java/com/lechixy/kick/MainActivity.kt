@@ -217,7 +217,14 @@ fun KickApp() {
     }
 
     val openChannel: (String) -> Unit = { slug -> playerHost.open(slug) }
-    val isImmersive = playerHost.mode == PlayerMode.Fullscreen || isInPipMode
+    val navType =
+        NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(currentWindowAdaptiveInfoV2())
+    val useBottomBar = navType.toString().contains("NavigationBar", ignoreCase = true)
+    val isScaffoldHidden = if (useBottomBar) {
+        playerHost.isChannelVisible || playerHost.mode == PlayerMode.Fullscreen || isInPipMode
+    } else {
+        playerHost.mode == PlayerMode.Fullscreen || playerHost.isTheaterMode || isInPipMode
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -225,7 +232,7 @@ fun KickApp() {
         contentColor = MaterialTheme.colorScheme.onBackground
     ) {
         KickNavScaffold(
-            hidden = isImmersive,
+            hidden = isScaffoldHidden,
             currentRoute = currentRoute,
             onNavigate = { targetRoute ->
                 if (playerHost.isChannelVisible) playerHost.minimize()
@@ -367,6 +374,7 @@ fun KickApp() {
                     pageContent = { slug ->
                         ChannelScreen(
                             channelSlug = slug,
+                            playerHost = playerHost,
                             viewModel = viewModel(key = slug),
                             onChannelLoaded = { playerHost.onChannelLoaded(slug, it) },
                             onBackClick = playerHost::minimize,

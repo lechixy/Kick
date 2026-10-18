@@ -21,9 +21,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.lechixy.kick.R
 import com.lechixy.kick.data.local.FollowManager
 import com.lechixy.kick.data.model.toLivestream
 import com.lechixy.kick.ui.components.StreamCard
@@ -47,7 +49,7 @@ fun FollowingScreen(
     Scaffold(
         topBar = {
             Text(
-                text = "Following",
+                text = stringResource(R.string.following),
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier

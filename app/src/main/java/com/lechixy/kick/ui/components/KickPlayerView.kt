@@ -32,14 +32,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -49,7 +52,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,7 +59,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -65,7 +66,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -84,6 +84,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -92,22 +93,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
-import com.lechixy.kick.data.model.getBannerUrl
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.media3.ui.PlayerView
 import com.lechixy.kick.PlayerMode
 import com.lechixy.kick.R
 import com.lechixy.kick.data.model.ChannelDetail
+import com.lechixy.kick.data.model.getBannerUrl
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lechixy.kick.service.EXTRA_LOW_LATENCY
 import com.lechixy.kick.service.PlaybackService
 import com.lechixy.kick.service.buildPlaybackMediaItem
@@ -139,13 +140,18 @@ fun KickPlayerView(
     streamTitle: String = "",
     channel: ChannelDetail? = null,
     isFullScreen: Boolean = false,
+    isTheaterMode: Boolean = false,
+    isChatVisible: Boolean = true,
+    onToggleChat: () -> Unit = {},
     isInPipMode: Boolean = false,
     isMini: Boolean = false,
     pendingAutoFullscreen: Boolean = false,
     onConsumeAutoFullscreen: (Boolean) -> Unit = {},
     onFullScreenChange: (Boolean) -> Unit = {},
+    onToggleTheater: () -> Unit = {},
     onMinimize: () -> Unit = {},
     onClose: () -> Unit = {},
+    onControlsVisibilityChanged: (Boolean) -> Unit = {},
     onPlayerCoordinatesChanged: (Rect) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -299,6 +305,10 @@ fun KickPlayerView(
             delay(3500.milliseconds)
             showControls = false
         }
+    }
+
+    LaunchedEffect(showControls) {
+        onControlsVisibilityChanged(showControls)
     }
 
     LaunchedEffect(isMini) { if (isMini) showControls = false }
@@ -562,6 +572,9 @@ fun KickPlayerView(
         ) {
             PlayerControlsOverlay(
                 isFullScreen = isFullScreen,
+                isTheaterMode = isTheaterMode,
+                isChatVisible = isChatVisible,
+                onToggleChat = onToggleChat,
                 isPlaying = isPlaying,
                 isMuted = isMuted,
                 volume = volume,
@@ -588,6 +601,7 @@ fun KickPlayerView(
                 },
                 onOpenSettings = { showSettingsDialog = true },
                 onOpenCastDialog = { showCastDialog = true },
+                onToggleTheater = onToggleTheater,
                 onToggleFullScreen = toggleFullScreen,
                 // Tam ekrandayken önce tam ekrandan çık, normalde ise mini player'a geç.
                 onMinimize = { if (isFullScreen) onFullScreenChange(false) else onMinimize() }
@@ -1122,6 +1136,9 @@ private fun PlayerSettingsOptionRow(
 @Composable
 internal fun PlayerControlsOverlay(
     isFullScreen: Boolean,
+    isTheaterMode: Boolean = false,
+    isChatVisible: Boolean = true,
+    onToggleChat: () -> Unit = {},
     isPlaying: Boolean,
     isMuted: Boolean,
     volume: Float,
@@ -1142,6 +1159,7 @@ internal fun PlayerControlsOverlay(
     onVolumeChangeFinished: () -> Unit = {},
     onOpenSettings: () -> Unit,
     onOpenCastDialog: () -> Unit = {},
+    onToggleTheater: () -> Unit = {},
     onToggleFullScreen: () -> Unit,
     onMinimize: () -> Unit,
     modifier: Modifier = Modifier
@@ -1152,7 +1170,10 @@ internal fun PlayerControlsOverlay(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.5f))
-            .windowInsetsPadding(WindowInsets.displayCutout)
+            .let {
+                if (isFullScreen) it.windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
+                else it
+            }
     ) {
         /**
          * Top
@@ -1161,7 +1182,7 @@ internal fun PlayerControlsOverlay(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
-                .padding(start = 4.dp, top = 4.dp, end = 12.dp, bottom = 12.dp),
+                .padding(start = 4.dp, top = 8.dp, end = 12.dp, bottom = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1225,23 +1246,61 @@ internal fun PlayerControlsOverlay(
             /**
              * Top End/Right
              */
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            val configuration = LocalConfiguration.current
+            val isWide = configuration.screenWidthDp >= WIDE_BREAKPOINT_DP
+            val showChatButton = isFullScreen || isTheaterMode || isWide
+
+            Column(
+                horizontalAlignment = Alignment.End,
+//                verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-                IconButton(onClick = onOpenCastDialog) {
-                    Icon(
-                        painter = painterResource(id = if (isCastDialogVisible) R.drawable.cast_24dp_e3e3e3_fill1_wght400_grad0_opsz24 else R.drawable.cast_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                        contentDescription = "Cast",
-                        tint = Color.White
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    IconButton(onClick = onOpenCastDialog) {
+                        Icon(
+                            painter = painterResource(id = if (isCastDialogVisible) R.drawable.cast_24dp_e3e3e3_fill1_wght400_grad0_opsz24 else R.drawable.cast_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                            contentDescription = "Cast",
+                            tint = Color.White
+                        )
+                    }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            painter = painterResource(id = if (isSettingsDialogVisible) R.drawable.settings_24dp_e3e3e3_fill1_wght400_grad0_opsz24 else R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                            contentDescription = "Settings",
+                            tint = Color.White
+                        )
+                    }
                 }
-                IconButton(onClick = onOpenSettings) {
-                    Icon(
-                        painter = painterResource(id = if (isSettingsDialogVisible) R.drawable.settings_24dp_e3e3e3_fill1_wght400_grad0_opsz24 else R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                        contentDescription = "Settings",
-                        tint = Color.White
-                    )
+
+                if (showChatButton) {
+                    Surface(
+                        onClick = onToggleChat,
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = 0.65f),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                        shadowElevation = 4.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.chat_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                                contentDescription = if (isChatVisible) "Sohbeti Gizle" else "Sohbeti Göster",
+                                tint = if (isChatVisible) MaterialTheme.colorScheme.primary else Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = stringResource(R.string.chat),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1281,9 +1340,14 @@ internal fun PlayerControlsOverlay(
             /**
              * Bottom Start/Left
              */
+            val isCompact = !isFullScreen
+            val itemSpacing = if (isCompact) 4.dp else 8.dp
+            val sliderWidth = if (isCompact) 56.dp else 110.dp
+
             Row(
+                modifier = Modifier.weight(1f, fill = false),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(itemSpacing)
             ) {
                 IconButton(onClick = onToggleMute, modifier = Modifier.size(32.dp)) {
                     Icon(
@@ -1301,12 +1365,7 @@ internal fun PlayerControlsOverlay(
                     onValueChange = onVolumeChange,
                     onValueChangeFinished = onVolumeChangeFinished,
                     valueRange = 0f..1f,
-//                    colors = SliderDefaults.colors(
-//                        thumbColor = green,
-//                        activeTrackColor = green,
-//                        inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-//                    ),
-                    modifier = Modifier.width(110.dp)
+                    modifier = Modifier.width(sliderWidth)
                 )
                 Text(
                     text = "${(if (isMuted) 0f else volume * 100).toInt()}%",
@@ -1317,7 +1376,7 @@ internal fun PlayerControlsOverlay(
                 Separator()
                 Box(
                     modifier = Modifier
-                        .size(10.dp)
+                        .size(if (isCompact) 8.dp else 10.dp)
                         .background(color = MaterialTheme.colorScheme.primary, shape = CircleShape)
                 )
                 Text(
@@ -1331,9 +1390,6 @@ internal fun PlayerControlsOverlay(
                     Separator()
                     Surface(
                         onClick = { if (!isAtLiveEdge) onGoToLive() },
-                        color = if (isAtLiveEdge) Color.Red.copy(alpha = 0.85f) else Color(
-                            0xFF222222
-                        ),
                         shape = RoundedCornerShape(4.dp),
                         modifier = Modifier.padding(start = 2.dp)
                     ) {
@@ -1377,9 +1433,20 @@ internal fun PlayerControlsOverlay(
              * Bottom End/Right
              */
             Row(
+                modifier = Modifier.wrapContentWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                IconButton(onClick = onToggleTheater) {
+                    Icon(
+                        painter = painterResource(
+                            id = if (isTheaterMode) R.drawable.theaters_24dp_e3e3e3_fill1_wght400_grad0_opsz24
+                            else R.drawable.theaters_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+                        ),
+                        contentDescription = "Theater Mode",
+                        tint = if (isTheaterMode) MaterialTheme.colorScheme.primary else Color.White
+                    )
+                }
                 IconButton(onClick = onToggleFullScreen) {
                     Icon(
                         painter = painterResource(

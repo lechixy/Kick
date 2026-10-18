@@ -114,7 +114,14 @@ fun ChatMessageItem(
                 }
                 if (recipients.isEmpty()) {
                     add(ChatTextParser.EventTextSegment("the community", isBold = true, color = defaultPrimaryColor))
-                } else {
+                } else if (recipients.size == 1) {
+                    val recipientColor = ChatTextParser.parseHexColor(
+                        userColors[recipients.first().lowercase()],
+                        defaultPrimaryColor
+                    )
+                    add(ChatTextParser.EventTextSegment(recipients.first(), isBold = true, color = recipientColor))
+                }
+                else {
                     recipients.forEachIndexed { index, recipient ->
                         if (index > 0) {
                             add(ChatTextParser.EventTextSegment(", ", isBold = false))

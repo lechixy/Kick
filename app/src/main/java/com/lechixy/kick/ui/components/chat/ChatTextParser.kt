@@ -369,16 +369,18 @@ object ChatTextParser {
         return ParsedChatMessage(annotatedString, inlineContentMap)
     }
 
+    private val USER_PLACEHOLDER_REGEX = Regex("%(?:\\d+\\$)?s")
+
     @Composable
     fun parseUserHeaderWithBadges(
-        prefixText: String,
-        prefixColor: Color,
+        text: String,
+        textColor: Color,
         senderName: String,
         senderColor: Color,
         fontSizeSp: Int,
         badges: List<ResolvedChatBadge> = emptyList(),
         @DrawableRes leadingIconRes: Int? = null,
-        leadingIconTint: Color = prefixColor
+        leadingIconTint: Color = textColor
     ): ParsedChatMessage {
         val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
         val inlineContentMap = mutableMapOf<String, InlineTextContent>()
@@ -412,52 +414,80 @@ object ChatTextParser {
                 appendSafeInlineContent(iconId, alternateText = "[icon]")
             }
 
-            if (prefixText.isNotEmpty()) {
-                withStyle(SpanStyle(color = prefixColor, fontWeight = FontWeight.Medium)) {
-                    append(prefixText)
-                }
-            }
-
-            for (badge in badges) {
-                val inlineId = badge.key
-                if (!inlineContentMap.containsKey(inlineId)) {
-                    inlineContentMap[inlineId] = InlineTextContent(
-                        Placeholder(
-                            width = badgeWidthSp,
-                            height = badgeHeightSp,
-                            placeholderVerticalAlign = PlaceholderVerticalAlign.Center
-                        )
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(end = 3.dp),
-                            contentAlignment = Alignment.Center
+            val appendUserBlock: AnnotatedString.Builder.() -> Unit = {
+                for (badge in badges) {
+                    val inlineId = badge.key
+                    if (!inlineContentMap.containsKey(inlineId)) {
+                        inlineContentMap[inlineId] = InlineTextContent(
+                            Placeholder(
+                                width = badgeWidthSp,
+                                height = badgeHeightSp,
+                                placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                            )
                         ) {
-                            when {
-                                badge.drawableRes != null -> {
-                                    Image(
-                                        painter = painterResource(badge.drawableRes),
-                                        contentDescription = badge.name,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
-                                !badge.imageUrl.isNullOrBlank() -> {
-                                    AsyncImage(
-                                        model = badge.imageUrl,
-                                        contentDescription = badge.name,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(end = 3.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                when {
+                                    badge.drawableRes != null -> {
+                                        Image(
+                                            painter = painterResource(badge.drawableRes),
+                                            contentDescription = badge.name,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+                                    !badge.imageUrl.isNullOrBlank() -> {
+                                        AsyncImage(
+                                            model = badge.imageUrl,
+                                            contentDescription = badge.name,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
+                    appendSafeInlineContent(inlineId, alternateText = "[${badge.name.ifBlank { "badge" }}]")
                 }
-                appendSafeInlineContent(inlineId, alternateText = "[${badge.name.ifBlank { "badge" }}]")
+
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = senderColor)) {
+                    append(senderName)
+                }
             }
 
-            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = senderColor)) {
-                append(senderName)
+            val match = USER_PLACEHOLDER_REGEX.find(text)
+
+            if (match != null) {
+                val prefix = text.substring(0, match.range.first)
+                val suffix = text.substring(match.range.last + 1)
+
+                // Placeholder öncesi (örneğin İngilizcede "Pinned by ")
+                if (prefix.isNotEmpty()) {
+                    withStyle(SpanStyle(color = textColor, fontWeight = FontWeight.Medium)) {
+                        append(prefix)
+                    }
+                }
+
+                appendUserBlock()
+
+                if (suffix.isNotEmpty()) {
+                    withStyle(SpanStyle(color = textColor, fontWeight = FontWeight.Medium)) {
+                        append(suffix)
+                    }
+                }
+            } else {
+                if (text.isNotEmpty()) {
+                    withStyle(SpanStyle(color = textColor, fontWeight = FontWeight.Medium)) {
+                        append(text)
+                    }
+                    if (!text.endsWith(" ")) {
+                        append(" ")
+                    }
+                }
+                appendUserBlock()
             }
         }
 

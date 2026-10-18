@@ -1,13 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Kick</string>
-    <string name="github">GitHub</string>
+
+
     <string name="live_badge">CANLI</string>
     <string name="go_to_live">Canlıya Git</string>
     <string name="viewers">izleyici</string>
-    <string name="home">Ev</string>
-    <string name="following">Takip Edilenler</string>
+    <string name="home">Ana</string>
+    <string name="following">Takipte</string>
     <string name="browse">Göz at</string>
     <string name="settings">Ayarlar</string>
     <string name="anonymous">İsimsiz biri</string>
+    <string name="chat">Sohbet</string>
+    <string name="live">Canlı</string>
+    <string name="connecting">Bağlanılıyor</string>
+    <string name="disconnected">Bağlı değil</string>
+    <string name="error">Hata</string>
+    <string name="chat_settings">Sohbet ayarları</string>
+    <string name="hide_chat">Sohbeti gizle</string>
+    <string name="pinned_by_the_author_of_the_message">Mesajın sahibi tarafından sabitlendi</string>
+    <string name="pinned_by">%1$s tarafından sabitlendi</string>
+    <string name="sent_by">%1$s tarafından gönderildi</string>
+    <string name="following_button">Takip ediliyor</string>
+    <string name="follow">Takip et</string>
+    <string name="about">Hakkında</string>
+    <string name="videos">Videolar</string>
+    <string name="clips">Klipler</string>
+    <string name="followers">takipçi</string>
+    <string name="category_just_chatting">Sadece Sohbet</string>
 </resources>

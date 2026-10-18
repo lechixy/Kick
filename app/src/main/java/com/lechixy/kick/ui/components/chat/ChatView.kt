@@ -74,6 +74,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -114,7 +115,8 @@ fun ChatView(
     streamerUsername: String? = null,
     streamerSlug: String? = null,
     onConnectClick: () -> Unit = {},
-    onDisconnectClick: () -> Unit = {}
+    onDisconnectClick: () -> Unit = {},
+    onHideChat: (() -> Unit)? = null
 ) {
     val repository = LocalSettingsRepository.current
     val fontSize by repository
@@ -178,7 +180,8 @@ fun ChatView(
         ChatHeader(
             connectionState = connectionState,
             showOptions = showOptions,
-            onToggleOptions = { showOptions = true }
+            onToggleOptions = { showOptions = true },
+            onHideChat = onHideChat
         )
 
         // Chat Options Modal BottomSheet
@@ -582,8 +585,8 @@ private fun PinnedMessageOverlay(
                 ChatTextParser.resolveBadges(sender?.identity, subscriberBadges)
             }
             val sentByHeader = ChatTextParser.parseUserHeaderWithBadges(
-                prefixText = "Sent by ",
-                prefixColor = mutedColor,
+                text = stringResource(R.string.sent_by),
+                textColor = mutedColor,
                 senderName = sender?.username ?: "Unknown",
                 senderColor = senderColor,
                 fontSizeSp = headerFontSizeSp,
@@ -698,7 +701,7 @@ private fun PinnedMessageOverlay(
 
                         if (isPinnedBySameSender) {
                             Text(
-                                text = "Mesajın sahibi tarafından sabitlendi",
+                                text = stringResource(R.string.pinned_by_the_author_of_the_message),
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     color = mutedColor,
                                     fontWeight = FontWeight.Medium,
@@ -719,8 +722,8 @@ private fun PinnedMessageOverlay(
                                 ChatTextParser.resolveBadges(pinnedBy.identity, subscriberBadges)
                             }
                             val pinnedByHeader = ChatTextParser.parseUserHeaderWithBadges(
-                                prefixText = "Pinned by ",
-                                prefixColor = mutedColor,
+                                text = stringResource(R.string.pinned_by),
+                                textColor = mutedColor,
                                 senderName = pinnedBy.username,
                                 senderColor = pinnedByColor,
                                 fontSizeSp = headerFontSizeSp,
@@ -791,32 +794,51 @@ private fun PinnedMessageOverlay(
 private fun ChatHeader(
     connectionState: ChatConnectionState,
     showOptions: Boolean,
-    onToggleOptions: () -> Unit
+    onToggleOptions: () -> Unit,
+    onHideChat: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(
-            text = "",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (onHideChat != null) {
+                IconButton(
+                    onClick = onHideChat,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.keyboard_double_arrow_right_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                        contentDescription = stringResource(R.string.hide_chat),
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Text(
+                text = stringResource(R.string.chat),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             val (statusText, statusColor) = when (connectionState) {
-                ChatConnectionState.CONNECTED -> "Canlı" to MaterialTheme.colorScheme.primary
-                ChatConnectionState.CONNECTING -> "Bağlanıyor..." to MaterialTheme.colorScheme.secondary
-                ChatConnectionState.DISCONNECTED -> "Çevrimdışı" to MaterialTheme.colorScheme.outline
-                ChatConnectionState.ERROR -> "Hata" to MaterialTheme.colorScheme.error
+                ChatConnectionState.CONNECTED -> stringResource(R.string.live) to MaterialTheme.colorScheme.primary
+                ChatConnectionState.CONNECTING -> stringResource(R.string.connecting) to MaterialTheme.colorScheme.secondary
+                ChatConnectionState.DISCONNECTED -> stringResource(R.string.disconnected) to MaterialTheme.colorScheme.outline
+                ChatConnectionState.ERROR -> stringResource(R.string.error) to MaterialTheme.colorScheme.error
             }
 
             Row(
@@ -843,7 +865,7 @@ private fun ChatHeader(
             ) {
                 Icon(
                     painter = painterResource(if (showOptions) R.drawable.settings_24dp_e3e3e3_fill1_wght400_grad0_opsz24 else R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                    contentDescription = "Chat Settings",
+                    contentDescription = stringResource(R.string.chat_settings),
                     modifier = Modifier.size(20.dp)
                 )
             }
