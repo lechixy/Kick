@@ -29,18 +29,38 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.ParsingLoadable
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import com.lechixy.kick.data.local.PlayerSettingsManager
+import com.lechixy.kick.data.settings.SettingsKeys
+import com.lechixy.kick.data.settings.SettingsRepository
+import dagger.hilt.android.AndroidEntryPoint
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.util.Locale
+import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
+@AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
+    @Inject
+    lateinit var settingsRepository: SettingsRepository
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile
+    private var lowLatencyEnabled: Boolean = SettingsKeys.LOW_LATENCY.defaultValue
+
     private var mediaSession: MediaSession? = null
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
-        PlayerSettingsManager.init(this)
+        serviceScope.launch {
+            settingsRepository.get(SettingsKeys.LOW_LATENCY).collect { enabled ->
+                lowLatencyEnabled = enabled
+            }
+        }
 
         val dataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(
@@ -73,7 +93,7 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         val hlsParserFactory = KickHlsPlaylistParserFactory {
-            PlayerSettingsManager.lowLatencyEnabled.value
+            lowLatencyEnabled
         }
 
         val hlsMediaSourceFactory = HlsMediaSource.Factory(dataSourceFactory)
@@ -131,6 +151,7 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = mediaSession
 
     override fun onDestroy() {
+        serviceScope.cancel()
         mediaSession?.run {
             player.release()
             release()

@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 
@@ -28,21 +29,26 @@ fun SettingCard(
     description: String? = null,
     icon: Int? = null,
     enabled: Boolean = true,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLow,
+    borderColor: Color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+    titleColor: Color = MaterialTheme.colorScheme.onSurface,
+    descriptionColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    iconTint: Color = MaterialTheme.colorScheme.primary,
     onClick: (() -> Unit)? = null,
     action: @Composable (() -> Unit)? = null
 ) {
     val shape = RoundedCornerShape(8.dp)
-    val containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-    val border = BorderStroke(
+    val resolvedContainerColor = if (enabled) containerColor else containerColor.copy(alpha = containerColor.alpha * 0.5f)
+    val resolvedBorder = BorderStroke(
         width = 1.dp,
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        color = if (enabled) borderColor else borderColor.copy(alpha = borderColor.alpha * 0.38f)
     )
 
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = shape,
-        color = containerColor,
-        border = border,
+        color = resolvedContainerColor,
+        border = resolvedBorder,
         tonalElevation = 0.dp
     ) {
         Row(
@@ -63,7 +69,7 @@ fun SettingCard(
                     Icon(
                         painter = painterResource(id = icon),
                         contentDescription = null,
-                        tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                        tint = if (enabled) iconTint else iconTint.copy(alpha = 0.38f),
                         modifier = Modifier.size(22.dp)
                     )
                     Spacer(modifier = Modifier.width(16.dp))
@@ -73,13 +79,13 @@ fun SettingCard(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.bodyLarge,
-                        color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        color = if (enabled) titleColor else titleColor.copy(alpha = 0.38f)
                     )
                     if (description != null) {
                         Text(
                             text = description,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                            color = if (enabled) descriptionColor else descriptionColor.copy(alpha = 0.38f)
                         )
                     }
                 }

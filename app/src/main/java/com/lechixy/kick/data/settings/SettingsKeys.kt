@@ -49,6 +49,11 @@ object SettingsKeys {
         defaultValue = true,
         type = SettingType.BooleanType
     )
+    val PIP_ENABLED = SettingKey(
+        key = booleanPreferencesKey("pip_enabled"),
+        defaultValue = true,
+        type = SettingType.BooleanType
+    )
     val LOW_LATENCY = SettingKey(
         key = booleanPreferencesKey("low_latency_v2_enabled"),
         defaultValue = true,
@@ -92,15 +97,18 @@ object SettingsKeys {
      */
     val ALL_KEYS: List<SettingKey<*>> by lazy {
         listOf(
+            APP_LANGUAGE,
             THEME,
+            DYNAMIC_COLOR,
+            AUTOPLAY,
+            PIP_ENABLED,
             LOW_LATENCY,
             AUTO_FULLSCREEN_LIVE,
             VIDEO_QUALITY,
             RECOMMENDED_LIVESTREAM_LANGUAGE,
             CHAT_FONT_SIZE,
             AUTO_CONNECT_CHAT,
-            CHAT_MESSAGE_SPACING,
-            DYNAMIC_COLOR
+            CHAT_MESSAGE_SPACING
         )
     }
 }

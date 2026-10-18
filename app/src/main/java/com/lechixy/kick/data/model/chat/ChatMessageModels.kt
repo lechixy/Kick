@@ -137,7 +137,9 @@ data class ChatCelebration(
     @SerialName("total_months")
     val totalMonths: Int? = null,
     @SerialName("created_at")
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    val username: String = "",
+    val sender: ChatSender? = null
 )
 
 @Serializable
@@ -241,7 +243,10 @@ data class ChannelSubscriptionEvent(
     val userIds: List<Long> = emptyList(),
     val username: String = "",
     @SerialName("channel_id")
-    val channelId: Long? = null
+    val channelId: Long? = null,
+    val months: Int? = null,
+    @SerialName("total_months")
+    val totalMonths: Int? = null
 )
 
 @Serializable
@@ -289,6 +294,7 @@ data class PointsUpdatedEvent(
 
 sealed interface ChatWebSocketEvent {
     data class MessageReceived(val message: ChatMessage) : ChatWebSocketEvent
+    data class Celebration(val event: ChatCelebration) : ChatWebSocketEvent
     data class RewardRedeemed(val event: RewardRedeemedEvent) : ChatWebSocketEvent
     data class GiftedSubscriptions(val event: GiftedSubscriptionsEvent) : ChatWebSocketEvent
     data class ChannelSubscribed(val event: ChannelSubscriptionEvent) : ChatWebSocketEvent

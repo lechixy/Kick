@@ -466,8 +466,27 @@ object ChatTextParser {
 
     data class EventTextSegment(
         val text: String,
-        val isBold: Boolean = false
+        val isBold: Boolean = false,
+        val color: Color? = null
     )
+
+    fun buildEventAnnotatedString(
+        segments: List<EventTextSegment>,
+        boldColor: Color,
+        mutedColor: Color
+    ): AnnotatedString = buildAnnotatedString {
+        for (segment in segments) {
+            if (segment.text.isEmpty()) continue
+            val resolvedColor = segment.color ?: if (segment.isBold) boldColor else mutedColor
+            val style = SpanStyle(
+                color = resolvedColor,
+                fontWeight = if (segment.isBold) FontWeight.Bold else FontWeight.Normal
+            )
+            withStyle(style) {
+                append(segment.text)
+            }
+        }
+    }
 
     @Composable
     fun parseEventHeader(
@@ -510,11 +529,11 @@ object ChatTextParser {
 
             for (segment in segments) {
                 if (segment.text.isEmpty()) continue
-                val style = if (segment.isBold) {
-                    SpanStyle(color = boldColor, fontWeight = FontWeight.Bold)
-                } else {
-                    SpanStyle(color = mutedColor, fontWeight = FontWeight.Normal)
-                }
+                val resolvedColor = segment.color ?: if (segment.isBold) boldColor else mutedColor
+                val style = SpanStyle(
+                    color = resolvedColor,
+                    fontWeight = if (segment.isBold) FontWeight.Bold else FontWeight.Normal
+                )
                 withStyle(style) {
                     append(segment.text)
                 }

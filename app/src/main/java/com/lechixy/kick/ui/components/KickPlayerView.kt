@@ -104,7 +104,6 @@ import androidx.media3.session.SessionToken
 import androidx.media3.ui.PlayerView
 import com.lechixy.kick.PlayerMode
 import com.lechixy.kick.R
-import com.lechixy.kick.data.local.PlayerSettingsManager
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
@@ -114,6 +113,7 @@ import com.lechixy.kick.service.PlaybackService
 import com.lechixy.kick.service.buildPlaybackMediaItem
 import com.lechixy.kick.ui.screens.channel.findActivity
 import com.lechixy.kick.ui.settings.SettingCard
+import com.lechixy.kick.ui.settings.SettingSwitch
 import com.lechixy.kick.util.CastUtils
 import com.lechixy.kick.util.FormatUtils
 import com.lechixy.kick.util.FormatUtils.formatDuration
@@ -248,9 +248,15 @@ fun KickPlayerView(
         }
     }
 
-    val pipEnabled by PlayerSettingsManager.pipEnabled.collectAsState()
-    val lowLatencyEnabled by PlayerSettingsManager.lowLatencyEnabled.collectAsState()
-    val autoFullscreenLive by PlayerSettingsManager.autoFullscreenLive.collectAsState()
+    val pipEnabled by settingsRepository
+        .get(SettingsKeys.PIP_ENABLED)
+        .collectAsStateWithLifecycle(initialValue = SettingsKeys.PIP_ENABLED.defaultValue)
+    val lowLatencyEnabled by settingsRepository
+        .get(SettingsKeys.LOW_LATENCY)
+        .collectAsStateWithLifecycle(initialValue = SettingsKeys.LOW_LATENCY.defaultValue)
+    val autoFullscreenLive by settingsRepository
+        .get(SettingsKeys.AUTO_FULLSCREEN_LIVE)
+        .collectAsStateWithLifecycle(initialValue = SettingsKeys.AUTO_FULLSCREEN_LIVE.defaultValue)
     var showCastDialog by remember { mutableStateOf(false) }
     var playerBounds by remember { mutableStateOf<Rect?>(null) }
 
@@ -837,47 +843,24 @@ fun KickPlayerView(
                                         .fillMaxWidth()
                                         .padding(horizontal = 16.dp)
                                         .verticalScroll(rememberScrollState()),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    PlayerSettingsSwitchRow(
+                                    SettingSwitch(
+                                        key = SettingsKeys.PIP_ENABLED,
                                         title = "Resim İçinde Resim (PiP)",
-                                        description = "Uygulamadan çıkıldığında yayını küçük ekranda oynat",
-                                        checked = pipEnabled,
-                                        onCheckedChange = { PlayerSettingsManager.setPipEnabled(it) }
+                                        description = "Uygulamadan çıkıldığında yayını küçük ekranda oynat"
                                     )
 
-                                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-                                    PlayerSettingsSwitchRow(
+                                    SettingSwitch(
+                                        key = SettingsKeys.LOW_LATENCY,
                                         title = "Düşük Gecikme Modu (Low Latency)",
-                                        description = "Web sitesi ile anlık canlı yayın (~2s gecikme)",
-                                        checked = lowLatencyEnabled,
-                                        onCheckedChange = { enabled ->
-                                            PlayerSettingsManager.setLowLatencyEnabled(enabled)
-                                            coroutineScope.launch {
-                                                settingsRepository.set(
-                                                    SettingsKeys.LOW_LATENCY,
-                                                    enabled
-                                                )
-                                            }
-                                        }
+                                        description = "Web sitesi ile anlık canlı yayın (~2s gecikme)"
                                     )
 
-                                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-                                    PlayerSettingsSwitchRow(
+                                    SettingSwitch(
+                                        key = SettingsKeys.AUTO_FULLSCREEN_LIVE,
                                         title = "Otomatik Tam Ekran (Auto Fullscreen)",
-                                        description = "Kanala girildiğinde yayın canlıysa ve oynatıcı yüklendiyse hemen tam ekrana geç",
-                                        checked = autoFullscreenLive,
-                                        onCheckedChange = { enabled ->
-                                            PlayerSettingsManager.setAutoFullscreenLive(enabled)
-                                            coroutineScope.launch {
-                                                settingsRepository.set(
-                                                    SettingsKeys.AUTO_FULLSCREEN_LIVE,
-                                                    enabled
-                                                )
-                                            }
-                                        }
+                                        description = "Kanala girildiğinde yayın canlıysa ve oynatıcı yüklendiyse hemen tam ekrana geç"
                                     )
                                 }
                             }
@@ -1133,42 +1116,6 @@ private fun PlayerSettingsOptionRow(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun PlayerSettingsSwitchRow(
-    title: String,
-    description: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 8.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(end = 12.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline
-            )
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 

@@ -27,11 +27,6 @@ fun SettingSwitch(
         title = title,
         checked = value,
         onCheckedChange = { newValue ->
-            if (key == com.lechixy.kick.data.settings.SettingsKeys.LOW_LATENCY) {
-                com.lechixy.kick.data.local.PlayerSettingsManager.setLowLatencyEnabled(newValue)
-            } else if (key == com.lechixy.kick.data.settings.SettingsKeys.AUTO_FULLSCREEN_LIVE) {
-                com.lechixy.kick.data.local.PlayerSettingsManager.setAutoFullscreenLive(newValue)
-            }
             coroutineScope.launch {
                 repository.set(key, newValue)
             }

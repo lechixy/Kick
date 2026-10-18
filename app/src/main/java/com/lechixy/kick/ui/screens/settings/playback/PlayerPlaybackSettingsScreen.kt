@@ -43,6 +43,11 @@ fun PlayerPlaybackSettingsScreen(
                         description = "Oynatıcı ve video ayarları"
                     ) {
                         SettingSwitch(
+                            key = SettingsKeys.PIP_ENABLED,
+                            title = "Resim İçinde Resim (PiP)",
+                            description = "Uygulamadan çıkıldığında yayını küçük ekranda oynat"
+                        )
+                        SettingSwitch(
                             key = SettingsKeys.LOW_LATENCY,
                             title = "Düşük Gecikme Modu (Low Latency)",
                             description = "Web sitesi ile anlık senkronize yayın (~2s gecikme). Güçlü internet bağlantısı gerektirir."

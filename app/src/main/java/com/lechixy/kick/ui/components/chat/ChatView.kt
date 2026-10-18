@@ -1,9 +1,13 @@
 package com.lechixy.kick.ui.components.chat
 
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -22,7 +26,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -48,24 +54,40 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lechixy.kick.R
 import com.lechixy.kick.data.model.SubscriberBadge
+import com.lechixy.kick.data.model.chat.ChannelSubscriptionEvent
+import com.lechixy.kick.data.model.chat.ChatCelebration
 import com.lechixy.kick.data.model.chat.ChatMessage
+import com.lechixy.kick.data.model.chat.ChatWebSocketEvent
+import com.lechixy.kick.data.model.chat.GiftedSubscriptionsEvent
 import com.lechixy.kick.data.model.chat.PinnedMessageInfo
 import com.lechixy.kick.data.remote.ChatConnectionState
 import com.lechixy.kick.data.settings.LocalSettingsRepository
@@ -73,7 +95,11 @@ import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.settings.SettingCard
 import com.lechixy.kick.ui.settings.SettingSlider
 import com.lechixy.kick.ui.settings.SettingSwitch
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,6 +110,7 @@ fun ChatView(
     subscriberBadges: List<SubscriberBadge> = emptyList(),
     userColors: Map<String, String> = emptyMap(),
     pinnedMessage: PinnedMessageInfo? = null,
+    chatEvents: Flow<ChatWebSocketEvent> = emptyFlow(),
     streamerUsername: String? = null,
     streamerSlug: String? = null,
     onConnectClick: () -> Unit = {},
@@ -204,6 +231,10 @@ fun ChatView(
                                 "Mevcut sohbet odası bağlantısını sonlandır"
                             },
                             enabled = !isDisconnected,
+                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+                            borderColor = MaterialTheme.colorScheme.error.copy(alpha = 0.5f),
+                            titleColor = MaterialTheme.colorScheme.error,
+                            descriptionColor = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
                             onClick = {
                                 onDisconnectClick()
                                 showOptions = false
@@ -316,7 +347,92 @@ fun ChatView(
                 }
             }
 
-            // Pinned Message Overlay at top of chat
+            val currentPrimaryColor by rememberUpdatedState(MaterialTheme.colorScheme.primary)
+            val currentUserColors by rememberUpdatedState(userColors)
+            val tickerEventQueue = remember {
+                mutableStateListOf<ChatTickerOverlayItem>()
+            }
+
+            LaunchedEffect(streamerSlug) {
+                tickerEventQueue.clear()
+            }
+
+            LaunchedEffect(chatEvents) {
+                chatEvents.collect { wsEvent ->
+                    val tickerItem = when (wsEvent) {
+                        is ChatWebSocketEvent.GiftedSubscriptions -> {
+                            buildGiftedSubscriptionsTickerItem(
+                                event = wsEvent.event,
+                                userColors = currentUserColors,
+                                primaryColor = currentPrimaryColor
+                            )
+                        }
+                        is ChatWebSocketEvent.ChannelSubscribed -> {
+                            buildChannelSubscriptionTickerItem(
+                                event = wsEvent.event,
+                                userColors = currentUserColors,
+                                primaryColor = currentPrimaryColor
+                            )
+                        }
+                        is ChatWebSocketEvent.Celebration -> {
+                            buildCelebrationTickerItem(
+                                celebration = wsEvent.event,
+                                senderUsername = wsEvent.event.sender?.username ?: wsEvent.event.username,
+                                senderColorHex = wsEvent.event.sender?.identity?.color,
+                                userColors = currentUserColors,
+                                primaryColor = currentPrimaryColor
+                            )
+                        }
+                        is ChatWebSocketEvent.MessageReceived -> {
+                            val msg = wsEvent.message
+                            if (msg.isCelebration) {
+                                val celebration = msg.metadata?.celebration ?: ChatCelebration(id = msg.id)
+                                buildCelebrationTickerItem(
+                                    celebration = celebration,
+                                    senderUsername = msg.sender?.username,
+                                    senderColorHex = msg.sender?.identity?.color,
+                                    userColors = currentUserColors,
+                                    primaryColor = currentPrimaryColor
+                                )
+                            } else {
+                                null
+                            }
+                        }
+                        else -> null
+                    }
+                    if (tickerItem != null) {
+                        tickerEventQueue.add(tickerItem)
+                    }
+                }
+            }
+
+            var tickerOverlayHeightPx by remember { mutableIntStateOf(0) }
+            val overlapGapAdjustmentPx = with(LocalDensity.current) { 4.dp.roundToPx() }
+            val targetPinnedOffsetPx = if (tickerOverlayHeightPx > 0) {
+                (tickerOverlayHeightPx - overlapGapAdjustmentPx).coerceAtLeast(0)
+            } else {
+                0
+            }
+            val animatedPinnedOffsetPx by animateIntAsState(
+                targetValue = targetPinnedOffsetPx,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessLow
+                ),
+                label = "pinned_message_slide_down"
+            )
+
+            // Event Ticker Overlay above PinnedMessageOverlay
+            ChatEventTickerOverlay(
+                queue = tickerEventQueue,
+                fontSizeSp = fontSize,
+                onActiveHeightChanged = { tickerOverlayHeightPx = it },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+            )
+
+            // Pinned Message Overlay at top of chat (slides down smoothly when ticker overlay is active)
             PinnedMessageOverlay(
                 pinnedMessage = pinnedMessage,
                 fontSizeSp = fontSize,
@@ -325,6 +441,7 @@ fun ChatView(
                 streamerSlug = streamerSlug,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .offset { IntOffset(0, animatedPinnedOffsetPx) }
                     .fillMaxWidth()
             )
 
@@ -717,3 +834,469 @@ private fun ChatHeader(
         }
     }
 }
+
+sealed interface ChatTickerEventSource {
+    data class GiftedSubscriptions(val event: GiftedSubscriptionsEvent) : ChatTickerEventSource
+    data class Celebration(val event: ChatCelebration, val username: String = "") : ChatTickerEventSource
+    data class ChannelSubscription(val event: ChannelSubscriptionEvent) : ChatTickerEventSource
+}
+
+data class ChatTickerOverlayItem(
+    val id: String,
+    @DrawableRes val iconRes: Int,
+    val segments: List<ChatTextParser.EventTextSegment>,
+    val accentColor: Color? = null,
+    val durationMillis: Long = 7_000L,
+    val isInfinite: Boolean = false,
+    val source: ChatTickerEventSource
+)
+
+private fun buildCelebrationTickerItem(
+    celebration: ChatCelebration,
+    senderUsername: String?,
+    senderColorHex: String?,
+    userColors: Map<String, String>,
+    primaryColor: Color
+): ChatTickerOverlayItem {
+    val username = senderUsername?.takeIf { it.isNotBlank() }
+        ?: celebration.sender?.username?.takeIf { it.isNotBlank() }
+        ?: celebration.username.takeIf { it.isNotBlank() }
+        ?: "Someone"
+    val rawColor = senderColorHex
+        ?: celebration.sender?.identity?.color
+        ?: userColors[username.lowercase()]
+    val userColor = ChatTextParser.parseHexColor(rawColor, primaryColor)
+    val months = celebration.totalMonths
+
+    val segments = buildList {
+        add(
+            ChatTextParser.EventTextSegment(
+                text = username,
+                isBold = true,
+                color = userColor
+            )
+        )
+        if (months != null && months > 0) {
+            add(
+                ChatTextParser.EventTextSegment(
+                    text = " has subscribed for ",
+                    isBold = false
+                )
+            )
+            val monthLabel = if (months == 1) "1 month" else "$months months"
+            add(
+                ChatTextParser.EventTextSegment(
+                    text = monthLabel,
+                    isBold = true,
+                    color = primaryColor
+                )
+            )
+        } else {
+            add(
+                ChatTextParser.EventTextSegment(
+                    text = " has subscribed",
+                    isBold = false
+                )
+            )
+        }
+    }
+
+    return ChatTickerOverlayItem(
+        id = "celebration_${celebration.id.ifBlank { username }}_${System.nanoTime()}",
+        iconRes = R.drawable.kid_star_24dp_e3e3e3_fill1_wght400_grad0_opsz24,
+        segments = segments,
+        accentColor = primaryColor,
+        durationMillis = 7_000L,
+        isInfinite = false,
+        source = ChatTickerEventSource.Celebration(celebration, username)
+    )
+}
+
+private fun buildChannelSubscriptionTickerItem(
+    event: ChannelSubscriptionEvent,
+    userColors: Map<String, String>,
+    primaryColor: Color
+): ChatTickerOverlayItem {
+    val username = event.username.ifBlank { "Someone" }
+    val userColor = ChatTextParser.parseHexColor(userColors[username.lowercase()], primaryColor)
+    val months = event.totalMonths ?: event.months
+
+    val segments = buildList {
+        add(
+            ChatTextParser.EventTextSegment(
+                text = username,
+                isBold = true,
+                color = userColor
+            )
+        )
+        if (months != null && months > 0) {
+            add(
+                ChatTextParser.EventTextSegment(
+                    text = " has subscribed for ",
+                    isBold = false
+                )
+            )
+            val monthLabel = if (months == 1) "1 month" else "$months months"
+            add(
+                ChatTextParser.EventTextSegment(
+                    text = monthLabel,
+                    isBold = true,
+                    color = primaryColor
+                )
+            )
+        } else {
+            add(
+                ChatTextParser.EventTextSegment(
+                    text = " has subscribed",
+                    isBold = false
+                )
+            )
+        }
+    }
+
+    return ChatTickerOverlayItem(
+        id = "sub_${username}_${System.nanoTime()}",
+        iconRes = R.drawable.kid_star_24dp_e3e3e3_fill1_wght400_grad0_opsz24,
+        segments = segments,
+        accentColor = primaryColor,
+        durationMillis = 7_000L,
+        isInfinite = false,
+        source = ChatTickerEventSource.ChannelSubscription(event)
+    )
+}
+
+private fun buildGiftedSubscriptionsTickerItem(
+    event: GiftedSubscriptionsEvent,
+    userColors: Map<String, String>,
+    primaryColor: Color
+): ChatTickerOverlayItem {
+    val gifterName = event.gifterUsername.ifBlank { "Anonymous" }
+    val gifterColor = ChatTextParser.parseHexColor(userColors[gifterName.lowercase()], primaryColor)
+    val recipients = event.giftedUsernames.filter { it.isNotBlank() }
+    val giftedCount = event.giftedTotal?.takeIf { it > 0 } ?: recipients.size
+
+    val segments = buildList {
+        add(
+            ChatTextParser.EventTextSegment(
+                text = gifterName,
+                isBold = true,
+                color = gifterColor
+            )
+        )
+        if (giftedCount > 1) {
+            add(ChatTextParser.EventTextSegment(text = " gifted ", isBold = false))
+            add(
+                ChatTextParser.EventTextSegment(
+                    text = "$giftedCount subs",
+                    isBold = true,
+                    color = primaryColor
+                )
+            )
+            add(ChatTextParser.EventTextSegment(text = " to ", isBold = false))
+        } else {
+            add(ChatTextParser.EventTextSegment(text = " gifted a sub to ", isBold = false))
+        }
+
+        if (recipients.isEmpty()) {
+            add(
+                ChatTextParser.EventTextSegment(
+                    text = "the community",
+                    isBold = true,
+                    color = primaryColor
+                )
+            )
+        } else {
+            recipients.forEachIndexed { index, recipient ->
+                if (index > 0) {
+                    add(ChatTextParser.EventTextSegment(text = ", ", isBold = false))
+                }
+                val recipientColor = ChatTextParser.parseHexColor(
+                    userColors[recipient.lowercase()],
+                    primaryColor
+                )
+                add(
+                    ChatTextParser.EventTextSegment(
+                        text = recipient,
+                        isBold = true,
+                        color = recipientColor
+                    )
+                )
+            }
+        }
+    }
+
+    return ChatTickerOverlayItem(
+        id = "gift_${event.correlationId ?: gifterName}_${System.nanoTime()}",
+        iconRes = R.drawable.featured_seasonal_and_gifts_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
+        segments = segments,
+        accentColor = primaryColor,
+        durationMillis = 7_000L,
+        isInfinite = false,
+        source = ChatTickerEventSource.GiftedSubscriptions(event)
+    )
+}
+
+@Composable
+private fun ChatEventTickerOverlay(
+    queue: MutableList<ChatTickerOverlayItem>,
+    fontSizeSp: Int,
+    onActiveHeightChanged: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val currentItem = queue.firstOrNull()
+    var displayedItem by remember { mutableStateOf<ChatTickerOverlayItem?>(null) }
+    var isShowing by remember { mutableStateOf(false) }
+    var measuredHeightPx by remember { mutableIntStateOf(0) }
+
+    val scaleAnim = remember { Animatable(0f) }
+    val progressAnim = remember { Animatable(1f) }
+
+    if (currentItem != null) {
+        displayedItem = currentItem
+    }
+
+    LaunchedEffect(isShowing, measuredHeightPx) {
+        onActiveHeightChanged(if (isShowing) measuredHeightPx else 0)
+    }
+
+    LaunchedEffect(currentItem?.id) {
+        if (currentItem == null) {
+            isShowing = false
+            if (scaleAnim.value > 0f) {
+                scaleAnim.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(
+                        durationMillis = 240,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+            }
+            displayedItem = null
+            return@LaunchedEffect
+        }
+
+        displayedItem = currentItem
+        isShowing = true
+        progressAnim.snapTo(1f)
+        scaleAnim.snapTo(0f)
+
+        // Enter animation: same bouncy spring scale-in as PinnedMessageOverlay
+        scaleAnim.animateTo(
+            targetValue = 1f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioLowBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            )
+        )
+
+        val durationMs = currentItem.durationMillis.coerceAtLeast(1_000L).toInt()
+        if (currentItem.isInfinite) {
+            while (isActive) {
+                progressAnim.snapTo(1f)
+                progressAnim.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(
+                        durationMillis = durationMs,
+                        easing = LinearEasing
+                    )
+                )
+            }
+        } else {
+            progressAnim.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = durationMs,
+                    easing = LinearEasing
+                )
+            )
+
+            // If no more items are waiting in the queue, start sliding PinnedMessageOverlay back up during scale-out
+            if (queue.size <= 1) {
+                isShowing = false
+            }
+
+            // Exit animation: reverse of enter (scale out to 0)
+            scaleAnim.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = 260,
+                    easing = FastOutSlowInEasing
+                )
+            )
+
+            if (queue.firstOrNull()?.id == currentItem.id) {
+                queue.removeAt(0)
+            }
+            if (queue.isEmpty()) {
+                isShowing = false
+                displayedItem = null
+            }
+        }
+    }
+
+    val active = displayedItem ?: return
+    val defaultAccent = MaterialTheme.colorScheme.primary
+    val accentColor = active.accentColor ?: defaultAccent
+
+    Box(
+        modifier = modifier.onSizeChanged { size ->
+            if (size.height > 0) {
+                measuredHeightPx = size.height
+            }
+        }
+    ) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            shadowElevation = 4.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .graphicsLayer {
+                    scaleX = scaleAnim.value
+                    scaleY = scaleAnim.value
+                    alpha = scaleAnim.value.coerceIn(0f, 1f)
+                }
+                .clip(RoundedCornerShape(12.dp))
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                key(active.id) {
+                    ContinuousTickerRow(
+                        iconRes = active.iconRes,
+                        iconTint = accentColor,
+                        segments = active.segments,
+                        fontSizeSp = fontSizeSp,
+                        defaultBoldColor = accentColor,
+                        defaultTextColor = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+
+                // Full-width bottom progress bar whose width decreases to 0 as time runs out
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progressAnim.value.coerceIn(0f, 1f))
+                            .height(3.dp)
+                            .background(accentColor)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContinuousTickerRow(
+    @DrawableRes iconRes: Int,
+    iconTint: Color,
+    segments: List<ChatTextParser.EventTextSegment>,
+    fontSizeSp: Int,
+    defaultBoldColor: Color,
+    defaultTextColor: Color,
+    modifier: Modifier = Modifier,
+    speedDpPerSecond: Float = 48f
+) {
+    val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
+    val annotatedString = remember(segments, defaultBoldColor, defaultTextColor) {
+        ChatTextParser.buildEventAnnotatedString(
+            segments = segments,
+            boldColor = defaultBoldColor,
+            mutedColor = defaultTextColor
+        )
+    }
+
+    val density = LocalDensity.current
+    val speedPxPerSec = remember(density, speedDpPerSecond) {
+        with(density) { speedDpPerSecond.dp.toPx() }
+    }
+    val minGapPx = remember(density) {
+        with(density) { 24.dp.toPx() }
+    }
+
+    var stridePx by remember { mutableFloatStateOf(0f) }
+    var offsetPx by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(speedPxPerSec, stridePx) {
+        if (stridePx <= 0f) return@LaunchedEffect
+        var lastFrameNanos = withFrameNanos { it }
+        while (isActive) {
+            withFrameNanos { frameNanos ->
+                val deltaSec = ((frameNanos - lastFrameNanos).coerceAtLeast(0L)) / 1_000_000_000f
+                lastFrameNanos = frameNanos
+                offsetPx = (offsetPx + speedPxPerSec * deltaSec) % stridePx
+            }
+        }
+    }
+
+    @Composable
+    fun TickerUnit() {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size((safeFontSizeSp + 4).dp)
+            )
+            Text(
+                text = annotatedString,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = safeFontSizeSp.sp,
+                    lineHeight = (safeFontSizeSp + 4).sp
+                ),
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+    }
+
+    Layout(
+        content = {
+            TickerUnit()
+            TickerUnit()
+            TickerUnit()
+        },
+        modifier = modifier.clipToBounds()
+    ) { measurables, constraints ->
+        val unboundedConstraints = constraints.copy(
+            minWidth = 0,
+            maxWidth = Constraints.Infinity
+        )
+        val placeables = measurables.map { it.measure(unboundedConstraints) }
+        val first = placeables.firstOrNull()
+        val second = placeables.getOrNull(1)
+        val third = placeables.getOrNull(2)
+        val itemWidth = first?.width ?: 0
+        val itemHeight = first?.height ?: 0
+        val containerWidth = constraints.maxWidth
+
+        val computedStride = itemWidth.toFloat() + minGapPx
+        if (stridePx != computedStride) {
+            stridePx = computedStride
+        }
+
+        layout(width = containerWidth, height = itemHeight) {
+            val currentOffset = if (computedStride > 0f) offsetPx % computedStride else 0f
+            val x1 = -currentOffset.roundToInt()
+            val x2 = (computedStride - currentOffset).roundToInt()
+            val x3 = (computedStride * 2 - currentOffset).roundToInt()
+            first?.placeRelative(x = x1, y = 0)
+            second?.placeRelative(x = x2, y = 0)
+            third?.placeRelative(x = x3, y = 0)
+        }
+    }
+}
+

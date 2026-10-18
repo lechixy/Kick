@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,13 +19,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lechixy.kick.R
@@ -44,11 +48,26 @@ fun ChatMessageItem(
     // 1. Reward Redeemed Event
     val rewardEvent = message.rewardRedeemed
     if (message.isRewardRedeemed && rewardEvent != null) {
-        val segments = remember(rewardEvent.username, rewardEvent.rewardTitle) {
+        val defaultPrimaryColor = MaterialTheme.colorScheme.primary
+        val rewardColor = remember(rewardEvent.rewardBackgroundColor, defaultPrimaryColor) {
+            ChatTextParser.parseHexColor(rewardEvent.rewardBackgroundColor, defaultPrimaryColor)
+        }
+        val segments = remember(rewardEvent.username, rewardEvent.rewardTitle, rewardColor) {
             listOf(
-                ChatTextParser.EventTextSegment(rewardEvent.username.ifBlank { "User" }, isBold = true),
-                ChatTextParser.EventTextSegment(" has redeemed ", isBold = false),
-                ChatTextParser.EventTextSegment(rewardEvent.rewardTitle, isBold = true)
+                ChatTextParser.EventTextSegment(
+                    text = rewardEvent.username.ifBlank { "User" },
+                    isBold = true,
+                    color = rewardColor
+                ),
+                ChatTextParser.EventTextSegment(
+                    text = " has redeemed ",
+                    isBold = false
+                ),
+                ChatTextParser.EventTextSegment(
+                    text = rewardEvent.rewardTitle,
+                    isBold = true,
+                    color = rewardColor
+                )
             )
         }
         ChatEventBaseItem(
@@ -56,6 +75,8 @@ fun ChatMessageItem(
             segments = segments,
             bodyContent = rewardEvent.userInput.takeIf { it.isNotBlank() },
             fontSizeSp = fontSizeSp,
+            stripeColor = rewardColor,
+            contentPadding = 2.dp,
             streamerUsername = streamerUsername,
             streamerSlug = streamerSlug,
             modifier = modifier
@@ -88,6 +109,7 @@ fun ChatMessageItem(
             segments = segments,
             bodyContent = null,
             fontSizeSp = fontSizeSp,
+            contentPadding = 10.dp,
             streamerUsername = streamerUsername,
             streamerSlug = streamerSlug,
             modifier = modifier
@@ -193,13 +215,17 @@ fun ChatEventBaseItem(
     modifier: Modifier = Modifier,
     fontSizeSp: Int = 14,
     bodyContent: String? = null,
+    stripeColor: Color = MaterialTheme.colorScheme.primary,
+    contentPadding: Dp = 6.dp,
     iconTint: Color = MaterialTheme.colorScheme.primary,
     streamerUsername: String? = null,
     streamerSlug: String? = null
 ) {
     val boldColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
     val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)
+    val backgroundColor = MaterialTheme.colorScheme.surfaceContainerHigh
     val headerFontSizeSp = (fontSizeSp - 1).coerceAtLeast(11)
+    val stripeWidth = 4.dp
 
     val parsedHeader = ChatTextParser.parseEventHeader(
         iconRes = iconRes,
@@ -213,7 +239,18 @@ fun ChatEventBaseItem(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp),
+            .background(backgroundColor)
+            .drawBehind {
+                val strokeWidthPx = stripeWidth.toPx()
+                drawRect(
+                    color = stripeColor,
+                    topLeft = Offset.Zero,
+                    size = Size(width = strokeWidthPx, height = size.height)
+                )
+            }
+            .padding(start = stripeWidth)
+            .padding(contentPadding)
+            .padding(vertical = 4.dp, horizontal = 6.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Text(

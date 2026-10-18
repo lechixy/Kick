@@ -74,7 +74,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.lechixy.kick.data.local.FollowManager
-import com.lechixy.kick.data.local.PlayerSettingsManager
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.data.settings.SettingsRepository
@@ -203,25 +202,6 @@ fun KickApp() {
     val activity = remember(context) { context.findActivity() }
 
     FollowManager.init(context)
-    PlayerSettingsManager.init(context)
-
-    val settingsRepo = LocalSettingsRepository.current
-    val dataStoreLowLatency by settingsRepo
-        .get(SettingsKeys.LOW_LATENCY)
-        .collectAsStateWithLifecycle(initialValue = PlayerSettingsManager.lowLatencyEnabled.value)
-    val dataStoreAutoFullscreen by settingsRepo
-        .get(SettingsKeys.AUTO_FULLSCREEN_LIVE)
-        .collectAsStateWithLifecycle(initialValue = PlayerSettingsManager.autoFullscreenLive.value)
-    androidx.compose.runtime.LaunchedEffect(dataStoreLowLatency) {
-        if (PlayerSettingsManager.lowLatencyEnabled.value != dataStoreLowLatency) {
-            PlayerSettingsManager.setLowLatencyEnabled(dataStoreLowLatency)
-        }
-    }
-    androidx.compose.runtime.LaunchedEffect(dataStoreAutoFullscreen) {
-        if (PlayerSettingsManager.autoFullscreenLive.value != dataStoreAutoFullscreen) {
-            PlayerSettingsManager.setAutoFullscreenLive(dataStoreAutoFullscreen)
-        }
-    }
 
     // Tek yerde tutulan player oturumu; ChannelScreen, mini player ve nav bar buradan beslenir.
     val playerHost = rememberPlayerHostState()
