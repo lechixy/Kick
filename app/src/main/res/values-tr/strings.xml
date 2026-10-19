@@ -7,7 +7,7 @@
     <string name="viewers">izleyici</string>
     <string name="home">Ana</string>
     <string name="following">Takipte</string>
-    <string name="browse">Göz at</string>
+    <string name="browse">Ara</string>
     <string name="settings">Ayarlar</string>
     <string name="anonymous">İsimsiz biri</string>
     <string name="chat">Sohbet</string>
@@ -27,4 +27,7 @@
     <string name="clips">Klipler</string>
     <string name="followers">takipçi</string>
     <string name="category_just_chatting">Sadece Sohbet</string>
+    <string name="search_placeholder">Ara...</string>
+    <string name="hide">Gizle</string>
+    <string name="replying_to">Yanıt veriyor</string>
 </resources>

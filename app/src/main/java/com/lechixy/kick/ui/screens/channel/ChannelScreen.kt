@@ -6,7 +6,6 @@ import android.content.ContextWrapper
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -676,7 +675,7 @@ private fun ChannelHeaderInfo(
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text = if (isFollowing) "Following" else "Follow",
+                    text = if (isFollowing) stringResource(R.string.following_button) else stringResource(R.string.follow),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold
                 )

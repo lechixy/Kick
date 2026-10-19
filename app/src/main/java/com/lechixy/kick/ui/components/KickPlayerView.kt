@@ -123,6 +123,10 @@ import com.lechixy.kick.util.FormatUtils.parseUtcStartTimeToMillis
 import com.lechixy.kick.util.NotificationUtils
 import com.lechixy.kick.util.PlayerUtils
 import com.lechixy.kick.util.VideoQualityOption
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
+import com.lechixy.kick.util.buildOptimizedImageRequest
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
@@ -136,6 +140,7 @@ import kotlin.time.Duration.Companion.milliseconds
 @Composable
 fun KickPlayerView(
     playbackUrl: String,
+    previewThumbnailUrl: String? = null,
     channelName: String = "",
     streamTitle: String = "",
     channel: ChannelDetail? = null,
@@ -160,6 +165,7 @@ fun KickPlayerView(
 
     val player by rememberMediaController()
 
+    var hasRenderedFirstFrame by remember(playbackUrl) { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
     var isPlayerReady by remember { mutableStateOf(false) }
     var loadedMediaId by remember { mutableStateOf<String?>(null) }
@@ -359,16 +365,23 @@ fun KickPlayerView(
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     isBuffering = playbackState == Player.STATE_BUFFERING
                     isPlayerReady = playbackState == Player.STATE_READY
+                    if (playbackState == Player.STATE_READY && p.playWhenReady) {
+                        hasRenderedFirstFrame = true
+                    }
                     loadedMediaId = p.currentMediaItem?.mediaId
                 }
 
                 override fun onRenderedFirstFrame() {
+                    hasRenderedFirstFrame = true
                     isPlayerReady = true
                     loadedMediaId = p.currentMediaItem?.mediaId
                 }
 
                 override fun onIsPlayingChanged(playing: Boolean) {
                     isPlaying = playing
+                    if (playing) {
+                        hasRenderedFirstFrame = true
+                    }
                 }
 
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -399,6 +412,9 @@ fun KickPlayerView(
             }
 
             isPlaying = p.isPlaying
+            if (p.isPlaying || p.playbackState == Player.STATE_READY) {
+                hasRenderedFirstFrame = true
+            }
             isBuffering = p.playbackState == Player.STATE_BUFFERING
             isPlayerReady = p.playbackState == Player.STATE_READY
             loadedMediaId = p.currentMediaItem?.mediaId
@@ -518,6 +534,32 @@ fun KickPlayerView(
             onRelease = { it.player = null },
             modifier = Modifier.fillMaxSize()
         )
+
+        val overlayThumbnail = remember(previewThumbnailUrl, channel) {
+            previewThumbnailUrl
+                ?: channel?.livestream?.thumbnail?.url
+                ?: channel?.getBannerUrl()
+        }
+
+        AnimatedVisibility(
+            visible = !hasRenderedFirstFrame && !overlayThumbnail.isNullOrEmpty(),
+            enter = fadeIn(),
+            exit = fadeOut(tween(300))
+        ) {
+            AsyncImage(
+                model = remember(overlayThumbnail) {
+                    buildOptimizedImageRequest(
+                        context = context,
+                        data = overlayThumbnail,
+                        targetWidthDp = 640,
+                        targetHeightDp = 360
+                    )
+                },
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
 
         if (isBuffering && playbackError == null) {
             CircularProgressIndicator(

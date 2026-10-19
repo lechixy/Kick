@@ -15,12 +15,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,6 +51,11 @@ object ChatTextParser {
 
     private val EMOTE_REGEX = Regex("\\[emote:(\\d+)(?::([^\\]]+))?\\]")
     private val MENTION_REGEX = Regex("@[a-zA-Z0-9_]+")
+    private val URL_REGEX = Regex(
+        "(?:https?://[a-zA-Z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+|www\\.[a-zA-Z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+|[a-zA-Z0-9\\-]+\\.(?:com|org|net|edu|gov|io|gg|tv|me|co|app|live|xyz|dev)(?:/[a-zA-Z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]*)?)",
+        RegexOption.IGNORE_CASE
+    )
+    private const val TRAILING_URL_PUNCTUATION = ".,!?;:)%]\"'"
 
     fun resolveBadges(
         identity: ChatIdentity?,
@@ -203,6 +213,7 @@ object ChatTextParser {
     ): ParsedChatMessage {
         val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
         val secondaryColor = MaterialTheme.colorScheme.secondary
+        val primaryColor = MaterialTheme.colorScheme.primary
         val inlineContentMap = mutableMapOf<String, InlineTextContent>()
 
         val annotatedString = buildAnnotatedString {
@@ -260,6 +271,7 @@ object ChatTextParser {
                 content = content,
                 fontSizeSp = safeFontSizeSp,
                 secondaryColor = secondaryColor,
+                primaryColor = primaryColor,
                 inlineContentMap = inlineContentMap,
                 streamerUsername = streamerUsername,
                 streamerSlug = streamerSlug,
@@ -317,7 +329,7 @@ object ChatTextParser {
             appendSafeInlineContent(replyIconId, alternateText = "↩ ")
 
             withStyle(SpanStyle(color = mutedColor)) {
-                append("Replying to ")
+                append("${stringResource(R.string.replying_to)} ")
             }
             withStyle(SpanStyle(color = originalSenderColor, fontWeight = FontWeight.SemiBold)) {
                 append(originalSenderName)
@@ -354,6 +366,17 @@ object ChatTextParser {
                         is ChatToken.Mention -> {
                             withStyle(SpanStyle(color = mutedColor, fontWeight = FontWeight.Medium)) {
                                 append(token.text)
+                            }
+                        }
+                        is ChatToken.Url -> {
+                            withStyle(
+                                SpanStyle(
+                                    color = mutedColor,
+                                    fontWeight = FontWeight.Bold,
+                                    textDecoration = TextDecoration.Underline
+                                )
+                            ) {
+                                append(token.url)
                             }
                         }
                         is ChatToken.PlainText -> {
@@ -584,6 +607,7 @@ object ChatTextParser {
     ): ParsedChatMessage {
         val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
         val secondaryColor = MaterialTheme.colorScheme.secondary
+        val primaryColor = MaterialTheme.colorScheme.primary
         val inlineContentMap = mutableMapOf<String, InlineTextContent>()
 
         val annotatedString = buildAnnotatedString {
@@ -591,6 +615,7 @@ object ChatTextParser {
                 content = content,
                 fontSizeSp = safeFontSizeSp,
                 secondaryColor = secondaryColor,
+                primaryColor = primaryColor,
                 inlineContentMap = inlineContentMap,
                 streamerUsername = streamerUsername,
                 streamerSlug = streamerSlug,
@@ -606,6 +631,7 @@ object ChatTextParser {
         content: String,
         fontSizeSp: Int,
         secondaryColor: Color,
+        primaryColor: Color = secondaryColor,
         inlineContentMap: MutableMap<String, InlineTextContent>,
         streamerUsername: String?,
         streamerSlug: String?,
@@ -661,6 +687,22 @@ object ChatTextParser {
                         append(token.text)
                     }
                 }
+                is ChatToken.Url -> {
+                    withLink(
+                        LinkAnnotation.Url(
+                            url = token.fullUrl,
+                            styles = TextLinkStyles(
+                                style = SpanStyle(
+                                    color = primaryColor,
+                                    fontWeight = FontWeight.Bold,
+                                    textDecoration = TextDecoration.Underline
+                                )
+                            )
+                        )
+                    ) {
+                        append(token.url)
+                    }
+                }
                 is ChatToken.PlainText -> {
                     append(token.text)
                 }
@@ -681,6 +723,7 @@ object ChatTextParser {
     private sealed class ChatToken {
         data class Emote(val id: String, val name: String) : ChatToken()
         data class Mention(val text: String) : ChatToken()
+        data class Url(val url: String, val fullUrl: String) : ChatToken()
         data class PlainText(val text: String) : ChatToken()
     }
 
@@ -690,10 +733,12 @@ object ChatTextParser {
 
         val emoteMatches = EMOTE_REGEX.findAll(text)
         val mentionMatches = MENTION_REGEX.findAll(text)
+        val urlMatches = URL_REGEX.findAll(text)
 
         val allMatches = (
             emoteMatches.map { MatchItem(it.range, MatchType.EMOTE, it) } +
-            mentionMatches.map { MatchItem(it.range, MatchType.MENTION, it) }
+            mentionMatches.map { MatchItem(it.range, MatchType.MENTION, it) } +
+            urlMatches.map { MatchItem(it.range, MatchType.URL, it) }
         ).sortedBy { it.range.first }
 
         for (matchItem in allMatches) {
@@ -712,6 +757,24 @@ object ChatTextParser {
                 MatchType.MENTION -> {
                     tokens.add(ChatToken.Mention(matchItem.matchResult.value))
                 }
+                MatchType.URL -> {
+                    var rawUrl = matchItem.matchResult.value
+                    var trailing = ""
+                    while (rawUrl.isNotEmpty() && rawUrl.last() in TRAILING_URL_PUNCTUATION) {
+                        trailing = rawUrl.last() + trailing
+                        rawUrl = rawUrl.dropLast(1)
+                    }
+                    if (rawUrl.isNotEmpty()) {
+                        val fullUrl = when {
+                            rawUrl.startsWith("http://", ignoreCase = true) || rawUrl.startsWith("https://", ignoreCase = true) -> rawUrl
+                            else -> "https://$rawUrl"
+                        }
+                        tokens.add(ChatToken.Url(url = rawUrl, fullUrl = fullUrl))
+                        if (trailing.isNotEmpty()) {
+                            tokens.add(ChatToken.PlainText(trailing))
+                        }
+                    }
+                }
             }
 
             currentIndex = matchItem.range.last + 1
@@ -724,7 +787,7 @@ object ChatTextParser {
         return tokens
     }
 
-    private enum class MatchType { EMOTE, MENTION }
+    private enum class MatchType { EMOTE, MENTION, URL }
     private data class MatchItem(val range: IntRange, val type: MatchType, val matchResult: MatchResult)
 }
 

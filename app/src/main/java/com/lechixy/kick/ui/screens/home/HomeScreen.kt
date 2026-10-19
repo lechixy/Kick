@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.lechixy.kick.data.local.FollowManager
+import com.lechixy.kick.ui.components.ExpansionSource
 import com.lechixy.kick.ui.components.HomeTopBar
 import com.lechixy.kick.ui.components.StreamCard
 
@@ -39,7 +40,7 @@ import com.lechixy.kick.ui.components.StreamCard
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
-    onStreamClick: (channelSlug: String) -> Unit,
+    onStreamClick: (channelSlug: String, source: ExpansionSource?) -> Unit,
     onSettingsClick: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -138,7 +139,10 @@ fun HomeScreen(
                                 StreamCard(
                                     stream = stream,
                                     isDataSaverActive = false, // Takip edilenlerde her zaman resim yüklenir
-                                    onClick = { stream.channel?.slug?.let(onStreamClick) }
+                                    onClick = { stream.channel?.slug?.let { slug -> onStreamClick(slug, null) } },
+                                    onClickWithSource = { source ->
+                                        stream.channel?.slug?.let { slug -> onStreamClick(slug, source) }
+                                    }
                                 )
                             }
                         }
@@ -176,7 +180,10 @@ fun HomeScreen(
                             StreamCard(
                                 stream = stream,
                                 isDataSaverActive = isDataSaverActive, // Tasarruf modu açıksa resim yerine Tasarruf Modu yazar
-                                onClick = { stream.channel?.slug?.let(onStreamClick) }
+                                onClick = { stream.channel?.slug?.let { slug -> onStreamClick(slug, null) } },
+                                onClickWithSource = { source ->
+                                    stream.channel?.slug?.let { slug -> onStreamClick(slug, source) }
+                                }
                             )
                         }
                     }

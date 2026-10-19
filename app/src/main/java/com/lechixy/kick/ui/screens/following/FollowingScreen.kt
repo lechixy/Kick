@@ -28,12 +28,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lechixy.kick.R
 import com.lechixy.kick.data.local.FollowManager
 import com.lechixy.kick.data.model.toLivestream
+import com.lechixy.kick.ui.components.ExpansionSource
 import com.lechixy.kick.ui.components.StreamCard
 
 @Composable
 fun FollowingScreen(
     viewModel: FollowingViewModel = viewModel(),
-    onStreamClick: (channelSlug: String) -> Unit
+    onStreamClick: (channelSlug: String, source: ExpansionSource?) -> Unit
 ) {
     val context = LocalContext.current
     val followedSlugs by FollowManager.followedSlugs.collectAsState()
@@ -116,7 +117,10 @@ fun FollowingScreen(
                         items(online, key = { "followed_${it.id}" }) { channel ->
                             StreamCard(
                                 stream = channel.toLivestream(),
-                                onClick = { channel.slug.let(onStreamClick) }
+                                onClick = { onStreamClick(channel.slug, null) },
+                                onClickWithSource = { source ->
+                                    onStreamClick(channel.slug, source)
+                                }
                             )
                         }
                     }

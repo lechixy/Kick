@@ -39,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,11 +51,18 @@ import com.lechixy.kick.data.model.toChannelDetail
 import com.lechixy.kick.ui.components.ChannelCard
 import com.lechixy.kick.util.buildOptimizedImageRequest
 
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import com.lechixy.kick.ui.components.ExpansionSource
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BrowseScreen(
     viewModel: BrowseViewModel = viewModel(),
-    onChannelClick: (channelSlug: String) -> Unit
+    onChannelClick: (channelSlug: String, source: ExpansionSource?) -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -73,7 +81,7 @@ fun BrowseScreen(
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = {
                         Text(
-                            "Search for channels, categories or streams...",
+                            text = stringResource(id = R.string.search_placeholder),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -174,7 +182,8 @@ fun BrowseScreen(
                                     data.channels.forEach { ch ->
                                         ChannelCard(
                                             channel = ch.toChannelDetail(),
-                                            onChannelClick = onChannelClick
+                                            onChannelClick = { slug -> onChannelClick(slug, null) },
+                                            onChannelClickWithSource = { slug, source -> onChannelClick(slug, source) }
                                         )
                                     }
                                 }
@@ -258,65 +267,13 @@ fun BrowseScreen(
                                     maxItemsInEachRow = 3
                                 ) {
                                     data.livestreams.forEach { stream ->
-                                        Card(
+                                        BrowseLivestreamCard(
+                                            stream = stream,
+                                            onChannelClick = onChannelClick,
                                             modifier = Modifier
                                                 .weight(1f, fill = false)
                                                 .widthIn(min = 280.dp)
-                                                .clickable { onChannelClick(stream.slug) },
-                                            shape = RoundedCornerShape(12.dp),
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
-                                                    alpha = 0.3f
-                                                )
-                                            )
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(8.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .width(120.dp)
-                                                        .aspectRatio(16f / 9f)
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                ) {
-                                                    AsyncImage(
-                                                        model = remember(stream.thumbnail?.src) {
-                                                            buildOptimizedImageRequest(
-                                                                context = context,
-                                                                data = stream.thumbnail?.src,
-                                                                targetWidthDp = 120,
-                                                                targetHeightDp = 68
-                                                            )
-                                                        },
-                                                        contentDescription = stream.title,
-                                                        modifier = Modifier.fillMaxSize(),
-                                                        contentScale = ContentScale.Crop
-                                                    )
-                                                }
-
-                                                Column(
-                                                    modifier = Modifier.weight(1f),
-                                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    Text(
-                                                        text = stream.title ?: "No Title",
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        maxLines = 2,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                    Text(
-                                                        text = stream.slug,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.outline
-                                                    )
-                                                }
-                                            }
-                                        }
+                                        )
                                     }
                                 }
                             }
@@ -337,6 +294,96 @@ fun BrowseScreen(
                         color = MaterialTheme.colorScheme.outline
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BrowseLivestreamCard(
+    stream: com.lechixy.kick.data.model.SearchLivestream,
+    onChannelClick: (channelSlug: String, source: ExpansionSource?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var cardCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var thumbCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+    val handleCardClick = {
+        val cRect = cardCoords?.takeIf { it.isAttached }?.boundsInRoot()
+        val tRect = thumbCoords?.takeIf { it.isAttached }?.boundsInRoot()
+        val source = if (cRect != null) {
+            ExpansionSource(
+                cardRect = cRect,
+                mediaRect = tRect,
+                cornerRadius = 12.dp,
+                thumbnailUrl = stream.thumbnail?.src,
+                avatarUrl = null,
+                title = stream.title,
+                username = stream.slug,
+                isLive = true,
+                isStreamCard = true
+            )
+        } else null
+        onChannelClick(stream.slug, source)
+    }
+
+    Card(
+        modifier = modifier
+            .clickable(onClick = handleCardClick)
+            .onGloballyPositioned { cardCoords = it },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                alpha = 0.3f
+            )
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(120.dp)
+                    .aspectRatio(16f / 9f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .onGloballyPositioned { thumbCoords = it }
+            ) {
+                AsyncImage(
+                    model = remember(stream.thumbnail?.src) {
+                        buildOptimizedImageRequest(
+                            context = context,
+                            data = stream.thumbnail?.src,
+                            targetWidthDp = 120,
+                            targetHeightDp = 68
+                        )
+                    },
+                    contentDescription = stream.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = stream.title ?: "No Title",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = stream.slug,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
         }
     }

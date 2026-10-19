@@ -32,6 +32,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import com.lechixy.kick.R
 import com.lechixy.kick.data.model.Livestream
 import com.lechixy.kick.util.FormatUtils
@@ -42,14 +48,45 @@ fun StreamCard(
     stream: Livestream,
     modifier: Modifier = Modifier,
     isDataSaverActive: Boolean = false,
-    onClick: () -> Unit = {}
+    onClick: () -> Unit = {},
+    onClickWithSource: ((ExpansionSource) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    var cardCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var thumbnailCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+    val handleCardClick = {
+        if (onClickWithSource != null) {
+            val cardRect = cardCoordinates?.takeIf { it.isAttached }?.boundsInRoot()
+            val thumbRect = thumbnailCoordinates?.takeIf { it.isAttached }?.boundsInRoot()
+            if (cardRect != null) {
+                val source = ExpansionSource(
+                    cardRect = cardRect,
+                    mediaRect = thumbRect,
+                    cornerRadius = 12.dp,
+                    thumbnailUrl = if (!isDataSaverActive) stream.thumbnail?.src else null,
+                    avatarUrl = stream.channel?.profilePic,
+                    title = stream.title,
+                    username = stream.channel?.username,
+                    category = stream.category?.name,
+                    viewerCount = stream.viewerCount,
+                    isLive = true,
+                    isStreamCard = true
+                )
+                onClickWithSource(source)
+            } else {
+                onClick()
+            }
+        } else {
+            onClick()
+        }
+    }
 
     Card(
-        onClick,
+        onClick = handleCardClick,
         modifier = modifier
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .onGloballyPositioned { cardCoordinates = it },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
@@ -61,7 +98,8 @@ fun StreamCard(
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
                     .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .onGloballyPositioned { thumbnailCoordinates = it },
                 contentAlignment = Alignment.Center
             ) {
                 if (isDataSaverActive) {

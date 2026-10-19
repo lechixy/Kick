@@ -36,7 +36,10 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
     var channel by mutableStateOf<ChannelDetail?>(null)
         private set
 
-    val isChannelVisible get() = mode == PlayerMode.Expanded || mode == PlayerMode.Fullscreen
+    var isExiting by mutableStateOf(false)
+        private set
+
+    val isChannelVisible get() = (mode == PlayerMode.Expanded || mode == PlayerMode.Fullscreen) && !isExiting
 
     var dragOffsetY by mutableFloatStateOf(0f)
 
@@ -80,13 +83,22 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
         chatWidthFraction = fraction.coerceIn(0.18f, 0.60f)
     }
 
-    fun open(slug: String) {
+    var expansionSource by mutableStateOf<com.lechixy.kick.ui.components.ExpansionSource?>(null)
+        private set
+
+    fun open(slug: String, source: com.lechixy.kick.ui.components.ExpansionSource? = null) {
         if (this.slug != slug) channel = null
         this.slug = slug
         pageSlug = slug
+        this.expansionSource = if (mode == PlayerMode.Hidden) source else null
+        isExiting = false
         mode = PlayerMode.Expanded
         dragOffsetY = 0f
         pendingAutoFullscreen = true
+    }
+
+    fun clearExpansionSource() {
+        expansionSource = null
     }
 
     fun onChannelLoaded(slug: String, detail: ChannelDetail) {
@@ -116,11 +128,21 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
         else if (!enabled && mode == PlayerMode.Fullscreen) mode = PlayerMode.Expanded
     }
 
+    fun requestClose() {
+        if (mode == PlayerMode.Hidden || isExiting) return
+        isExiting = true
+    }
+
+    fun finishClose() {
+        isExiting = false
+        close()
+    }
+
     fun minimize() {
         pendingAutoFullscreen = false
         if (slug == null || mode == PlayerMode.Hidden) return
-        val offline = channel != null && channel?.livestream == null
-        if (offline) close() else mode = PlayerMode.Mini   // yayın yokken mini'ye geçme, direkt kapan
+        val offline = channel == null || channel?.livestream == null
+        if (offline) requestClose() else mode = PlayerMode.Mini   // yayın yokken mini'ye geçme, direkt kapan
     }
 
     fun expand() {
@@ -129,6 +151,7 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
     }
 
     fun close() {
+        isExiting = false
         pendingAutoFullscreen = false
         mode = PlayerMode.Hidden
         slug = null
@@ -138,6 +161,7 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
         isChatVisible = true
         chatWidthFraction = 0.35f
         animatedChatFraction = 0.35f
+        expansionSource = null
     }
 
     companion object {

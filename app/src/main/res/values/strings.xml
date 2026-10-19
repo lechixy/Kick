@@ -26,4 +26,7 @@
     <string name="clips">Clips</string>
     <string name="followers">followers</string>
     <string name="category_just_chatting">Just Chatting</string>
+    <string name="search_placeholder">Search...</string>
+    <string name="hide">Hide</string>
+    <string name="replying_to">Replying to</string>
 </resources>

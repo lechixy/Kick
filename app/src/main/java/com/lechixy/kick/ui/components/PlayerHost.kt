@@ -2,6 +2,7 @@ package com.lechixy.kick.ui.components
 
 import android.content.pm.ActivityInfo
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
@@ -9,6 +10,20 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.lerp as lerpColor
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.lerp as lerpDp
+import androidx.compose.ui.unit.roundToIntRect
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -107,9 +122,38 @@ fun PlayerHost(
 ) {
     if (host.slug == null || host.mode == PlayerMode.Hidden) return
 
+    val context = LocalContext.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val mode = host.mode
+
+    val expansion = host.expansionSource
+    val expandProgress = remember { Animatable(0f) }
+    var isExpanding by remember { mutableStateOf(false) }
+    var previewThumbnailUrl by remember { mutableStateOf<String?>(null) }
+
+    val exitAlpha = remember { Animatable(1f) }
+    val exitScale = remember { Animatable(1f) }
+
+    LaunchedEffect(host.isExiting) {
+        if (host.isExiting) {
+            launch {
+                exitAlpha.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+                )
+            }
+            launch {
+                exitScale.animateTo(
+                    targetValue = 0.94f,
+                    animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+                )
+            }
+            host.finishClose()
+            exitAlpha.snapTo(1f)
+            exitScale.snapTo(1f)
+        }
+    }
 
     val frameT = remember { Animatable(0f) }
     var releaseVelocity by remember { mutableFloatStateOf(0f) }
@@ -119,7 +163,7 @@ fun PlayerHost(
     var fsDy by remember { mutableFloatStateOf(0f) }
     val showPage by remember {
         derivedStateOf {
-            host.mode == PlayerMode.Expanded || host.mode == PlayerMode.Fullscreen || pageAlpha > 0.01f
+            host.mode == PlayerMode.Expanded || host.mode == PlayerMode.Fullscreen || pageAlpha > 0.01f || isExpanding
         }
     }
     val loaded = host.channel
@@ -148,6 +192,27 @@ fun PlayerHost(
             if (mode == PlayerMode.Mini) 0f else 1f,
             animationSpec = tween(250)
         ) { v, _ -> pageAlpha = v }
+    }
+
+    val hasContainer = container.width > 0 && container.height > 0
+    LaunchedEffect(expansion, hasContainer) {
+        if (expansion != null && hasContainer) {
+            previewThumbnailUrl = expansion.thumbnailUrl
+            isExpanding = true
+            pageAlpha = 1f
+            expandProgress.snapTo(0f)
+            expandProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 360,
+                    easing = CubicBezierEasing(0.16f, 1.0f, 0.30f, 1.0f)
+                )
+            )
+            isExpanding = false
+            host.clearExpansionSource()
+        } else if (expansion == null) {
+            isExpanding = false
+        }
     }
 
     LaunchedEffect(targetT, isInPipMode) {
@@ -282,6 +347,11 @@ fun PlayerHost(
     Box(
         modifier
             .fillMaxSize()
+            .graphicsLayer {
+                scaleX = exitScale.value
+                scaleY = exitScale.value
+                alpha = exitAlpha.value
+            }
             .onSizeChanged { container = it }
             .onGloballyPositioned { rootOrigin = it.positionInRoot() }
     ) {
@@ -303,20 +373,240 @@ fun PlayerHost(
             )
         }
 
+        val p = expandProgress.value
+        val destRect = IntRect(0, 0, container.width, container.height)
+        val sourceCardRect = expansion?.cardRect?.roundToIntRect() ?: destRect
+        val sourceMediaRect = expansion?.mediaRect?.roundToIntRect() ?: sourceCardRect
+        val targetMediaRect = inlineRect()
+
+        val shellRect = if (isExpanding) lerpRect(sourceCardRect, destRect, p) else destRect
+        val shellRadius = if (isExpanding) lerpDp(expansion?.cornerRadius ?: 12.dp, 0.dp, p) else 0.dp
+        val shellElevation = if (isExpanding) lerpDp(8.dp, 0.dp, p) else 0.dp
+        val currentMediaRect = if (isExpanding) lerpRect(sourceMediaRect, targetMediaRect, p) else targetMediaRect
+
+        val cardDetailsAlpha = if (isExpanding) (1f - (p / 0.18f)).coerceIn(0f, 1f) else 0f
+        val destContentAlpha = if (isExpanding) ((p - 0.22f) / 0.78f).coerceIn(0f, 1f) else pageAlpha
+        val destSlideUpPx = if (isExpanding) with(density) { (18.dp.toPx() * (1f - destContentAlpha)) } else 0f
+
         if (showPage) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .graphicsLayer { translationY = playerDy; alpha = pageAlpha }
+                    .let { mod ->
+                        if (isExpanding) {
+                            mod
+                                .offset { IntOffset(shellRect.left, shellRect.top) }
+                                .layout { measurable, _ ->
+                                    val pl = measurable.measure(
+                                        Constraints.fixed(
+                                            shellRect.width.coerceAtLeast(0),
+                                            shellRect.height.coerceAtLeast(0)
+                                        )
+                                    )
+                                    layout(pl.width, pl.height) { pl.place(0, 0) }
+                                }
+                                .shadow(shellElevation, RoundedCornerShape(shellRadius))
+                                .clip(RoundedCornerShape(shellRadius))
+                                .background(MaterialTheme.colorScheme.background)
+                        } else {
+                            mod
+                                .graphicsLayer { translationY = playerDy; alpha = pageAlpha }
+                                .background(MaterialTheme.colorScheme.background)
+                        }
+                    }
                     .pointerInput(Unit) {
                         detectTapGestures { }
                     }
             ) {
-                host.pageSlug?.let { s -> key(s) { pageContent(s) } }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            if (isExpanding) {
+                                translationY = destSlideUpPx
+                                alpha = destContentAlpha
+                            }
+                        }
+                ) {
+                    host.pageSlug?.let { s -> key(s) { pageContent(s) } }
+                }
             }
         }
 
-        if (playerVisible) {
+        if (isExpanding && expansion != null) {
+            if (!expansion.thumbnailUrl.isNullOrEmpty() || expansion.isStreamCard) {
+                // Expanding 16:9 Hero Media Layer
+                Box(
+                    Modifier
+                        .offset { IntOffset(currentMediaRect.left, currentMediaRect.top) }
+                        .layout { measurable, _ ->
+                            val pl = measurable.measure(
+                                Constraints.fixed(
+                                    currentMediaRect.width.coerceAtLeast(0),
+                                    currentMediaRect.height.coerceAtLeast(0)
+                                )
+                            )
+                            layout(pl.width, pl.height) { pl.place(0, 0) }
+                        }
+                        .clip(
+                            RoundedCornerShape(
+                                topStart = shellRadius,
+                                topEnd = shellRadius,
+                                bottomStart = if (p > 0.7f) 0.dp else shellRadius * (1f - p),
+                                bottomEnd = if (p > 0.7f) 0.dp else shellRadius * (1f - p)
+                            )
+                        )
+                        .background(Color.Black)
+                ) {
+                    if (!expansion.thumbnailUrl.isNullOrEmpty()) {
+                        AsyncImage(
+                            model = remember(expansion.thumbnailUrl) {
+                                buildOptimizedImageRequest(
+                                    context = context,
+                                    data = expansion.thumbnailUrl,
+                                    targetWidthDp = 400,
+                                    targetHeightDp = 225
+                                )
+                            },
+                            contentDescription = expansion.title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+
+                    if (expansion.isLive && p < 0.6f) {
+                        Box(
+                            Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(8.dp)
+                                .graphicsLayer { alpha = (1f - p / 0.6f).coerceIn(0f, 1f) }
+                        ) {
+                            LiveBadge()
+                        }
+                    }
+                }
+            }
+
+            // Card Source Details (Phase 1: quickly fades out in first ~70ms)
+            if (cardDetailsAlpha > 0.01f) {
+                val mediaH = if (!expansion.thumbnailUrl.isNullOrEmpty() || expansion.isStreamCard) currentMediaRect.height else 0
+                val detailsTop = shellRect.top + mediaH
+                val detailsHeight = (shellRect.height - mediaH).coerceAtLeast(0)
+                Box(
+                    Modifier
+                        .offset { IntOffset(shellRect.left, detailsTop) }
+                        .layout { measurable, _ ->
+                            val pl = measurable.measure(
+                                Constraints.fixed(shellRect.width.coerceAtLeast(0), detailsHeight)
+                            )
+                            layout(pl.width, pl.height) { pl.place(0, 0) }
+                        }
+                        .clip(
+                            RoundedCornerShape(
+                                bottomStart = shellRadius,
+                                bottomEnd = shellRadius
+                            )
+                        )
+                        .graphicsLayer { alpha = cardDetailsAlpha }
+                ) {
+                    if (expansion.isStreamCard) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            if (!expansion.avatarUrl.isNullOrEmpty()) {
+                                AsyncImage(
+                                    model = remember(expansion.avatarUrl) {
+                                        buildOptimizedImageRequest(
+                                            context = context,
+                                            data = expansion.avatarUrl,
+                                            targetWidthDp = 44,
+                                            targetHeightDp = 44
+                                        )
+                                    },
+                                    contentDescription = expansion.username,
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = expansion.title ?: "No Title",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = expansion.username ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                expansion.category?.let { cat ->
+                                    Text(
+                                        text = cat,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            if (!expansion.avatarUrl.isNullOrEmpty()) {
+                                AsyncImage(
+                                    model = remember(expansion.avatarUrl) {
+                                        buildOptimizedImageRequest(
+                                            context = context,
+                                            data = expansion.avatarUrl,
+                                            targetWidthDp = 48,
+                                            targetHeightDp = 48
+                                        )
+                                    },
+                                    contentDescription = expansion.username,
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = expansion.title ?: "",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = expansion.username ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (playerVisible && !isExpanding) {
             Box(
                 Modifier
                     .offset {
@@ -521,6 +811,7 @@ fun PlayerHost(
                 PlayerSurface(
                     host = host,
                     mode = mode,
+                    previewThumbnailUrl = previewThumbnailUrl,
                     isInPipMode = isInPipMode,
                     onMinimize = onMinimize,
                     onClose = onClose
@@ -537,6 +828,7 @@ fun PlayerHost(
 private fun PlayerSurface(
     host: PlayerHostState,
     mode: PlayerMode,
+    previewThumbnailUrl: String? = null,
     isInPipMode: Boolean,
     onMinimize: () -> Unit,
     onClose: () -> Unit
@@ -555,6 +847,7 @@ private fun PlayerSurface(
             // PiP parametreleri (sourceRectHint, autoEnter) KickPlayerView içinde yönetiliyor.
             KickPlayerView(
                 playbackUrl = playbackUrl,
+                previewThumbnailUrl = previewThumbnailUrl,
                 channelName = channel.user?.username ?: channel.slug,
                 streamTitle = channel.livestream.sessionTitle ?: "Canlı Yayın",
                 channel = channel,
@@ -575,17 +868,18 @@ private fun PlayerSurface(
             )
         } else {
             val bannerUrl = remember(channel) { channel?.getBannerUrl(targetWidthPx = 1080) }
-            if (!bannerUrl.isNullOrEmpty()) {
+            val displayImage = if (!bannerUrl.isNullOrEmpty()) bannerUrl else previewThumbnailUrl
+            if (!displayImage.isNullOrEmpty()) {
                 AsyncImage(
-                    model = remember(bannerUrl) {
+                    model = remember(displayImage) {
                         buildOptimizedImageRequest(
                             context = context,
-                            data = bannerUrl,
+                            data = displayImage,
                             targetWidthDp = 640,
                             targetHeightDp = 360
                         )
                     },
-                    contentDescription = "Offline Banner",
+                    contentDescription = "Banner",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )

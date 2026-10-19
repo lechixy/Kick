@@ -77,6 +77,7 @@ import com.lechixy.kick.data.local.FollowManager
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.data.settings.SettingsRepository
+import com.lechixy.kick.ui.components.ExpansionSource
 import com.lechixy.kick.ui.components.PlayerHost
 import com.lechixy.kick.ui.screens.browse.BrowseScreen
 import com.lechixy.kick.ui.screens.channel.ChannelScreen
@@ -216,7 +217,7 @@ fun KickApp() {
         onDispose { componentActivity?.removeOnPictureInPictureModeChangedListener(listener) }
     }
 
-    val openChannel: (String) -> Unit = { slug -> playerHost.open(slug) }
+    val openChannel: (String, ExpansionSource?) -> Unit = { slug, source -> playerHost.open(slug, source) }
     val navType =
         NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(currentWindowAdaptiveInfoV2())
     val useBottomBar = navType.toString().contains("NavigationBar", ignoreCase = true)
@@ -305,7 +306,7 @@ fun KickApp() {
                         val homeViewModel: HomeViewModel = hiltViewModel()
                         HomeScreen(
                             viewModel = homeViewModel,
-                            onStreamClick = { channelSlug -> openChannel(channelSlug) },
+                            onStreamClick = { channelSlug, source -> openChannel(channelSlug, source) },
                             onSettingsClick = { navController.navigate("settings") }
                         )
                     }
@@ -314,13 +315,13 @@ fun KickApp() {
                         val followingViewModel: FollowingViewModel = viewModel()
                         FollowingScreen(
                             viewModel = followingViewModel,
-                            onStreamClick = { channelSlug -> openChannel(channelSlug) }
+                            onStreamClick = { channelSlug, source -> openChannel(channelSlug, source) }
                         )
                     }
 
                     composable("browse") {
                         BrowseScreen(
-                            onChannelClick = { channelSlug -> openChannel(channelSlug) }
+                            onChannelClick = { channelSlug, source -> openChannel(channelSlug, source) }
                         )
                     }
 
@@ -382,7 +383,7 @@ fun KickApp() {
                     }
                 )
 
-                BackHandler(enabled = playerHost.mode == PlayerMode.Expanded) { playerHost.minimize() }
+                BackHandler(enabled = playerHost.mode == PlayerMode.Expanded && !playerHost.isExiting) { playerHost.minimize() }
             }
         }
     }

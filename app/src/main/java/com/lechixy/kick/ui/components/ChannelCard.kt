@@ -23,6 +23,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import coil3.compose.AsyncImage
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.util.buildOptimizedImageRequest
@@ -31,14 +37,39 @@ import com.lechixy.kick.util.buildOptimizedImageRequest
 fun ChannelCard(
     channel: ChannelDetail,
     modifier: Modifier = Modifier,
-    onChannelClick: (channelSlug: String) -> Unit = {}
+    onChannelClick: (channelSlug: String) -> Unit = {},
+    onChannelClickWithSource: ((channelSlug: String, source: ExpansionSource) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    var cardCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var avatarCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+    val handleCardClick = {
+        val cardRect = cardCoordinates?.takeIf { it.isAttached }?.boundsInRoot()
+        val avatarRect = avatarCoordinates?.takeIf { it.isAttached }?.boundsInRoot()
+        if (cardRect != null && onChannelClickWithSource != null) {
+            val source = ExpansionSource(
+                cardRect = cardRect,
+                mediaRect = avatarRect,
+                cornerRadius = 12.dp,
+                thumbnailUrl = channel.livestream?.thumbnail?.src,
+                avatarUrl = channel.user?.profilePic,
+                title = channel.user?.username,
+                username = channel.slug,
+                isLive = channel.livestream != null,
+                isStreamCard = false
+            )
+            onChannelClickWithSource(channel.slug, source)
+        } else {
+            onChannelClick(channel.slug)
+        }
+    }
 
     Card(
-        onClick = { onChannelClick(channel.slug) },
-        modifier = Modifier
-            .widthIn(min = 280.dp),
+        onClick = handleCardClick,
+        modifier = modifier
+            .widthIn(min = 280.dp)
+            .onGloballyPositioned { cardCoordinates = it },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
@@ -63,7 +94,8 @@ fun ChannelCard(
                 contentDescription = channel.user?.username,
                 modifier = Modifier
                     .size(46.dp)
-                    .clip(CircleShape),
+                    .clip(CircleShape)
+                    .onGloballyPositioned { avatarCoordinates = it },
                 contentScale = ContentScale.Crop
             )
 

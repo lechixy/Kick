@@ -660,7 +660,7 @@ private fun PinnedMessageOverlay(
                                 }
                         ) {
                             Text(
-                                text = "Hide",
+                                text = stringResource(R.string.hide),
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
