@@ -46,8 +46,12 @@ data class ChatMessage(
     val threadParentId: String? = null,
     val rewardRedeemed: RewardRedeemedEvent? = null,
     val giftedSubscriptions: GiftedSubscriptionsEvent? = null,
-    val channelSubscription: ChannelSubscriptionEvent? = null
+    val channelSubscription: ChannelSubscriptionEvent? = null,
+    val messageDeleted: MessageDeletedEvent? = null
 ) {
+    val isDeleted: Boolean
+        get() = messageDeleted != null
+
     val isReply: Boolean
         get() = type == ChatMessageType.REPLY || metadata?.originalMessage != null
 
@@ -132,7 +136,8 @@ data class ChatOriginalSender(
 data class ChatOriginalMessage(
     val id: String = "",
     val content: String = "",
-    val sender: ChatSender? = null
+    val sender: ChatSender? = null,
+    val messageDeleted: MessageDeletedEvent? = null
 )
 
 @Serializable
@@ -278,12 +283,15 @@ data class DeletedMessageRef(
     val id: String = ""
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class MessageDeletedEvent(
     val id: String = "",
     val message: DeletedMessageRef? = null,
+    @JsonNames("aiModerated", "ai_moderated")
     val aiModerated: Boolean = false,
-    val violatedRules: List<String> = emptyList()
+    @JsonNames("violatedRules", "violated_rules")
+    val violatedRules: List<JsonElement> = emptyList()
 )
 
 @Serializable

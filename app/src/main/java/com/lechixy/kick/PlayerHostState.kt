@@ -1,5 +1,8 @@
 package com.lechixy.kick
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -10,6 +13,7 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.lechixy.kick.data.model.ChannelDetail
+import kotlin.math.roundToInt
 
 /**
  * Hidden     : oturum yok (player hiç yok, PiP kapalı, normal uygulama)
@@ -24,7 +28,11 @@ enum class PlayerMode { Hidden, Expanded, Fullscreen, Mini }
  * Player artık ChannelScreen'in içinde değil; bu yüzden ekran değişse de yayın durmaz.
  */
 @Stable
-class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: String? = null) {
+class PlayerHostState(
+    initialMode: PlayerMode = PlayerMode.Hidden,
+    initialSlug: String? = null,
+    initialChatWidthFraction: Float = 0.35f
+) {
     var mode by mutableStateOf(initialMode)
         private set
     var slug by mutableStateOf(initialSlug)
@@ -50,13 +58,74 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
 
     var isChatVisible by mutableStateOf(true)
 
-    var chatWidthFraction by mutableFloatStateOf(0.35f)
+    var chatWidthFraction by mutableFloatStateOf(initialChatWidthFraction.coerceIn(0.18f, 0.60f))
 
-    var animatedChatFraction by mutableFloatStateOf(0.35f)
+    /**
+     * Yan sohbet panelinin açılma oranı (0f = tamamen kapalı, 1f = tamamen açık).
+     * Sadece layout ve draw fazlarında okunur -> sürükleme/animasyon sırasında recomposition olmaz,
+     * PlayerHost ve ChannelScreen aynı karede aynı değeri görür (1 karelik SideEffect gecikmesi yok).
+     */
+    val chatOpenProgress = Animatable(0f, visibilityThreshold = 0.0005f)
+
+    var isDirectChatDrag by mutableStateOf(false)
 
     var channelHeaderHeightPx by mutableIntStateOf(0)
 
     var isControlsVisible by mutableStateOf(false)
+
+    fun effectiveChatFraction(hasSideChat: Boolean): Float {
+        if (!hasSideChat) return 0f
+        return (chatWidthFraction * chatOpenProgress.value.coerceIn(0f, 1f)).coerceIn(0f, 0.60f)
+    }
+
+    fun sideChatWidthPx(totalWidthPx: Int, hasSideChat: Boolean): Int {
+        if (!hasSideChat || totalWidthPx <= 0) return 0
+        return (totalWidthPx * effectiveChatFraction(hasSideChat = true)).roundToInt()
+    }
+
+    suspend fun snapChatOpenProgress(progress: Float) {
+        chatOpenProgress.snapTo(progress.coerceIn(0f, 1f))
+    }
+
+    suspend fun animateChatOpenProgressTo(target: Float, initialVelocity: Float = 0f) {
+        chatOpenProgress.animateTo(
+            targetValue = target.coerceIn(0f, 1f),
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow,
+                visibilityThreshold = 0.0005f
+            ),
+            initialVelocity = initialVelocity
+        )
+    }
+
+    fun isSideChatOpen(isWide: Boolean): Boolean {
+        return if (mode == PlayerMode.Fullscreen) {
+            isTheaterMode && isChatVisible
+        } else {
+            isWide && isChatVisible
+        }
+    }
+
+    fun setSideChatVisible(visible: Boolean, isWide: Boolean) {
+        if (mode == PlayerMode.Fullscreen) {
+            if (visible) {
+                if (!isTheaterMode || !isChatVisible) {
+                    isTheaterMode = true
+                    isChatVisible = true
+                }
+            } else {
+                if (isTheaterMode || isChatVisible) {
+                    isChatVisible = false
+                    isTheaterMode = false
+                }
+            }
+        } else if (isWide) {
+            if (isChatVisible != visible) {
+                isChatVisible = visible
+            }
+        }
+    }
 
     fun toggleTheaterMode() {
         isTheaterMode = !isTheaterMode
@@ -159,15 +228,20 @@ class PlayerHostState(initialMode: PlayerMode = PlayerMode.Hidden, initialSlug: 
         pageSlug = null
         isTheaterMode = false
         isChatVisible = true
-        chatWidthFraction = 0.35f
-        animatedChatFraction = 0.35f
+        isDirectChatDrag = false
         expansionSource = null
     }
 
     companion object {
         val Saver = listSaver<PlayerHostState, Any?>(
-            save = { listOf(it.mode.name, it.slug) },
-            restore = { PlayerHostState(PlayerMode.valueOf(it[0] as String), it[1] as String?) }
+            save = { listOf(it.mode.name, it.slug, it.chatWidthFraction) },
+            restore = {
+                PlayerHostState(
+                    initialMode = PlayerMode.valueOf(it[0] as String),
+                    initialSlug = it[1] as String?,
+                    initialChatWidthFraction = (it.getOrNull(2) as? Float) ?: 0.35f
+                )
+            }
         )
     }
 }

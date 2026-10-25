@@ -1,51 +1,43 @@
 package com.lechixy.kick.ui.components
 
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.view.WindowManager
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.lerp as lerpColor
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.lerp as lerpDp
-import androidx.compose.ui.unit.roundToIntRect
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -54,9 +46,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -64,18 +56,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.roundToIntRect
 import androidx.compose.ui.util.fastAny
 import androidx.compose.ui.util.fastForEach
 import androidx.core.view.WindowCompat
@@ -85,10 +76,11 @@ import coil3.compose.AsyncImage
 import com.lechixy.kick.PlayerHostState
 import com.lechixy.kick.PlayerMode
 import com.lechixy.kick.data.model.getBannerUrl
+import com.lechixy.kick.data.settings.LocalSettingsRepository
+import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.screens.channel.findActivity
 import com.lechixy.kick.util.buildOptimizedImageRequest
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
@@ -101,6 +93,21 @@ private const val MINI_DEFAULT_WIDTH_DP = 200f
 private const val MINI_MIN_WIDTH_DP = 140f
 private const val MINI_MAX_WIDTH_DP = 500f
 private const val MINI_PADDING_DP = 16f
+
+private const val NORM_THRESHOLD = 0.0005f
+private const val PX_THRESHOLD = 0.5f
+
+private class ViewportMetrics {
+    var containerW: Int = 0
+    var containerH: Int = 0
+    var safeArea: IntRect = IntRect.Zero
+
+    fun update(cw: Int, ch: Int, area: IntRect) {
+        containerW = cw
+        containerH = ch
+        safeArea = area
+    }
+}
 
 /**
  * NavHost'un ÜSTÜNDE duran tek player katmanı.
@@ -123,17 +130,19 @@ fun PlayerHost(
     if (host.slug == null || host.mode == PlayerMode.Hidden) return
 
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val mode = host.mode
 
     val expansion = host.expansionSource
-    val expandProgress = remember { Animatable(0f) }
+    val expandProgress = remember { Animatable(0f, visibilityThreshold = NORM_THRESHOLD) }
     var isExpanding by remember { mutableStateOf(false) }
     var previewThumbnailUrl by remember { mutableStateOf<String?>(null) }
 
-    val exitAlpha = remember { Animatable(1f) }
-    val exitScale = remember { Animatable(1f) }
+    val exitAlpha = remember { Animatable(1f, visibilityThreshold = NORM_THRESHOLD) }
+    val exitScale = remember { Animatable(1f, visibilityThreshold = NORM_THRESHOLD) }
 
     LaunchedEffect(host.isExiting) {
         if (host.isExiting) {
@@ -155,8 +164,12 @@ fun PlayerHost(
         }
     }
 
-    val frameT = remember { Animatable(0f) }
+    val frameT = remember { Animatable(0f, visibilityThreshold = NORM_THRESHOLD) }
+    val theaterAnim = remember {
+        Animatable(if (host.isTheaterMode) 1f else 0f, visibilityThreshold = NORM_THRESHOLD)
+    }
     var releaseVelocity by remember { mutableFloatStateOf(0f) }
+    var releaseChatVelocity by remember { mutableFloatStateOf(0f) }
     val settleJobs = remember { mutableListOf<Job>() }
     var pageAlpha by remember { mutableFloatStateOf(0f) }   // 0'dan başlar -> açılışta fade-in
     var fsScale by remember { mutableFloatStateOf(1f) }
@@ -171,14 +184,45 @@ fun PlayerHost(
         loaded == null || loaded.livestream != null   // yüklenirken shell, canlıysa player, offline'da yok
     var dragScale by remember { mutableFloatStateOf(1f) }   // madde 3
     var playerDy by remember { mutableFloatStateOf(0f) }    // madde 4
-    var dragT by remember { mutableFloatStateOf(0f) }
-    var container by remember { mutableStateOf(IntSize.Zero) }
-    var area by remember { mutableStateOf(IntRect.Zero) }
+    val metrics = remember { ViewportMetrics() }
+    val systemInsets = WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
 
     // Mini pencere: konum, hareket aralığının oranı olarak tutulur (0..1) => boyut/rotasyon değişse de köşede kalır.
+    val settingsRepository = LocalSettingsRepository.current
     var miniWidthDp by remember { mutableFloatStateOf(MINI_DEFAULT_WIDTH_DP) }
     var fx by remember { mutableFloatStateOf(1f) }
     var fy by remember { mutableFloatStateOf(1f) }
+
+    LaunchedEffect(settingsRepository) {
+        settingsRepository.get(SettingsKeys.MINI_PLAYER_WIDTH_DP).collect { savedWidthDp ->
+            miniWidthDp = savedWidthDp.coerceIn(MINI_MIN_WIDTH_DP, MINI_MAX_WIDTH_DP)
+        }
+    }
+
+    LaunchedEffect(host.isTheaterMode) {
+        theaterAnim.animateTo(
+            targetValue = if (host.isTheaterMode) 1f else 0f,
+            animationSpec = tween(300, easing = FastOutSlowInEasing)
+        )
+    }
+
+    val isWideConfig = configuration.screenWidthDp >= WIDE_BREAKPOINT_DP
+    val shouldOpenSideChat = host.isSideChatOpen(isWideConfig)
+
+    LaunchedEffect(host.slug) {
+        host.snapChatOpenProgress(if (host.isSideChatOpen(isWideConfig)) 1f else 0f)
+    }
+
+    LaunchedEffect(shouldOpenSideChat, host.isDirectChatDrag) {
+        if (!host.isDirectChatDrag) {
+            val v = releaseChatVelocity
+            releaseChatVelocity = 0f
+            host.animateChatOpenProgressTo(
+                target = if (shouldOpenSideChat) 1f else 0f,
+                initialVelocity = v
+            )
+        }
+    }
 
     val targetT = when {
         isInPipMode || mode == PlayerMode.Fullscreen -> 1f
@@ -194,9 +238,8 @@ fun PlayerHost(
         ) { v, _ -> pageAlpha = v }
     }
 
-    val hasContainer = container.width > 0 && container.height > 0
-    LaunchedEffect(expansion, hasContainer) {
-        if (expansion != null && hasContainer) {
+    LaunchedEffect(expansion) {
+        if (expansion != null) {
             previewThumbnailUrl = expansion.thumbnailUrl
             isExpanding = true
             pageAlpha = 1f
@@ -210,117 +253,222 @@ fun PlayerHost(
             )
             isExpanding = false
             host.clearExpansionSource()
-        } else if (expansion == null) {
+        } else {
             isExpanding = false
         }
     }
 
-    LaunchedEffect(targetT, isInPipMode) {
-        if (isInPipMode) {
-            frameT.snapTo(targetT); return@LaunchedEffect
+    var hasBeenFullscreen by remember { mutableStateOf(false) }
+    var enteredFullscreenFromPortrait by remember { mutableStateOf(false) }
+
+    DisposableEffect(activity) {
+        val window = activity?.window
+        val prevRotationAnim = window?.attributes?.rotationAnimation
+        if (window != null) {
+            val params = window.attributes
+            params.rotationAnimation = WindowManager.LayoutParams.ROTATION_ANIMATION_CROSSFADE
+            window.attributes = params
         }
-        val v = releaseVelocity; releaseVelocity = 0f
-        if (v != 0f) frameT.animateTo(
-            targetT,
-            spring(
-                dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = Spring.StiffnessMediumLow
-            ),
-            initialVelocity = v
-        ) else frameT.animateTo(targetT, tween(300, easing = FastOutSlowInEasing))
-        if (targetT == 0f) {
-            fsScale = 1f; fsDy = 0f
+        onDispose {
+            activity?.let { act ->
+                WindowCompat.getInsetsController(act.window, act.window.decorView)
+                    .show(WindowInsetsCompat.Type.systemBars())
+                if (hasBeenFullscreen) {
+                    act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
+                if (prevRotationAnim != null) {
+                    val params = act.window.attributes
+                    params.rotationAnimation = prevRotationAnim
+                    act.window.attributes = params
+                }
+            }
         }
     }
 
-    ImmersiveSystemBars(isFullScreen = mode == PlayerMode.Fullscreen, progress = frameT.asState())
+    LaunchedEffect(targetT, isInPipMode, activity) {
+        if (isInPipMode) {
+            frameT.snapTo(targetT)
+            return@LaunchedEffect
+        }
+        val v = releaseVelocity
+        releaseVelocity = 0f
+        val controller = activity?.let {
+            WindowCompat.getInsetsController(it.window, it.window.decorView).apply {
+                systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        }
+
+        if (targetT == 1f) {
+            val isPortraitNow = if (metrics.containerW > 0 && metrics.containerH > 0) {
+                metrics.containerH > metrics.containerW
+            } else {
+                configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+            }
+            hasBeenFullscreen = true
+            enteredFullscreenFromPortrait = isPortraitNow
+            controller?.hide(WindowInsetsCompat.Type.systemBars())
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            dragScale = 1f
+            playerDy = 0f
+            fsScale = 1f
+            fsDy = 0f
+            if (isPortraitNow) {
+                // Dikeyden yataya dönerken sistem dönüş animasyonu çalışır; çift animasyon / twitch önlenir.
+                frameT.snapTo(1f)
+            } else if (v != 0f) {
+                frameT.animateTo(
+                    1f,
+                    spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                        visibilityThreshold = NORM_THRESHOLD
+                    ),
+                    initialVelocity = v
+                )
+            } else {
+                frameT.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
+            }
+        } else {
+            val rotateBackToPortrait = hasBeenFullscreen && enteredFullscreenFromPortrait
+            if (hasBeenFullscreen) {
+                controller?.show(WindowInsetsCompat.Type.systemBars())
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+            enteredFullscreenFromPortrait = false
+            if (rotateBackToPortrait && targetT == 0f) {
+                // Yatay tam ekrandan dikey inline moda dönerken doğrudan 16:9 yuvasına snap et.
+                fsScale = 1f
+                fsDy = 0f
+                dragScale = 1f
+                playerDy = 0f
+                frameT.snapTo(0f)
+            } else {
+                if (v != 0f) {
+                    frameT.animateTo(
+                        targetT,
+                        spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow,
+                            visibilityThreshold = NORM_THRESHOLD
+                        ),
+                        initialVelocity = v
+                    )
+                } else {
+                    frameT.animateTo(targetT, tween(300, easing = FastOutSlowInEasing))
+                }
+                if (targetT == 0f) {
+                    fsScale = 1f
+                    fsDy = 0f
+                }
+            }
+        }
+    }
 
     fun px(dp: Float) = with(density) { dp.dp.toPx() }
+    val wideBreakpointPx = with(density) { WIDE_BREAKPOINT_DP.dp.roundToPx() }
 
+    fun MeasureScope.resolveSafeArea(cw: Int, ch: Int): IntRect {
+        val left = systemInsets.getLeft(this, layoutDirection)
+        val top = systemInsets.getTop(this)
+        val right = (cw - systemInsets.getRight(this, layoutDirection)).coerceAtLeast(left)
+        val bottom = (ch - systemInsets.getBottom(this)).coerceAtLeast(top)
+        return IntRect(left, top, right, bottom)
+    }
 
-    val theaterProgress by animateFloatAsState(
-        targetValue = if (host.isTheaterMode) 1f else 0f,
-        animationSpec = tween(300, easing = FastOutSlowInEasing),
-        label = "theaterProgress"
-    )
-
-    fun inlineRect(): IntRect {
-        val wide = container.width >= with(density) { WIDE_BREAKPOINT_DP.dp.roundToPx() }
-        val effectiveChatFraction = if (wide) host.animatedChatFraction else 0f
-        val w = if (wide) (area.width * (1f - effectiveChatFraction)).roundToInt() else area.width
+    fun inlineRect(safeArea: IntRect): IntRect {
+        val wide = safeArea.width >= wideBreakpointPx
+        val chatW = host.sideChatWidthPx(safeArea.width, hasSideChat = wide)
+        val w = (safeArea.width - chatW).coerceAtLeast(0)
         val playerHeight = (w * 9f / 16f).roundToInt()
-        val headerPx = if (host.channelHeaderHeightPx > 0) host.channelHeaderHeightPx else (area.height * 0.24f).roundToInt()
-        val theaterTargetHeight = (area.height - headerPx).coerceIn(0, area.height)
+        val headerPx = if (host.channelHeaderHeightPx > 0) {
+            host.channelHeaderHeightPx
+        } else {
+            (safeArea.height * 0.24f).roundToInt()
+        }
+        val theaterTargetHeight = (safeArea.height - headerPx).coerceIn(0, safeArea.height)
         val h = if (wide) {
-            (playerHeight + (theaterTargetHeight - playerHeight) * theaterProgress).roundToInt()
+            (playerHeight + (theaterTargetHeight - playerHeight) * theaterAnim.value).roundToInt()
         } else {
             playerHeight
         }
-        return IntRect(area.left, area.top, area.left + w, area.top + h)
+        return IntRect(safeArea.left, safeArea.top, safeArea.left + w, safeArea.top + h)
     }
 
-    fun miniWidthPx(): Float {
+    fun miniWidthPx(safeArea: IntRect): Float {
         val minW = px(MINI_MIN_WIDTH_DP)
-        val maxW = max(minW, min(area.width * 0.7f, px(MINI_MAX_WIDTH_DP)))
+        val maxW = max(minW, min(safeArea.width * 0.7f, px(MINI_MAX_WIDTH_DP)))
         return px(miniWidthDp).coerceIn(minW, maxW)
     }
 
-    fun miniRangeX() = (area.width - miniWidthPx() - 2 * px(MINI_PADDING_DP)).coerceAtLeast(1f)
-    fun miniRangeY() =
-        (area.height - miniWidthPx() * 9f / 16f - 2 * px(MINI_PADDING_DP)).coerceAtLeast(1f)
+    fun miniRangeX(safeArea: IntRect) =
+        (safeArea.width - miniWidthPx(safeArea) - 2 * px(MINI_PADDING_DP)).coerceAtLeast(1f)
 
-    fun miniRect(): IntRect {
-        val w = miniWidthPx()
+    fun miniRangeY(safeArea: IntRect) =
+        (safeArea.height - miniWidthPx(safeArea) * 9f / 16f - 2 * px(MINI_PADDING_DP)).coerceAtLeast(1f)
+
+    fun miniRect(safeArea: IntRect): IntRect {
+        val w = miniWidthPx(safeArea)
         val h = w * 9f / 16f
         val pad = px(MINI_PADDING_DP)
-        val l = area.left + pad + fx * miniRangeX()
-        val t = area.top + pad + fy * miniRangeY()
-        return IntRect(l.roundToInt(), t.roundToInt(), (l + w).roundToInt(), (t + h).roundToInt())
+        val l = safeArea.left + pad + fx * miniRangeX(safeArea)
+        val t = safeArea.top + pad + fy * miniRangeY(safeArea)
+        val leftPx = l.roundToInt()
+        val topPx = t.roundToInt()
+        return IntRect(leftPx, topPx, leftPx + w.roundToInt(), topPx + h.roundToInt())
     }
 
-    fun lerpRect(a: IntRect, b: IntRect, f: Float) = IntRect(
-        (a.left + (b.left - a.left) * f).roundToInt(),
-        (a.top + (b.top - a.top) * f).roundToInt(),
-        (a.right + (b.right - a.right) * f).roundToInt(),
-        (a.bottom + (b.bottom - a.bottom) * f).roundToInt()
-    )
+    fun lerpRect(a: IntRect, b: IntRect, f: Float): IntRect {
+        val l = a.left + (b.left - a.left) * f
+        val t = a.top + (b.top - a.top) * f
+        val w = a.width + (b.width - a.width) * f
+        val h = a.height + (b.height - a.height) * f
+        val leftPx = l.roundToInt()
+        val topPx = t.roundToInt()
+        return IntRect(leftPx, topPx, leftPx + w.roundToInt(), topPx + h.roundToInt())
+    }
 
     fun currentT() = frameT.value
+
     fun scaledBottomCenter(r: IntRect, s: Float): IntRect {
         val cx = (r.left + r.right) / 2f
-        val w = r.width * s;
+        val w = r.width * s
         val h = r.height * s
-        return IntRect(
-            (cx - w / 2).roundToInt(),
-            (r.bottom - h).roundToInt(),
-            (cx + w / 2).roundToInt(),
-            r.bottom
-        )
+        val leftPx = (cx - w / 2f).roundToInt()
+        val topPx = (r.bottom - h).roundToInt()
+        return IntRect(leftPx, topPx, leftPx + w.roundToInt(), r.bottom)
     }
 
-    fun fullRect(): IntRect {
-        val effectiveChatFraction = host.animatedChatFraction
-        val totalW = container.width * fsScale
-        val w = totalW * (1f - effectiveChatFraction)
-        val h = container.height * fsScale
-        val l = (container.width - totalW) / 2f
-        val t = (container.height - h) / 2f + fsDy
-        return IntRect(l.roundToInt(), t.roundToInt(), (l + w).roundToInt(), (t + h).roundToInt())
+    fun fullRect(cw: Int, ch: Int, safeArea: IntRect): IntRect {
+        val chatOpen = host.chatOpenProgress.value.coerceIn(0f, 1f)
+        val chatW = host.sideChatWidthPx(safeArea.width, hasSideChat = true)
+        val rightEdgeWhenChatOpen = (safeArea.right - chatW).toFloat()
+        val availableRight = cw + (rightEdgeWhenChatOpen - cw) * chatOpen
+        val availableLeft = safeArea.left * chatOpen
+        val availableW = (availableRight - availableLeft).coerceAtLeast(1f)
+        val w = availableW * fsScale
+        val h = ch * fsScale
+        val l = availableLeft + (availableW - w) / 2f
+        val t = (ch - h) / 2f + fsDy
+        val leftPx = l.roundToInt()
+        val topPx = t.roundToInt()
+        return IntRect(leftPx, topPx, leftPx + w.roundToInt(), topPx + h.roundToInt())
     }
 
-    fun frameAt(t: Float): IntRect {
-        val base = scaledBottomCenter(inlineRect(), dragScale)
-        return if (t >= 0f) lerpRect(base, fullRect(), t.coerceAtMost(1f))
-        else lerpRect(base, miniRect(), (-t).coerceAtMost(1f))
+    fun frameAt(t: Float, cw: Int, ch: Int, safeArea: IntRect): IntRect {
+        val base = scaledBottomCenter(inlineRect(safeArea), dragScale)
+        return if (t >= 0f) lerpRect(base, fullRect(cw, ch, safeArea), t.coerceAtMost(1f))
+        else lerpRect(base, miniRect(safeArea), (-t).coerceAtMost(1f))
     }
 
     fun snapMini() {
-        val rx = miniRangeX();
-        val ry = miniRangeY()
+        val safeArea = metrics.safeArea
+        val rx = miniRangeX(safeArea)
+        val ry = miniRangeY(safeArea)
         val dx = min(fx, 1f - fx) * rx
         val dy = min(fy, 1f - fy) * ry
-        val cornerReach = miniWidthPx() * 0.6f
-        var tx = fx;
+        val cornerReach = miniWidthPx(safeArea) * 0.6f
+        var tx = fx
         var ty = fy
         if (dx <= dy) {
             tx = fx.roundToInt().toFloat()
@@ -329,65 +477,50 @@ fun PlayerHost(
             ty = fy.roundToInt().toFloat()
             if (dx < cornerReach) tx = fx.roundToInt().toFloat()
         }
-        val sx = fx;
+        val sx = fx
         val sy = fy
         scope.launch {
-            animate(sx, tx, animationSpec = spring(stiffness = 400f)) { v, _ ->
+            animate(
+                sx,
+                tx,
+                animationSpec = spring(stiffness = 400f, visibilityThreshold = NORM_THRESHOLD)
+            ) { v, _ ->
                 fx = v
             }
         }
         scope.launch {
-            animate(sy, ty, animationSpec = spring(stiffness = 400f)) { v, _ ->
+            animate(
+                sy,
+                ty,
+                animationSpec = spring(stiffness = 400f, visibilityThreshold = NORM_THRESHOLD)
+            ) { v, _ ->
                 fy = v
             }
         }
+        val currentMiniWidthDp = miniWidthDp
+        scope.launch {
+            settingsRepository.set(SettingsKeys.MINI_PLAYER_WIDTH_DP, currentMiniWidthDp)
+        }
     }
 
-    var rootOrigin by remember { mutableStateOf(Offset.Zero) }
     Box(
         modifier
             .fillMaxSize()
+            .layout { measurable, constraints ->
+                val cw = constraints.maxWidth
+                val ch = constraints.maxHeight
+                metrics.update(cw, ch, resolveSafeArea(cw, ch))
+                val placeable = measurable.measure(constraints)
+                layout(placeable.width, placeable.height) {
+                    placeable.place(0, 0)
+                }
+            }
             .graphicsLayer {
                 scaleX = exitScale.value
                 scaleY = exitScale.value
                 alpha = exitAlpha.value
             }
-            .onSizeChanged { container = it }
-            .onGloballyPositioned { rootOrigin = it.positionInRoot() }
     ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout))
-        ) {
-            Spacer(
-                Modifier
-                    .fillMaxSize()
-                    .onGloballyPositioned { c ->
-                        val p = c.positionInRoot() - rootOrigin
-                        area = IntRect(
-                            p.x.roundToInt(), p.y.roundToInt(),
-                            p.x.roundToInt() + c.size.width, p.y.roundToInt() + c.size.height
-                        )
-                    }
-            )
-        }
-
-        val p = expandProgress.value
-        val destRect = IntRect(0, 0, container.width, container.height)
-        val sourceCardRect = expansion?.cardRect?.roundToIntRect() ?: destRect
-        val sourceMediaRect = expansion?.mediaRect?.roundToIntRect() ?: sourceCardRect
-        val targetMediaRect = inlineRect()
-
-        val shellRect = if (isExpanding) lerpRect(sourceCardRect, destRect, p) else destRect
-        val shellRadius = if (isExpanding) lerpDp(expansion?.cornerRadius ?: 12.dp, 0.dp, p) else 0.dp
-        val shellElevation = if (isExpanding) lerpDp(8.dp, 0.dp, p) else 0.dp
-        val currentMediaRect = if (isExpanding) lerpRect(sourceMediaRect, targetMediaRect, p) else targetMediaRect
-
-        val cardDetailsAlpha = if (isExpanding) (1f - (p / 0.18f)).coerceIn(0f, 1f) else 0f
-        val destContentAlpha = if (isExpanding) ((p - 0.22f) / 0.78f).coerceIn(0f, 1f) else pageAlpha
-        val destSlideUpPx = if (isExpanding) with(density) { (18.dp.toPx() * (1f - destContentAlpha)) } else 0f
-
         if (showPage) {
             Box(
                 Modifier
@@ -395,18 +528,35 @@ fun PlayerHost(
                     .let { mod ->
                         if (isExpanding) {
                             mod
-                                .offset { IntOffset(shellRect.left, shellRect.top) }
-                                .layout { measurable, _ ->
+                                .layout { measurable, constraints ->
+                                    val cw = constraints.maxWidth
+                                    val ch = constraints.maxHeight
+                                    val safeArea = resolveSafeArea(cw, ch)
+                                    metrics.update(cw, ch, safeArea)
+                                    val p = expandProgress.value
+                                    val destRect = IntRect(0, 0, cw, ch)
+                                    val sourceCardRect =
+                                        expansion?.cardRect?.roundToIntRect() ?: destRect
+                                    val shellRect = lerpRect(sourceCardRect, destRect, p)
                                     val pl = measurable.measure(
                                         Constraints.fixed(
                                             shellRect.width.coerceAtLeast(0),
                                             shellRect.height.coerceAtLeast(0)
                                         )
                                     )
-                                    layout(pl.width, pl.height) { pl.place(0, 0) }
+                                    layout(cw, ch) {
+                                        pl.place(shellRect.left, shellRect.top)
+                                    }
                                 }
-                                .shadow(shellElevation, RoundedCornerShape(shellRadius))
-                                .clip(RoundedCornerShape(shellRadius))
+                                .graphicsLayer {
+                                    val p = expandProgress.value
+                                    val radiusPx =
+                                        ((expansion?.cornerRadius ?: 12.dp).toPx() * (1f - p))
+                                            .coerceAtLeast(0f)
+                                    shape = RoundedCornerShape(radiusPx)
+                                    clip = radiusPx > 0.5f
+                                    shadowElevation = (8.dp.toPx() * (1f - p)).coerceAtLeast(0f)
+                                }
                                 .background(MaterialTheme.colorScheme.background)
                         } else {
                             mod
@@ -423,7 +573,9 @@ fun PlayerHost(
                         .fillMaxSize()
                         .graphicsLayer {
                             if (isExpanding) {
-                                translationY = destSlideUpPx
+                                val p = expandProgress.value
+                                val destContentAlpha = ((p - 0.22f) / 0.78f).coerceIn(0f, 1f)
+                                translationY = 18.dp.toPx() * (1f - destContentAlpha)
                                 alpha = destContentAlpha
                             }
                         }
@@ -438,24 +590,42 @@ fun PlayerHost(
                 // Expanding 16:9 Hero Media Layer
                 Box(
                     Modifier
-                        .offset { IntOffset(currentMediaRect.left, currentMediaRect.top) }
-                        .layout { measurable, _ ->
+                        .layout { measurable, constraints ->
+                            val cw = constraints.maxWidth
+                            val ch = constraints.maxHeight
+                            val safeArea = resolveSafeArea(cw, ch)
+                            metrics.update(cw, ch, safeArea)
+                            val p = expandProgress.value
+                            val destRect = IntRect(0, 0, cw, ch)
+                            val sourceCardRect = expansion.cardRect.roundToIntRect()
+                            val sourceMediaRect =
+                                expansion.mediaRect?.roundToIntRect() ?: sourceCardRect
+                            val targetMediaRect = inlineRect(safeArea)
+                            val currentMediaRect = lerpRect(sourceMediaRect, targetMediaRect, p)
                             val pl = measurable.measure(
                                 Constraints.fixed(
                                     currentMediaRect.width.coerceAtLeast(0),
                                     currentMediaRect.height.coerceAtLeast(0)
                                 )
                             )
-                            layout(pl.width, pl.height) { pl.place(0, 0) }
+                            layout(cw, ch) {
+                                pl.place(currentMediaRect.left, currentMediaRect.top)
+                            }
                         }
-                        .clip(
-                            RoundedCornerShape(
-                                topStart = shellRadius,
-                                topEnd = shellRadius,
-                                bottomStart = if (p > 0.7f) 0.dp else shellRadius * (1f - p),
-                                bottomEnd = if (p > 0.7f) 0.dp else shellRadius * (1f - p)
+                        .graphicsLayer {
+                            val p = expandProgress.value
+                            val topRadiusPx =
+                                (expansion.cornerRadius.toPx() * (1f - p)).coerceAtLeast(0f)
+                            val bottomRadiusPx =
+                                if (p > 0.7f) 0f else (topRadiusPx * (1f - p)).coerceAtLeast(0f)
+                            shape = RoundedCornerShape(
+                                topStart = topRadiusPx,
+                                topEnd = topRadiusPx,
+                                bottomStart = bottomRadiusPx,
+                                bottomEnd = bottomRadiusPx
                             )
-                        )
+                            clip = topRadiusPx > 0.5f || bottomRadiusPx > 0.5f
+                        }
                         .background(Color.Black)
                 ) {
                     if (!expansion.thumbnailUrl.isNullOrEmpty()) {
@@ -474,12 +644,15 @@ fun PlayerHost(
                         )
                     }
 
-                    if (expansion.isLive && p < 0.6f) {
+                    if (expansion.isLive) {
                         Box(
                             Modifier
                                 .align(Alignment.BottomStart)
                                 .padding(8.dp)
-                                .graphicsLayer { alpha = (1f - p / 0.6f).coerceIn(0f, 1f) }
+                                .graphicsLayer {
+                                    val p = expandProgress.value
+                                    alpha = (1f - p / 0.6f).coerceIn(0f, 1f)
+                                }
                         ) {
                             LiveBadge()
                         }
@@ -488,118 +661,137 @@ fun PlayerHost(
             }
 
             // Card Source Details (Phase 1: quickly fades out in first ~70ms)
-            if (cardDetailsAlpha > 0.01f) {
-                val mediaH = if (!expansion.thumbnailUrl.isNullOrEmpty() || expansion.isStreamCard) currentMediaRect.height else 0
-                val detailsTop = shellRect.top + mediaH
-                val detailsHeight = (shellRect.height - mediaH).coerceAtLeast(0)
-                Box(
-                    Modifier
-                        .offset { IntOffset(shellRect.left, detailsTop) }
-                        .layout { measurable, _ ->
-                            val pl = measurable.measure(
-                                Constraints.fixed(shellRect.width.coerceAtLeast(0), detailsHeight)
-                            )
-                            layout(pl.width, pl.height) { pl.place(0, 0) }
-                        }
-                        .clip(
-                            RoundedCornerShape(
-                                bottomStart = shellRadius,
-                                bottomEnd = shellRadius
-                            )
+            Box(
+                Modifier
+                    .layout { measurable, constraints ->
+                        val cw = constraints.maxWidth
+                        val ch = constraints.maxHeight
+                        val safeArea = resolveSafeArea(cw, ch)
+                        metrics.update(cw, ch, safeArea)
+                        val p = expandProgress.value
+                        val destRect = IntRect(0, 0, cw, ch)
+                        val sourceCardRect = expansion.cardRect.roundToIntRect()
+                        val sourceMediaRect =
+                            expansion.mediaRect?.roundToIntRect() ?: sourceCardRect
+                        val shellRect = lerpRect(sourceCardRect, destRect, p)
+                        val currentMediaRect = lerpRect(sourceMediaRect, inlineRect(safeArea), p)
+                        val mediaH =
+                            if (!expansion.thumbnailUrl.isNullOrEmpty() || expansion.isStreamCard) {
+                                currentMediaRect.height
+                            } else {
+                                0
+                            }
+                        val detailsTop = shellRect.top + mediaH
+                        val detailsHeight = (shellRect.height - mediaH).coerceAtLeast(0)
+                        val pl = measurable.measure(
+                            Constraints.fixed(shellRect.width.coerceAtLeast(0), detailsHeight)
                         )
-                        .graphicsLayer { alpha = cardDetailsAlpha }
-                ) {
-                    if (expansion.isStreamCard) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            if (!expansion.avatarUrl.isNullOrEmpty()) {
-                                AsyncImage(
-                                    model = remember(expansion.avatarUrl) {
-                                        buildOptimizedImageRequest(
-                                            context = context,
-                                            data = expansion.avatarUrl,
-                                            targetWidthDp = 44,
-                                            targetHeightDp = 44
-                                        )
-                                    },
-                                    contentDescription = expansion.username,
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                            }
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = expansion.title ?: "No Title",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = expansion.username ?: "",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                expansion.category?.let { cat ->
-                                    Text(
-                                        text = cat,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                        layout(cw, ch) {
+                            pl.place(shellRect.left, detailsTop)
+                        }
+                    }
+                    .graphicsLayer {
+                        val p = expandProgress.value
+                        val radiusPx =
+                            (expansion.cornerRadius.toPx() * (1f - p)).coerceAtLeast(0f)
+                        shape = RoundedCornerShape(
+                            bottomStart = radiusPx,
+                            bottomEnd = radiusPx
+                        )
+                        clip = radiusPx > 0.5f
+                        alpha = (1f - (p / 0.18f)).coerceIn(0f, 1f)
+                    }
+            ) {
+                if (expansion.isStreamCard) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (!expansion.avatarUrl.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = remember(expansion.avatarUrl) {
+                                    buildOptimizedImageRequest(
+                                        context = context,
+                                        data = expansion.avatarUrl,
+                                        targetWidthDp = 44,
+                                        targetHeightDp = 44
                                     )
-                                }
+                                },
+                                contentDescription = expansion.username,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = expansion.title ?: "No Title",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = expansion.username ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            expansion.category?.let { cat ->
+                                Text(
+                                    text = cat,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
-                    } else {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            if (!expansion.avatarUrl.isNullOrEmpty()) {
-                                AsyncImage(
-                                    model = remember(expansion.avatarUrl) {
-                                        buildOptimizedImageRequest(
-                                            context = context,
-                                            data = expansion.avatarUrl,
-                                            targetWidthDp = 48,
-                                            targetHeightDp = 48
-                                        )
-                                    },
-                                    contentDescription = expansion.username,
-                                    modifier = Modifier
-                                        .size(46.dp)
-                                        .clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                            }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (!expansion.avatarUrl.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = remember(expansion.avatarUrl) {
+                                    buildOptimizedImageRequest(
+                                        context = context,
+                                        data = expansion.avatarUrl,
+                                        targetWidthDp = 48,
+                                        targetHeightDp = 48
+                                    )
+                                },
+                                contentDescription = expansion.username,
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
 
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = expansion.title ?: "",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = expansion.username ?: "",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                            }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = expansion.title ?: "",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = expansion.username ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
                         }
                     }
                 }
@@ -609,23 +801,21 @@ fun PlayerHost(
         if (playerVisible && !isExpanding) {
             Box(
                 Modifier
-                    .offset {
-                        frameAt(currentT()).let {
-                            IntOffset(
-                                it.left,
-                                it.top + playerDy.roundToInt()
-                            )
-                        }
-                    }
-                    .layout { measurable, _ ->
-                        val f = frameAt(currentT())
+                    .layout { measurable, constraints ->
+                        val cw = constraints.maxWidth
+                        val ch = constraints.maxHeight
+                        val safeArea = resolveSafeArea(cw, ch)
+                        metrics.update(cw, ch, safeArea)
+                        val f = frameAt(currentT(), cw, ch, safeArea)
                         val p = measurable.measure(
                             Constraints.fixed(
                                 f.width.coerceAtLeast(0),
                                 f.height.coerceAtLeast(0)
                             )
                         )
-                        layout(p.width, p.height) { p.place(0, 0) }
+                        layout(p.width, p.height) {
+                            p.place(f.left, f.top + playerDy.roundToInt())
+                        }
                     }
                     .graphicsLayer {
                         val m = (-currentT()).coerceIn(0f, 1f)
@@ -653,12 +843,13 @@ fun PlayerHost(
                                 if (!moved && (accum.getDistance() > viewConfiguration.touchSlop || zoom != 1f)) moved =
                                     true
                                 if (moved) {
+                                    val safeArea = metrics.safeArea
                                     miniWidthDp = (miniWidthDp * zoom).coerceIn(
                                         MINI_MIN_WIDTH_DP,
                                         MINI_MAX_WIDTH_DP
                                     )
-                                    fx = (fx + pan.x / miniRangeX()).coerceIn(0f, 1f)
-                                    fy = (fy + pan.y / miniRangeY()).coerceIn(0f, 1f)
+                                    fx = (fx + pan.x / miniRangeX(safeArea)).coerceIn(0f, 1f)
+                                    fy = (fy + pan.y / miniRangeY(safeArea)).coerceIn(0f, 1f)
                                     event.changes.fastForEach { if (it.positionChanged()) it.consume() }
                                 }
                             } while (event.changes.fastAny { it.pressed })
@@ -675,10 +866,13 @@ fun PlayerHost(
                         val limitPx = 180.dp.toPx()
                         val travelPx = 240.dp.toPx()
                         val scaleDistPx = 160.dp.toPx()
-                        val back = spring<Float>(stiffness = 300f)
+                        val backNorm =
+                            spring<Float>(stiffness = 300f, visibilityThreshold = NORM_THRESHOLD)
+                        val backPx =
+                            spring<Float>(stiffness = 300f, visibilityThreshold = PX_THRESHOLD)
 
                         fun fsDyMax() =
-                            container.height / 2f - 0.2f * container.height * fsScale  // videonun %30'u dışarıda
+                            metrics.containerH / 2f - 0.2f * metrics.containerH * fsScale  // videonun %30'u dışarıda
 
                         fun cancelSettle() {
                             settleJobs.forEach { it.cancel() }; settleJobs.clear()
@@ -687,37 +881,47 @@ fun PlayerHost(
                         fun settle() {
                             cancelSettle()
                             settleJobs += scope.launch {
-                                launch {
-                                    animate(
-                                        dragScale,
-                                        1f,
-                                        animationSpec = back
-                                    ) { v, _ -> dragScale = v }
+                                if (dragScale != 1f) {
+                                    launch {
+                                        animate(
+                                            dragScale,
+                                            1f,
+                                            animationSpec = backNorm
+                                        ) { v, _ -> dragScale = v }
+                                    }
                                 }
-                                launch {
-                                    animate(
-                                        playerDy,
-                                        0f,
-                                        animationSpec = back
-                                    ) { v, _ -> playerDy = v }
+                                if (playerDy != 0f) {
+                                    launch {
+                                        animate(
+                                            playerDy,
+                                            0f,
+                                            animationSpec = backPx
+                                        ) { v, _ -> playerDy = v }
+                                    }
                                 }
-                                launch {
-                                    animate(
-                                        pageAlpha,
-                                        1f,
-                                        animationSpec = back
-                                    ) { v, _ -> pageAlpha = v }
+                                if (pageAlpha != 1f) {
+                                    launch {
+                                        animate(
+                                            pageAlpha,
+                                            1f,
+                                            animationSpec = backNorm
+                                        ) { v, _ -> pageAlpha = v }
+                                    }
                                 }
-                                launch {
-                                    animate(
-                                        fsScale,
-                                        1f,
-                                        animationSpec = back
-                                    ) { v, _ -> fsScale = v }
+                                if (fsScale != 1f) {
+                                    launch {
+                                        animate(
+                                            fsScale,
+                                            1f,
+                                            animationSpec = backNorm
+                                        ) { v, _ -> fsScale = v }
+                                    }
                                 }
-                                launch {
-                                    animate(fsDy, 0f, animationSpec = back) { v, _ ->
-                                        fsDy = v
+                                if (fsDy != 0f) {
+                                    launch {
+                                        animate(fsDy, 0f, animationSpec = backPx) { v, _ ->
+                                            fsDy = v
+                                        }
                                     }
                                 }
                             }
@@ -729,7 +933,7 @@ fun PlayerHost(
                                 animate(
                                     playerDy,
                                     0f,
-                                    animationSpec = back
+                                    animationSpec = backPx
                                 ) { v, _ -> playerDy = v }
                             }
                             onMinimize()
@@ -782,7 +986,7 @@ fun PlayerHost(
                             onDragEnd = {
                                 if (committed) return@detectVerticalDragGestures
                                 val vy = tracker.calculateVelocity().y
-                                val tVel = -vy / container.height.coerceAtLeast(1)
+                                val tVel = -vy / metrics.containerH.coerceAtLeast(1)
                                 when {
                                     mode == PlayerMode.Expanded && (total < -commitPx || vy < -1800f) -> scope.launch {
                                         releaseVelocity = tVel.coerceAtLeast(0.5f)
@@ -790,7 +994,7 @@ fun PlayerHost(
                                             animate(
                                                 dragScale,
                                                 1f,
-                                                animationSpec = back
+                                                animationSpec = backNorm
                                             ) { v, _ -> dragScale = v }
                                         }
                                         host.setFullscreen(true)
@@ -804,6 +1008,90 @@ fun PlayerHost(
 
                                     else -> settle()
                                 }
+                            }
+                        )
+                    }
+                    // --- Inline (geniş ekran) / Tam ekran: yatay sürükleme ile sohbeti akıcı bir şekilde gizle/aç.
+                    // Sağa kaydırınca sohbet gizlenir (zaten gizliyse 2. kez sağa kaydırmak bir şey yapmaz).
+                    // Sola kaydırınca sohbet açılır (zaten açıksa 2. kez sola kaydırmak bir şey yapmaz).
+                    .pointerInput(mode, isInPipMode) {
+                        if (mode == PlayerMode.Mini || isInPipMode) return@pointerInput
+                        var totalDx = 0f
+                        var startProgress = 0f
+                        var gestureActive = false
+                        val tracker = VelocityTracker()
+                        val minCommitPx = 42.dp.toPx()
+
+                        detectHorizontalDragGestures(
+                            onDragStart = {
+                                val wide = metrics.safeArea.width >= wideBreakpointPx
+                                gestureActive = mode == PlayerMode.Fullscreen || wide
+                                totalDx = 0f
+                                tracker.resetTracking()
+                                if (gestureActive) {
+                                    startProgress = host.chatOpenProgress.value
+                                    host.isDirectChatDrag = true
+                                }
+                            },
+                            onHorizontalDrag = { change, dx ->
+                                if (!gestureActive) return@detectHorizontalDragGestures
+                                totalDx += dx
+                                tracker.addPosition(change.uptimeMillis, change.position)
+                                val baseWidth = metrics.safeArea.width.coerceAtLeast(1)
+                                val chatMaxPx =
+                                    (baseWidth * host.chatWidthFraction).coerceAtLeast(1f)
+                                val deltaProgress = -totalDx / chatMaxPx
+                                val newProgress = (startProgress + deltaProgress).coerceIn(0f, 1f)
+                                scope.launch {
+                                    host.snapChatOpenProgress(newProgress)
+                                }
+                            },
+                            onDragCancel = {
+                                if (gestureActive) {
+                                    val wide = metrics.safeArea.width >= wideBreakpointPx
+                                    val target = if (host.isSideChatOpen(wide)) 1f else 0f
+                                    host.isDirectChatDrag = false
+                                    scope.launch {
+                                        host.animateChatOpenProgressTo(target)
+                                    }
+                                }
+                                gestureActive = false
+                            },
+                            onDragEnd = {
+                                if (!gestureActive) {
+                                    host.isDirectChatDrag = false
+                                    return@detectHorizontalDragGestures
+                                }
+                                val wide = metrics.safeArea.width >= wideBreakpointPx
+                                val baseWidth = metrics.safeArea.width.coerceAtLeast(1)
+                                val chatMaxPx =
+                                    (baseWidth * host.chatWidthFraction).coerceAtLeast(1f)
+                                val commitPx = min(minCommitPx, chatMaxPx * 0.25f)
+                                val vx = tracker.calculateVelocity().x
+                                val progressVel = (-vx / chatMaxPx).coerceIn(-8f, 8f)
+                                val startedOpen = startProgress >= 0.5f
+
+                                val targetOpen = if (startedOpen) {
+                                    val shouldHide = totalDx > 0f &&
+                                        (totalDx >= commitPx || vx >= 550f) &&
+                                        vx > -350f
+                                    !shouldHide
+                                } else {
+                                    val shouldShow = totalDx < 0f &&
+                                        (-totalDx >= commitPx || vx <= -550f) &&
+                                        vx < 350f
+                                    shouldShow
+                                }
+                                releaseChatVelocity = progressVel
+                                host.setSideChatVisible(visible = targetOpen, isWide = wide)
+                                host.isDirectChatDrag = false
+                                scope.launch {
+                                    host.animateChatOpenProgressTo(
+                                        target = if (targetOpen) 1f else 0f,
+                                        initialVelocity = progressVel
+                                    )
+                                }
+                                gestureActive = false
                             }
                         )
                     }
@@ -853,7 +1141,7 @@ private fun PlayerSurface(
                 channel = channel,
                 isFullScreen = mode == PlayerMode.Fullscreen,
                 isTheaterMode = host.isTheaterMode,
-                isChatVisible = host.isChatVisible,
+                isChatVisible = if (mode == PlayerMode.Fullscreen) (host.isTheaterMode && host.isChatVisible) else host.isChatVisible,
                 onToggleChat = host::toggleChatVisibility,
                 isInPipMode = isInPipMode,
                 isMini = mode == PlayerMode.Mini,
@@ -890,47 +1178,6 @@ private fun PlayerSurface(
                 ShellChrome(mode = mode, onMinimize = {
                     if (mode == PlayerMode.Fullscreen) host.setFullscreen(false) else onMinimize()
                 }, onClose = onClose)
-            }
-        }
-    }
-}
-
-/**
- * Tam ekran animasyonu bittikten SONRA sistem barlarını gizler.
- * Girişte: önce yatay yöne dön, animasyon bitince barları gizle.
- * Çıkışta: barları hemen göster, sonra dikeye dön.
- */
-@Composable
-private fun ImmersiveSystemBars(isFullScreen: Boolean, progress: State<Float>) {
-    val context = LocalContext.current
-    val activity = remember(context) { context.findActivity() }
-    var hasBeenFullscreen by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isFullScreen, activity) {
-        val act = activity ?: return@LaunchedEffect
-        if (!isFullScreen && !hasBeenFullscreen) return@LaunchedEffect
-        val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
-        controller.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-
-        if (isFullScreen) {
-            hasBeenFullscreen = true
-            act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            snapshotFlow { progress.value }.first { it >= 0.99f }
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-        } else {
-            controller.show(WindowInsetsCompat.Type.systemBars())
-            act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-    }
-
-    DisposableEffect(activity) {
-        onDispose {
-            activity?.let {
-                WindowCompat.getInsetsController(it.window, it.window.decorView)
-                    .show(WindowInsetsCompat.Type.systemBars())
-                if (hasBeenFullscreen) it.requestedOrientation =
-                    ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
         }
     }

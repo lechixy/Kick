@@ -50,7 +50,9 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -206,6 +208,12 @@ fun KickApp() {
 
     // Tek yerde tutulan player oturumu; ChannelScreen, mini player ve nav bar buradan beslenir.
     val playerHost = rememberPlayerHostState()
+    val settingsRepository = LocalSettingsRepository.current
+    LaunchedEffect(settingsRepository) {
+        settingsRepository.get(SettingsKeys.CHAT_WIDTH_FRACTION).collect { savedFraction ->
+            playerHost.updateChatWidthFraction(savedFraction)
+        }
+    }
     var isInPipMode by remember { mutableStateOf(false) }
 
     DisposableEffect(activity) {
@@ -400,6 +408,7 @@ private fun KickNavScaffold(
     val type =
         NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(currentWindowAdaptiveInfoV2())
     val useBottomBar = type.toString().contains("NavigationBar", ignoreCase = true)
+    val sharedContent = remember(content) { movableContentOf(content) }
 
     @Composable
     fun RowScope.BottomBarItems() {
@@ -452,7 +461,7 @@ private fun KickNavScaffold(
                             )
                         )
                     }
-            ) { content() }
+            ) { sharedContent() }
             AnimatedVisibility(
                 visible = !hidden,
                 enter = slideInVertically { it } + expandVertically(),
@@ -481,7 +490,7 @@ private fun KickNavScaffold(
                             )
                         )
                     }
-            ) { content() }
+            ) { sharedContent() }
         }
     }
 }

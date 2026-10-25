@@ -17,6 +17,9 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.rememberScrollableState
+import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -131,7 +134,9 @@ fun ChatView(
 
     var showOptions by remember { mutableStateOf(false) }
 
-    val listState = rememberLazyListState()
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = messages.lastIndex.coerceAtLeast(0)
+    )
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     val scope = rememberCoroutineScope()
 
@@ -595,8 +600,9 @@ private fun PinnedMessageOverlay(
                 leadingIconTint = primaryColor
             )
 
+            val pinnedContent = msg.messageDeleted?.let { resolveDeletedMessageText(it) } ?: msg.content
             val parsedBody = ChatTextParser.parseContentOnly(
-                content = msg.content,
+                content = pinnedContent,
                 fontSizeSp = fontSizeSp,
                 streamerUsername = streamerUsername,
                 streamerSlug = streamerSlug
@@ -1089,10 +1095,11 @@ private fun ChatEventTickerOverlay(
     val currentItem = queue.firstOrNull()
     var displayedItem by remember { mutableStateOf<ChatTickerOverlayItem?>(null) }
     var isShowing by remember { mutableStateOf(false) }
+    var isUserScrolling by remember { mutableStateOf(false) }
     var measuredHeightPx by remember { mutableIntStateOf(0) }
+    var progress by remember { mutableFloatStateOf(1f) }
 
     val scaleAnim = remember { Animatable(0f) }
-    val progressAnim = remember { Animatable(1f) }
 
     if (currentItem != null) {
         displayedItem = currentItem
@@ -1105,6 +1112,7 @@ private fun ChatEventTickerOverlay(
     LaunchedEffect(currentItem?.id) {
         if (currentItem == null) {
             isShowing = false
+            isUserScrolling = false
             if (scaleAnim.value > 0f) {
                 scaleAnim.animateTo(
                     targetValue = 0f,
@@ -1120,7 +1128,8 @@ private fun ChatEventTickerOverlay(
 
         displayedItem = currentItem
         isShowing = true
-        progressAnim.snapTo(1f)
+        isUserScrolling = false
+        progress = 1f
         scaleAnim.snapTo(0f)
 
         // Enter animation: same bouncy spring scale-in as PinnedMessageOverlay
@@ -1132,27 +1141,24 @@ private fun ChatEventTickerOverlay(
             )
         )
 
-        val durationMs = currentItem.durationMillis.coerceAtLeast(1_000L).toInt()
-        if (currentItem.isInfinite) {
-            while (isActive) {
-                progressAnim.snapTo(1f)
-                progressAnim.animateTo(
-                    targetValue = 0f,
-                    animationSpec = tween(
-                        durationMillis = durationMs,
-                        easing = LinearEasing
-                    )
-                )
+        val durationMs = currentItem.durationMillis.coerceAtLeast(1_000L)
+        var remainingMs = durationMs.toFloat()
+        var lastFrameNanos = withFrameNanos { it }
+        while (isActive && (currentItem.isInfinite || remainingMs > 0f)) {
+            withFrameNanos { frameNanos ->
+                val deltaMs = ((frameNanos - lastFrameNanos).coerceAtLeast(0L)) / 1_000_000f
+                lastFrameNanos = frameNanos
+                if (!isUserScrolling) {
+                    remainingMs -= deltaMs
+                    if (currentItem.isInfinite && remainingMs <= 0f) {
+                        remainingMs = durationMs.toFloat()
+                    }
+                    progress = (remainingMs / durationMs.toFloat()).coerceIn(0f, 1f)
+                }
             }
-        } else {
-            progressAnim.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(
-                    durationMillis = durationMs,
-                    easing = LinearEasing
-                )
-            )
+        }
 
+        if (!currentItem.isInfinite) {
             // If no more items are waiting in the queue, start sliding PinnedMessageOverlay back up during scale-out
             if (queue.size <= 1) {
                 isShowing = false
@@ -1206,18 +1212,51 @@ private fun ChatEventTickerOverlay(
             Column(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                key(active.id) {
-                    ContinuousTickerRow(
-                        iconRes = active.iconRes,
-                        iconTint = accentColor,
-                        segments = active.segments,
-                        fontSizeSp = fontSizeSp,
-                        defaultBoldColor = accentColor,
-                        defaultTextColor = MaterialTheme.colorScheme.onSurface,
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    key(active.id) {
+                        ContinuousTickerRow(
+                            iconRes = active.iconRes,
+                            iconTint = accentColor,
+                            segments = active.segments,
+                            fontSizeSp = fontSizeSp,
+                            defaultBoldColor = accentColor,
+                            defaultTextColor = MaterialTheme.colorScheme.onSurface,
+                            onScrollingChanged = { isUserScrolling = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(vertical = 2.dp)
+                        )
+                    }
+
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .clickable {
+                                if (isShowing) {
+                                    isShowing = false
+                                    isUserScrolling = false
+                                    queue.clear()
+                                }
+                            }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                painter = painterResource(R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                                contentDescription = stringResource(R.string.hide),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 }
 
                 // Full-width bottom progress bar whose width decreases to 0 as time runs out
@@ -1229,7 +1268,7 @@ private fun ChatEventTickerOverlay(
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(progressAnim.value.coerceIn(0f, 1f))
+                            .fillMaxWidth(progress.coerceIn(0f, 1f))
                             .height(3.dp)
                             .background(accentColor)
                     )
@@ -1248,6 +1287,7 @@ private fun ContinuousTickerRow(
     defaultBoldColor: Color,
     defaultTextColor: Color,
     modifier: Modifier = Modifier,
+    onScrollingChanged: (Boolean) -> Unit = {},
     speedDpPerSecond: Float = 48f
 ) {
     val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
@@ -1270,14 +1310,26 @@ private fun ContinuousTickerRow(
     var stridePx by remember { mutableFloatStateOf(0f) }
     var offsetPx by remember { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(speedPxPerSec, stridePx) {
-        if (stridePx <= 0f) return@LaunchedEffect
+    val scrollableState = rememberScrollableState { delta ->
+        if (stridePx > 0f) {
+            offsetPx = ((offsetPx - delta) % stridePx + stridePx) % stridePx
+        }
+        delta
+    }
+    val isUserScrolling = scrollableState.isScrollInProgress
+
+    LaunchedEffect(isUserScrolling) {
+        onScrollingChanged(isUserScrolling)
+    }
+
+    LaunchedEffect(speedPxPerSec, stridePx, isUserScrolling) {
+        if (stridePx <= 0f || isUserScrolling) return@LaunchedEffect
         var lastFrameNanos = withFrameNanos { it }
         while (isActive) {
             withFrameNanos { frameNanos ->
                 val deltaSec = ((frameNanos - lastFrameNanos).coerceAtLeast(0L)) / 1_000_000_000f
                 lastFrameNanos = frameNanos
-                offsetPx = (offsetPx + speedPxPerSec * deltaSec) % stridePx
+                offsetPx = ((offsetPx + speedPxPerSec * deltaSec) % stridePx + stridePx) % stridePx
             }
         }
     }
@@ -1312,7 +1364,12 @@ private fun ContinuousTickerRow(
             TickerUnit()
             TickerUnit()
         },
-        modifier = modifier.clipToBounds()
+        modifier = modifier
+            .clipToBounds()
+            .scrollable(
+                state = scrollableState,
+                orientation = Orientation.Horizontal
+            )
     ) { measurables, constraints ->
         val unboundedConstraints = constraints.copy(
             minWidth = 0,
@@ -1332,7 +1389,11 @@ private fun ContinuousTickerRow(
         }
 
         layout(width = containerWidth, height = itemHeight) {
-            val currentOffset = if (computedStride > 0f) offsetPx % computedStride else 0f
+            val currentOffset = if (computedStride > 0f) {
+                ((offsetPx % computedStride) + computedStride) % computedStride
+            } else {
+                0f
+            }
             val x1 = -currentOffset.roundToInt()
             val x2 = (computedStride - currentOffset).roundToInt()
             val x3 = (computedStride * 2 - currentOffset).roundToInt()

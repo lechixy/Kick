@@ -29,4 +29,7 @@
     <string name="search_placeholder">Search...</string>
     <string name="hide">Hide</string>
     <string name="replying_to">Replying to</string>
+    <string name="message_deleted_by_ai_moderator">Message deleted by AI moderator</string>
+    <string name="message_deleted_rule_violation">Message deleted because user violated rule</string>
+    <string name="message_deleted_by_moderator">Message deleted by moderator</string>
 </resources>

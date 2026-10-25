@@ -9,6 +9,7 @@ import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -89,6 +90,17 @@ object ChatTextParser {
             if (badgeType in v2BadgeNames) continue
 
             when (badgeType) {
+                "broadcaster" -> {
+                    result.add(
+                        ResolvedChatBadge(
+                            key = "badge_local_broadcaster",
+                            name = badgeInfo.text ?: "Broadcaster",
+                            drawableRes = R.drawable.broadcaster_badge,
+                            sortOrder = badgeInfo.sortOrder ?: 1
+                        )
+                    )
+                }
+
                 "verified" -> {
                     result.add(
                         ResolvedChatBadge(
@@ -214,73 +226,88 @@ object ChatTextParser {
         val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
         val secondaryColor = MaterialTheme.colorScheme.secondary
         val primaryColor = MaterialTheme.colorScheme.primary
-        val inlineContentMap = mutableMapOf<String, InlineTextContent>()
 
-        val annotatedString = buildAnnotatedString {
-            // 1. Inline Badges (so wrapped text lines start at the very beginning under the badges)
-            if (badges.isNotEmpty()) {
-                val badgeHeightSp = (safeFontSizeSp + 2).sp
-                val badgeWidthSp = (safeFontSizeSp + 5).sp
-                for (badge in badges) {
-                    val inlineId = badge.key
-                    if (!inlineContentMap.containsKey(inlineId)) {
-                        inlineContentMap[inlineId] = InlineTextContent(
-                            Placeholder(
-                                width = badgeWidthSp,
-                                height = badgeHeightSp,
-                                placeholderVerticalAlign = PlaceholderVerticalAlign.Center
-                            )
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(end = 3.dp),
-                                contentAlignment = Alignment.Center
+        return remember(
+            senderName,
+            senderColor,
+            content,
+            safeFontSizeSp,
+            badges,
+            secondaryColor,
+            primaryColor,
+            streamerUsername,
+            streamerSlug,
+            streamerMentionBrush,
+            streamerMentionShadow
+        ) {
+            val inlineContentMap = mutableMapOf<String, InlineTextContent>()
+
+            val annotatedString = buildAnnotatedString {
+                // 1. Inline Badges (so wrapped text lines start at the very beginning under the badges)
+                if (badges.isNotEmpty()) {
+                    val badgeHeightSp = (safeFontSizeSp + 2).sp
+                    val badgeWidthSp = (safeFontSizeSp + 5).sp
+                    for (badge in badges) {
+                        val inlineId = badge.key
+                        if (!inlineContentMap.containsKey(inlineId)) {
+                            inlineContentMap[inlineId] = InlineTextContent(
+                                Placeholder(
+                                    width = badgeWidthSp,
+                                    height = badgeHeightSp,
+                                    placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                                )
                             ) {
-                                when {
-                                    badge.drawableRes != null -> {
-                                        Image(
-                                            painter = painterResource(badge.drawableRes),
-                                            contentDescription = badge.name,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    }
-                                    !badge.imageUrl.isNullOrBlank() -> {
-                                        AsyncImage(
-                                            model = badge.imageUrl,
-                                            contentDescription = badge.name,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(end = 3.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    when {
+                                        badge.drawableRes != null -> {
+                                            Image(
+                                                painter = painterResource(badge.drawableRes),
+                                                contentDescription = badge.name,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+                                        !badge.imageUrl.isNullOrBlank() -> {
+                                            AsyncImage(
+                                                model = badge.imageUrl,
+                                                contentDescription = badge.name,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
+                        appendSafeInlineContent(inlineId, alternateText = "[${badge.name.ifBlank { "badge" }}]")
                     }
-                    appendSafeInlineContent(inlineId, alternateText = "[${badge.name.ifBlank { "badge" }}]")
                 }
+
+                // 2. Sender Username
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = senderColor)) {
+                    append(senderName)
+                }
+                append(": ")
+
+                // 3. Parse Content for Emotes and Mentions
+                appendParsedContent(
+                    content = content,
+                    fontSizeSp = safeFontSizeSp,
+                    secondaryColor = secondaryColor,
+                    primaryColor = primaryColor,
+                    inlineContentMap = inlineContentMap,
+                    streamerUsername = streamerUsername,
+                    streamerSlug = streamerSlug,
+                    streamerMentionBrush = streamerMentionBrush,
+                    streamerMentionShadow = streamerMentionShadow
+                )
             }
 
-            // 2. Sender Username
-            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = senderColor)) {
-                append(senderName)
-            }
-            append(": ")
-
-            // 3. Parse Content for Emotes and Mentions
-            appendParsedContent(
-                content = content,
-                fontSizeSp = safeFontSizeSp,
-                secondaryColor = secondaryColor,
-                primaryColor = primaryColor,
-                inlineContentMap = inlineContentMap,
-                streamerUsername = streamerUsername,
-                streamerSlug = streamerSlug,
-                streamerMentionBrush = streamerMentionBrush,
-                streamerMentionShadow = streamerMentionShadow
-            )
+            ParsedChatMessage(annotatedString, inlineContentMap)
         }
-
-        return ParsedChatMessage(annotatedString, inlineContentMap)
     }
 
     private fun AnnotatedString.Builder.appendSafeInlineContent(
@@ -299,97 +326,108 @@ object ChatTextParser {
         mutedColor: Color
     ): ParsedChatMessage {
         val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
-        val inlineContentMap = mutableMapOf<String, InlineTextContent>()
-        val iconSizeSp = (safeFontSizeSp + 2).sp
-        val iconWidthSp = (safeFontSizeSp + 5).sp
+        val replyingToLabel = stringResource(R.string.replying_to)
 
-        val annotatedString = buildAnnotatedString {
-            val replyIconId = "reply_header_icon"
-            inlineContentMap[replyIconId] = InlineTextContent(
-                Placeholder(
-                    width = iconWidthSp,
-                    height = iconSizeSp,
-                    placeholderVerticalAlign = PlaceholderVerticalAlign.Center
-                )
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(end = 3.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    androidx.compose.material3.Icon(
-                        painter = painterResource(R.drawable.reply_24dp),
-                        contentDescription = "Reply",
-                        tint = mutedColor,
-                        modifier = Modifier.fillMaxSize()
+        return remember(
+            originalSenderName,
+            originalSenderColor,
+            originalContent,
+            safeFontSizeSp,
+            mutedColor,
+            replyingToLabel
+        ) {
+            val inlineContentMap = mutableMapOf<String, InlineTextContent>()
+            val iconSizeSp = (safeFontSizeSp + 2).sp
+            val iconWidthSp = (safeFontSizeSp + 5).sp
+
+            val annotatedString = buildAnnotatedString {
+                val replyIconId = "reply_header_icon"
+                inlineContentMap[replyIconId] = InlineTextContent(
+                    Placeholder(
+                        width = iconWidthSp,
+                        height = iconSizeSp,
+                        placeholderVerticalAlign = PlaceholderVerticalAlign.Center
                     )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(end = 3.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.material3.Icon(
+                            painter = painterResource(R.drawable.reply_24dp),
+                            contentDescription = "Reply",
+                            tint = mutedColor,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
-            }
-            appendSafeInlineContent(replyIconId, alternateText = "↩ ")
+                appendSafeInlineContent(replyIconId, alternateText = "↩ ")
 
-            withStyle(SpanStyle(color = mutedColor)) {
-                append("${stringResource(R.string.replying_to)} ")
-            }
-            withStyle(SpanStyle(color = originalSenderColor, fontWeight = FontWeight.SemiBold)) {
-                append(originalSenderName)
-            }
-            withStyle(SpanStyle(color = mutedColor)) {
-                append(": ")
-            }
+                withStyle(SpanStyle(color = mutedColor)) {
+                    append("$replyingToLabel ")
+                }
+                withStyle(SpanStyle(color = originalSenderColor, fontWeight = FontWeight.SemiBold)) {
+                    append(originalSenderName)
+                }
+                withStyle(SpanStyle(color = mutedColor)) {
+                    append(": ")
+                }
 
-            if (originalContent.isNotEmpty()) {
-                val tokens = findTokens(originalContent)
-                for (token in tokens) {
-                    when (token) {
-                        is ChatToken.Emote -> {
-                            val inlineId = "reply_emote_${token.id}"
-                            if (!inlineContentMap.containsKey(inlineId)) {
-                                val emoteUrl = "https://files.kick.com/emotes/${token.id}/fullsize"
-                                val sizeSp = (safeFontSizeSp + 2).sp
-                                inlineContentMap[inlineId] = InlineTextContent(
-                                    Placeholder(
-                                        width = sizeSp,
-                                        height = sizeSp,
-                                        placeholderVerticalAlign = PlaceholderVerticalAlign.Center
-                                    )
-                                ) {
-                                    AsyncImage(
-                                        model = emoteUrl,
-                                        contentDescription = token.name,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
+                if (originalContent.isNotEmpty()) {
+                    val tokens = findTokens(originalContent)
+                    for (token in tokens) {
+                        when (token) {
+                            is ChatToken.Emote -> {
+                                val inlineId = "reply_emote_${token.id}"
+                                if (!inlineContentMap.containsKey(inlineId)) {
+                                    val emoteUrl = "https://files.kick.com/emotes/${token.id}/fullsize"
+                                    val sizeSp = (safeFontSizeSp + 2).sp
+                                    inlineContentMap[inlineId] = InlineTextContent(
+                                        Placeholder(
+                                            width = sizeSp,
+                                            height = sizeSp,
+                                            placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                                        )
+                                    ) {
+                                        AsyncImage(
+                                            model = emoteUrl,
+                                            contentDescription = token.name,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+                                }
+                                appendSafeInlineContent(inlineId, alternateText = ":${token.name.ifBlank { "emote" }}:")
+                            }
+                            is ChatToken.Mention -> {
+                                withStyle(SpanStyle(color = mutedColor, fontWeight = FontWeight.Medium)) {
+                                    append(token.text)
                                 }
                             }
-                            appendSafeInlineContent(inlineId, alternateText = ":${token.name.ifBlank { "emote" }}:")
-                        }
-                        is ChatToken.Mention -> {
-                            withStyle(SpanStyle(color = mutedColor, fontWeight = FontWeight.Medium)) {
-                                append(token.text)
+                            is ChatToken.Url -> {
+                                withStyle(
+                                    SpanStyle(
+                                        color = mutedColor,
+                                        fontWeight = FontWeight.Bold,
+                                        textDecoration = TextDecoration.Underline
+                                    )
+                                ) {
+                                    append(token.url)
+                                }
                             }
-                        }
-                        is ChatToken.Url -> {
-                            withStyle(
-                                SpanStyle(
-                                    color = mutedColor,
-                                    fontWeight = FontWeight.Bold,
-                                    textDecoration = TextDecoration.Underline
-                                )
-                            ) {
-                                append(token.url)
-                            }
-                        }
-                        is ChatToken.PlainText -> {
-                            withStyle(SpanStyle(color = mutedColor)) {
-                                append(token.text)
+                            is ChatToken.PlainText -> {
+                                withStyle(SpanStyle(color = mutedColor)) {
+                                    append(token.text)
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        return ParsedChatMessage(annotatedString, inlineContentMap)
+            ParsedChatMessage(annotatedString, inlineContentMap)
+        }
     }
 
     private val USER_PLACEHOLDER_REGEX = Regex("%(?:\\d+\\$)?s")
@@ -406,115 +444,126 @@ object ChatTextParser {
         leadingIconTint: Color = textColor
     ): ParsedChatMessage {
         val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
-        val inlineContentMap = mutableMapOf<String, InlineTextContent>()
-        val badgeHeightSp = (safeFontSizeSp + 2).sp
-        val badgeWidthSp = (safeFontSizeSp + 5).sp
+        return remember(
+            text,
+            textColor,
+            senderName,
+            senderColor,
+            safeFontSizeSp,
+            badges,
+            leadingIconRes,
+            leadingIconTint
+        ) {
+            val inlineContentMap = mutableMapOf<String, InlineTextContent>()
+            val badgeHeightSp = (safeFontSizeSp + 2).sp
+            val badgeWidthSp = (safeFontSizeSp + 5).sp
 
-        val annotatedString = buildAnnotatedString {
-            if (leadingIconRes != null) {
-                val iconId = "leading_header_icon_$leadingIconRes"
-                inlineContentMap[iconId] = InlineTextContent(
-                    Placeholder(
-                        width = badgeWidthSp,
-                        height = badgeHeightSp,
-                        placeholderVerticalAlign = PlaceholderVerticalAlign.Center
-                    )
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(end = 3.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        androidx.compose.material3.Icon(
-                            painter = painterResource(leadingIconRes),
-                            contentDescription = null,
-                            tint = leadingIconTint,
-                            modifier = Modifier.fillMaxSize()
+            val annotatedString = buildAnnotatedString {
+                if (leadingIconRes != null) {
+                    val iconId = "leading_header_icon_$leadingIconRes"
+                    inlineContentMap[iconId] = InlineTextContent(
+                        Placeholder(
+                            width = badgeWidthSp,
+                            height = badgeHeightSp,
+                            placeholderVerticalAlign = PlaceholderVerticalAlign.Center
                         )
-                    }
-                }
-                appendSafeInlineContent(iconId, alternateText = "[icon]")
-            }
-
-            val appendUserBlock: AnnotatedString.Builder.() -> Unit = {
-                for (badge in badges) {
-                    val inlineId = badge.key
-                    if (!inlineContentMap.containsKey(inlineId)) {
-                        inlineContentMap[inlineId] = InlineTextContent(
-                            Placeholder(
-                                width = badgeWidthSp,
-                                height = badgeHeightSp,
-                                placeholderVerticalAlign = PlaceholderVerticalAlign.Center
-                            )
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(end = 3.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(end = 3.dp),
-                                contentAlignment = Alignment.Center
+                            androidx.compose.material3.Icon(
+                                painter = painterResource(leadingIconRes),
+                                contentDescription = null,
+                                tint = leadingIconTint,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                    appendSafeInlineContent(iconId, alternateText = "[icon]")
+                }
+
+                val appendUserBlock: AnnotatedString.Builder.() -> Unit = {
+                    for (badge in badges) {
+                        val inlineId = badge.key
+                        if (!inlineContentMap.containsKey(inlineId)) {
+                            inlineContentMap[inlineId] = InlineTextContent(
+                                Placeholder(
+                                    width = badgeWidthSp,
+                                    height = badgeHeightSp,
+                                    placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                                )
                             ) {
-                                when {
-                                    badge.drawableRes != null -> {
-                                        Image(
-                                            painter = painterResource(badge.drawableRes),
-                                            contentDescription = badge.name,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    }
-                                    !badge.imageUrl.isNullOrBlank() -> {
-                                        AsyncImage(
-                                            model = badge.imageUrl,
-                                            contentDescription = badge.name,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(end = 3.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    when {
+                                        badge.drawableRes != null -> {
+                                            Image(
+                                                painter = painterResource(badge.drawableRes),
+                                                contentDescription = badge.name,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+                                        !badge.imageUrl.isNullOrBlank() -> {
+                                            AsyncImage(
+                                                model = badge.imageUrl,
+                                                contentDescription = badge.name,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
+                        appendSafeInlineContent(inlineId, alternateText = "[${badge.name.ifBlank { "badge" }}]")
                     }
-                    appendSafeInlineContent(inlineId, alternateText = "[${badge.name.ifBlank { "badge" }}]")
+
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = senderColor)) {
+                        append(senderName)
+                    }
                 }
 
-                withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = senderColor)) {
-                    append(senderName)
+                val match = USER_PLACEHOLDER_REGEX.find(text)
+
+                if (match != null) {
+                    val prefix = text.substring(0, match.range.first)
+                    val suffix = text.substring(match.range.last + 1)
+
+                    // Placeholder öncesi (örneğin İngilizcede "Pinned by ")
+                    if (prefix.isNotEmpty()) {
+                        withStyle(SpanStyle(color = textColor, fontWeight = FontWeight.Medium)) {
+                            append(prefix)
+                        }
+                    }
+
+                    appendUserBlock()
+
+                    if (suffix.isNotEmpty()) {
+                        withStyle(SpanStyle(color = textColor, fontWeight = FontWeight.Medium)) {
+                            append(suffix)
+                        }
+                    }
+                } else {
+                    if (text.isNotEmpty()) {
+                        withStyle(SpanStyle(color = textColor, fontWeight = FontWeight.Medium)) {
+                            append(text)
+                        }
+                        if (!text.endsWith(" ")) {
+                            append(" ")
+                        }
+                    }
+                    appendUserBlock()
                 }
             }
 
-            val match = USER_PLACEHOLDER_REGEX.find(text)
-
-            if (match != null) {
-                val prefix = text.substring(0, match.range.first)
-                val suffix = text.substring(match.range.last + 1)
-
-                // Placeholder öncesi (örneğin İngilizcede "Pinned by ")
-                if (prefix.isNotEmpty()) {
-                    withStyle(SpanStyle(color = textColor, fontWeight = FontWeight.Medium)) {
-                        append(prefix)
-                    }
-                }
-
-                appendUserBlock()
-
-                if (suffix.isNotEmpty()) {
-                    withStyle(SpanStyle(color = textColor, fontWeight = FontWeight.Medium)) {
-                        append(suffix)
-                    }
-                }
-            } else {
-                if (text.isNotEmpty()) {
-                    withStyle(SpanStyle(color = textColor, fontWeight = FontWeight.Medium)) {
-                        append(text)
-                    }
-                    if (!text.endsWith(" ")) {
-                        append(" ")
-                    }
-                }
-                appendUserBlock()
-            }
+            ParsedChatMessage(annotatedString, inlineContentMap)
         }
-
-        return ParsedChatMessage(annotatedString, inlineContentMap)
     }
 
     data class EventTextSegment(
@@ -551,49 +600,51 @@ object ChatTextParser {
         fontSizeSp: Int
     ): ParsedChatMessage {
         val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
-        val inlineContentMap = mutableMapOf<String, InlineTextContent>()
-        val iconSizeSp = (safeFontSizeSp + 2).sp
-        val iconWidthSp = (safeFontSizeSp + 5).sp
+        return remember(iconRes, iconTint, segments, boldColor, mutedColor, safeFontSizeSp) {
+            val inlineContentMap = mutableMapOf<String, InlineTextContent>()
+            val iconSizeSp = (safeFontSizeSp + 2).sp
+            val iconWidthSp = (safeFontSizeSp + 5).sp
 
-        val annotatedString = buildAnnotatedString {
-            val iconId = "event_header_icon_$iconRes"
-            inlineContentMap[iconId] = InlineTextContent(
-                Placeholder(
-                    width = iconWidthSp,
-                    height = iconSizeSp,
-                    placeholderVerticalAlign = PlaceholderVerticalAlign.Center
-                )
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(end = 3.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    androidx.compose.material3.Icon(
-                        painter = painterResource(iconRes),
-                        contentDescription = null,
-                        tint = iconTint,
-                        modifier = Modifier.fillMaxSize()
+            val annotatedString = buildAnnotatedString {
+                val iconId = "event_header_icon_$iconRes"
+                inlineContentMap[iconId] = InlineTextContent(
+                    Placeholder(
+                        width = iconWidthSp,
+                        height = iconSizeSp,
+                        placeholderVerticalAlign = PlaceholderVerticalAlign.Center
                     )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(end = 3.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.material3.Icon(
+                            painter = painterResource(iconRes),
+                            contentDescription = null,
+                            tint = iconTint,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
-            }
-            appendSafeInlineContent(iconId, alternateText = "[icon]")
+                appendSafeInlineContent(iconId, alternateText = "[icon]")
 
-            for (segment in segments) {
-                if (segment.text.isEmpty()) continue
-                val resolvedColor = segment.color ?: if (segment.isBold) boldColor else mutedColor
-                val style = SpanStyle(
-                    color = resolvedColor,
-                    fontWeight = if (segment.isBold) FontWeight.Bold else FontWeight.Normal
-                )
-                withStyle(style) {
-                    append(segment.text)
+                for (segment in segments) {
+                    if (segment.text.isEmpty()) continue
+                    val resolvedColor = segment.color ?: if (segment.isBold) boldColor else mutedColor
+                    val style = SpanStyle(
+                        color = resolvedColor,
+                        fontWeight = if (segment.isBold) FontWeight.Bold else FontWeight.Normal
+                    )
+                    withStyle(style) {
+                        append(segment.text)
+                    }
                 }
             }
+
+            ParsedChatMessage(annotatedString, inlineContentMap)
         }
-
-        return ParsedChatMessage(annotatedString, inlineContentMap)
     }
 
     @Composable
@@ -608,23 +659,35 @@ object ChatTextParser {
         val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
         val secondaryColor = MaterialTheme.colorScheme.secondary
         val primaryColor = MaterialTheme.colorScheme.primary
-        val inlineContentMap = mutableMapOf<String, InlineTextContent>()
 
-        val annotatedString = buildAnnotatedString {
-            appendParsedContent(
-                content = content,
-                fontSizeSp = safeFontSizeSp,
-                secondaryColor = secondaryColor,
-                primaryColor = primaryColor,
-                inlineContentMap = inlineContentMap,
-                streamerUsername = streamerUsername,
-                streamerSlug = streamerSlug,
-                streamerMentionBrush = streamerMentionBrush,
-                streamerMentionShadow = streamerMentionShadow
-            )
+        return remember(
+            content,
+            safeFontSizeSp,
+            secondaryColor,
+            primaryColor,
+            streamerUsername,
+            streamerSlug,
+            streamerMentionBrush,
+            streamerMentionShadow
+        ) {
+            val inlineContentMap = mutableMapOf<String, InlineTextContent>()
+
+            val annotatedString = buildAnnotatedString {
+                appendParsedContent(
+                    content = content,
+                    fontSizeSp = safeFontSizeSp,
+                    secondaryColor = secondaryColor,
+                    primaryColor = primaryColor,
+                    inlineContentMap = inlineContentMap,
+                    streamerUsername = streamerUsername,
+                    streamerSlug = streamerSlug,
+                    streamerMentionBrush = streamerMentionBrush,
+                    streamerMentionShadow = streamerMentionShadow
+                )
+            }
+
+            ParsedChatMessage(annotatedString, inlineContentMap)
         }
-
-        return ParsedChatMessage(annotatedString, inlineContentMap)
     }
 
     private fun AnnotatedString.Builder.appendParsedContent(

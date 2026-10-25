@@ -504,8 +504,10 @@ fun KickPlayerView(
             .onGloballyPositioned { coordinates ->
                 val b = coordinates.boundsInWindow()
                 val rect = Rect(b.left.toInt(), b.top.toInt(), b.right.toInt(), b.bottom.toInt())
-                playerBounds = rect
-                onPlayerCoordinatesChanged(rect)
+                if (playerBounds != rect) {
+                    playerBounds = rect
+                    onPlayerCoordinatesChanged(rect)
+                }
             }
             .pointerInput(isInPipMode, isMini) {
                 if (!isInPipMode && !isMini) {

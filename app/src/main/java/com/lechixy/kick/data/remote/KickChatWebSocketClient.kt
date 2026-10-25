@@ -428,6 +428,7 @@ class KickChatWebSocketClient(
                 "MessageDeletedEvent" -> {
                     val data = rawData ?: return
                     val event = decodeEventPayload<MessageDeletedEvent>(data) ?: return
+                    markMessageDeleted(event)
                     _events.tryEmit(ChatWebSocketEvent.MessageDeleted(event))
                 }
 
@@ -477,6 +478,60 @@ class KickChatWebSocketClient(
                 currentList.drop(currentList.size - maxMessagesBuffer + 1) + message
             } else {
                 currentList + message
+            }
+        }
+    }
+
+    private fun markMessageDeleted(event: MessageDeletedEvent) {
+        val targetId = event.message?.id?.takeIf { it.isNotBlank() } ?: event.id
+        if (targetId.isBlank()) return
+
+        val fallbackText = when {
+            event.aiModerated -> "Message deleted by AI moderator"
+            event.violatedRules.isNotEmpty() -> "Message deleted because user violated rule"
+            else -> "Message deleted by moderator"
+        }
+
+        _messages.update { currentList ->
+            var changed = false
+            val updated = currentList.map { msg ->
+                val matchesMessage = msg.id == targetId
+                val originalMsg = msg.metadata?.originalMessage
+                val matchesOriginal = originalMsg != null && originalMsg.id == targetId
+                if (matchesMessage || matchesOriginal) {
+                    changed = true
+                    msg.copy(
+                        content = if (matchesMessage) fallbackText else msg.content,
+                        messageDeleted = if (matchesMessage) event else msg.messageDeleted,
+                        metadata = if (matchesOriginal) {
+                            msg.metadata.copy(
+                                originalMessage = originalMsg.copy(
+                                    content = fallbackText,
+                                    messageDeleted = event
+                                )
+                            )
+                        } else {
+                            msg.metadata
+                        }
+                    )
+                } else {
+                    msg
+                }
+            }
+            if (changed) updated else currentList
+        }
+
+        _pinnedMessage.update { currentPin ->
+            val pinnedMsg = currentPin?.message
+            if (pinnedMsg != null && pinnedMsg.id == targetId) {
+                currentPin.copy(
+                    message = pinnedMsg.copy(
+                        content = fallbackText,
+                        messageDeleted = event
+                    )
+                )
+            } else {
+                currentPin
             }
         }
     }

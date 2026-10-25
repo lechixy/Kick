@@ -2,6 +2,7 @@ package com.lechixy.kick.data.settings
 
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 
@@ -86,6 +87,18 @@ object SettingsKeys {
         type = SettingType.IntType,
         validator = { it in 0..25 }
     )
+    val CHAT_WIDTH_FRACTION = SettingKey(
+        key = floatPreferencesKey("chat_width_fraction"),
+        defaultValue = 0.35f,
+        type = SettingType.FloatType,
+        validator = { it in 0.18f..0.60f }
+    )
+    val MINI_PLAYER_WIDTH_DP = SettingKey(
+        key = floatPreferencesKey("mini_player_width_dp"),
+        defaultValue = 200f,
+        type = SettingType.FloatType,
+        validator = { it in 140f..500f }
+    )
 
     val RECOMMENDED_LIVESTREAM_LANGUAGE = SettingKey(
         key = stringPreferencesKey("recommended_livestream_language"),
@@ -108,7 +121,9 @@ object SettingsKeys {
             RECOMMENDED_LIVESTREAM_LANGUAGE,
             CHAT_FONT_SIZE,
             AUTO_CONNECT_CHAT,
-            CHAT_MESSAGE_SPACING
+            CHAT_MESSAGE_SPACING,
+            CHAT_WIDTH_FRACTION,
+            MINI_PLAYER_WIDTH_DP
         )
     }
 }
