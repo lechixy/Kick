@@ -49,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -61,6 +63,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -75,6 +78,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import coil3.compose.AsyncImage
 import com.lechixy.kick.PlayerHostState
 import com.lechixy.kick.PlayerMode
+import com.lechixy.kick.R
 import com.lechixy.kick.data.model.getBannerUrl
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
@@ -186,6 +190,7 @@ fun PlayerHost(
     var playerDy by remember { mutableFloatStateOf(0f) }    // madde 4
     val metrics = remember { ViewportMetrics() }
     val systemInsets = WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+    val cutoutInsets = WindowInsets.displayCutout
 
     // Mini pencere: konum, hareket aralığının oranı olarak tutulur (0..1) => boyut/rotasyon değişse de köşede kalır.
     val settingsRepository = LocalSettingsRepository.current
@@ -202,7 +207,11 @@ fun PlayerHost(
     LaunchedEffect(host.isTheaterMode) {
         theaterAnim.animateTo(
             targetValue = if (host.isTheaterMode) 1f else 0f,
-            animationSpec = tween(300, easing = FastOutSlowInEasing)
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow,
+                visibilityThreshold = NORM_THRESHOLD
+            )
         )
     }
 
@@ -376,6 +385,14 @@ fun PlayerHost(
         return IntRect(left, top, right, bottom)
     }
 
+    fun MeasureScope.resolveFullscreenSafeArea(cw: Int, ch: Int): IntRect {
+        val left = cutoutInsets.getLeft(this, layoutDirection)
+        val top = cutoutInsets.getTop(this)
+        val right = (cw - cutoutInsets.getRight(this, layoutDirection)).coerceAtLeast(left)
+        val bottom = (ch - cutoutInsets.getBottom(this)).coerceAtLeast(top)
+        return IntRect(left, top, right, bottom)
+    }
+
     fun inlineRect(safeArea: IntRect): IntRect {
         val wide = safeArea.width >= wideBreakpointPx
         val chatW = host.sideChatWidthPx(safeArea.width, hasSideChat = wide)
@@ -393,6 +410,19 @@ fun PlayerHost(
             playerHeight
         }
         return IntRect(safeArea.left, safeArea.top, safeArea.left + w, safeArea.top + h)
+    }
+
+    fun inlineDraggedRect(safeArea: IntRect): IntRect {
+        val r = inlineRect(safeArea)
+        val cx = (r.left + r.right) / 2f
+        val cy = (r.top + r.bottom) / 2f
+        val w = r.width * dragScale
+        val h = r.height * dragScale
+        val leftPx = (cx - w / 2f).roundToInt()
+        val topFromBottom = r.bottom - h
+        val topFromCenter = cy - h / 2f
+        val topPx = (topFromBottom + (topFromCenter - topFromBottom) * theaterAnim.value).roundToInt()
+        return IntRect(leftPx, topPx, leftPx + w.roundToInt(), topPx + h.roundToInt())
     }
 
     fun miniWidthPx(safeArea: IntRect): Float {
@@ -430,21 +460,11 @@ fun PlayerHost(
 
     fun currentT() = frameT.value
 
-    fun scaledBottomCenter(r: IntRect, s: Float): IntRect {
-        val cx = (r.left + r.right) / 2f
-        val w = r.width * s
-        val h = r.height * s
-        val leftPx = (cx - w / 2f).roundToInt()
-        val topPx = (r.bottom - h).roundToInt()
-        return IntRect(leftPx, topPx, leftPx + w.roundToInt(), r.bottom)
-    }
-
-    fun fullRect(cw: Int, ch: Int, safeArea: IntRect): IntRect {
+    fun fullRect(cw: Int, ch: Int, fsSafeArea: IntRect): IntRect {
         val chatOpen = host.chatOpenProgress.value.coerceIn(0f, 1f)
-        val chatW = host.sideChatWidthPx(safeArea.width, hasSideChat = true)
-        val rightEdgeWhenChatOpen = (safeArea.right - chatW).toFloat()
-        val availableRight = cw + (rightEdgeWhenChatOpen - cw) * chatOpen
-        val availableLeft = safeArea.left * chatOpen
+        val chatW = host.sideChatWidthPx(fsSafeArea.width, hasSideChat = true)
+        val availableRight = cw + (fsSafeArea.right - cw) * chatOpen - chatW
+        val availableLeft = fsSafeArea.left * chatOpen
         val availableW = (availableRight - availableLeft).coerceAtLeast(1f)
         val w = availableW * fsScale
         val h = ch * fsScale
@@ -455,9 +475,9 @@ fun PlayerHost(
         return IntRect(leftPx, topPx, leftPx + w.roundToInt(), topPx + h.roundToInt())
     }
 
-    fun frameAt(t: Float, cw: Int, ch: Int, safeArea: IntRect): IntRect {
-        val base = scaledBottomCenter(inlineRect(safeArea), dragScale)
-        return if (t >= 0f) lerpRect(base, fullRect(cw, ch, safeArea), t.coerceAtMost(1f))
+    fun frameAt(t: Float, cw: Int, ch: Int, safeArea: IntRect, fsSafeArea: IntRect): IntRect {
+        val base = inlineDraggedRect(safeArea)
+        return if (t >= 0f) lerpRect(base, fullRect(cw, ch, fsSafeArea), t.coerceAtMost(1f))
         else lerpRect(base, miniRect(safeArea), (-t).coerceAtMost(1f))
     }
 
@@ -801,12 +821,25 @@ fun PlayerHost(
         if (playerVisible && !isExpanding) {
             Box(
                 Modifier
+                    .drawWithContent {
+                        // The swipe preview grows inside the video slot, below surrounding UI.
+                        if (mode == PlayerMode.Expanded && dragScale > 1f) {
+                            val bounds = inlineRect(metrics.safeArea)
+                            clipRect(
+                                bounds.left.toFloat(), bounds.top.toFloat(),
+                                bounds.right.toFloat(), bounds.bottom.toFloat()
+                            ) { this@drawWithContent.drawContent() }
+                        } else {
+                            drawContent()
+                        }
+                    }
                     .layout { measurable, constraints ->
                         val cw = constraints.maxWidth
                         val ch = constraints.maxHeight
                         val safeArea = resolveSafeArea(cw, ch)
+                        val fsSafeArea = resolveFullscreenSafeArea(cw, ch)
                         metrics.update(cw, ch, safeArea)
-                        val f = frameAt(currentT(), cw, ch, safeArea)
+                        val f = frameAt(currentT(), cw, ch, safeArea, fsSafeArea)
                         val p = measurable.measure(
                             Constraints.fixed(
                                 f.width.coerceAtLeast(0),
@@ -862,7 +895,7 @@ fun PlayerHost(
                         var total = 0f
                         var committed = false
                         val tracker = VelocityTracker()
-                        val commitPx = 56.dp.toPx()
+                        val commitPx = 72.dp.toPx()
                         val limitPx = 180.dp.toPx()
                         val travelPx = 240.dp.toPx()
                         val scaleDistPx = 160.dp.toPx()
@@ -988,7 +1021,7 @@ fun PlayerHost(
                                 val vy = tracker.calculateVelocity().y
                                 val tVel = -vy / metrics.containerH.coerceAtLeast(1)
                                 when {
-                                    mode == PlayerMode.Expanded && (total < -commitPx || vy < -1800f) -> scope.launch {
+                                    mode == PlayerMode.Expanded && (total < -commitPx || (total < -commitPx * 0.5f && vy < -1800f)) -> scope.launch {
                                         releaseVelocity = tVel.coerceAtLeast(0.5f)
                                         launch {
                                             animate(
@@ -1019,24 +1052,27 @@ fun PlayerHost(
                         var totalDx = 0f
                         var startProgress = 0f
                         var gestureActive = false
+                        var theaterGesture = false
                         val tracker = VelocityTracker()
                         val minCommitPx = 42.dp.toPx()
 
                         detectHorizontalDragGestures(
                             onDragStart = {
-                                val wide = metrics.safeArea.width >= wideBreakpointPx
-                                gestureActive = mode == PlayerMode.Fullscreen || wide
+                                gestureActive = mode == PlayerMode.Fullscreen || mode == PlayerMode.Expanded
+                                theaterGesture = mode == PlayerMode.Expanded && !host.isTheaterMode
                                 totalDx = 0f
                                 tracker.resetTracking()
                                 if (gestureActive) {
                                     startProgress = host.chatOpenProgress.value
-                                    host.isDirectChatDrag = true
+                                    host.isDirectChatDrag = !theaterGesture
                                 }
                             },
                             onHorizontalDrag = { change, dx ->
                                 if (!gestureActive) return@detectHorizontalDragGestures
                                 totalDx += dx
                                 tracker.addPosition(change.uptimeMillis, change.position)
+                                if (theaterGesture && totalDx < 0f) return@detectHorizontalDragGestures
+                                host.isDirectChatDrag = true
                                 val baseWidth = metrics.safeArea.width.coerceAtLeast(1)
                                 val chatMaxPx =
                                     (baseWidth * host.chatWidthFraction).coerceAtLeast(1f)
@@ -1082,12 +1118,17 @@ fun PlayerHost(
                                         vx < 350f
                                     shouldShow
                                 }
+                                val shouldEnterTheater = theaterGesture && totalDx < 0f &&
+                                    (-totalDx >= commitPx || vx <= -550f) && vx < 350f
+                                if (shouldEnterTheater) {
+                                    host.toggleTheaterMode()
+                                }
                                 releaseChatVelocity = progressVel
-                                host.setSideChatVisible(visible = targetOpen, isWide = wide)
+                                host.setSideChatVisible(visible = targetOpen || shouldEnterTheater, isWide = wide)
                                 host.isDirectChatDrag = false
                                 scope.launch {
                                     host.animateChatOpenProgressTo(
-                                        target = if (targetOpen) 1f else 0f,
+                                        target = if (targetOpen || shouldEnterTheater) 1f else 0f,
                                         initialVelocity = progressVel
                                     )
                                 }
@@ -1125,6 +1166,7 @@ private fun PlayerSurface(
     val channel = host.channel
     val isLive = channel?.livestream != null
     val playbackUrl = channel?.playbackUrl
+    val announcementId = host.activeLiveAnnouncementId
 
     Box(
         Modifier
@@ -1145,6 +1187,7 @@ private fun PlayerSurface(
                 onToggleChat = host::toggleChatVisibility,
                 isInPipMode = isInPipMode,
                 isMini = mode == PlayerMode.Mini,
+                hideBufferingIndicator = announcementId != null,
                 pendingAutoFullscreen = host.pendingAutoFullscreen,
                 onConsumeAutoFullscreen = host::consumeAutoFullscreen,
                 onFullScreenChange = host::setFullscreen,
@@ -1172,13 +1215,27 @@ private fun PlayerSurface(
                     contentScale = ContentScale.Crop
                 )
             } else if (channel != null) {
-                Text("CHANNEL OFFLINE", color = Color.Gray, fontWeight = FontWeight.Bold)
+                Text(
+                    stringResource(R.string.channel_offline),
+                    color = Color.Gray,
+                    fontWeight = FontWeight.Bold
+                )
             }
             if (!isInPipMode) {
                 ShellChrome(mode = mode, onMinimize = {
                     if (mode == PlayerMode.Fullscreen) host.setFullscreen(false) else onMinimize()
                 }, onClose = onClose)
             }
+        }
+
+        if (announcementId != null && isLive && !isInPipMode) {
+            val streamerName = channel.user?.username?.takeIf { it.isNotBlank() } ?: channel.slug
+            StreamerIsLiveOverlay(
+                username = streamerName,
+                announcementId = announcementId,
+                onFinished = { host.clearLiveAnnouncement(announcementId) },
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }

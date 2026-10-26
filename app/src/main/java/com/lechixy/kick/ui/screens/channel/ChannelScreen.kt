@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -72,6 +74,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -139,7 +142,11 @@ fun ChannelScreen(
     val scope = rememberCoroutineScope()
 
     val context = LocalContext.current
-    var selectedTab by remember { mutableStateOf(ChannelTab.CHAT) }
+    val configuration = LocalConfiguration.current
+    val initialIsWide = configuration.screenWidthDp >= WIDE_BREAKPOINT_DP
+    var selectedTab by remember {
+        mutableStateOf(if (initialIsWide) ChannelTab.HOME else ChannelTab.CHAT)
+    }
 
     val followedSlugs by FollowManager.followedSlugs.collectAsState()
     val isFollowing = remember(followedSlugs, channelSlug) {
@@ -157,7 +164,11 @@ fun ChannelScreen(
     LaunchedEffect(isTheaterMode) {
         theaterAnim.animateTo(
             targetValue = if (isTheaterMode) 1f else 0f,
-            animationSpec = tween(300, easing = FastOutSlowInEasing)
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow,
+                visibilityThreshold = 0.0005f
+            )
         )
     }
 
@@ -166,13 +177,31 @@ fun ChannelScreen(
         viewModel.loadChannel(channelSlug, autoConnectChat = autoConnect)
     }
 
-    LaunchedEffect(state.channel?.id, state.channel?.livestream?.id) {
+    var previousLivestreamId by remember(channelSlug) { mutableStateOf<Long?>(null) }
+    var hasInitializedChannel by remember(channelSlug) { mutableStateOf(false) }
+
+    LaunchedEffect(state.channel) {
         state.channel?.let { channel ->
             onChannelLoaded(channel)
-            if (channel.livestream == null && selectedTab == ChannelTab.CHAT) {
+            val currentLivestreamId = channel.livestream?.id
+            if (!hasInitializedChannel) {
+                hasInitializedChannel = true
+                if (currentLivestreamId == null && selectedTab == ChannelTab.CHAT) {
+                    selectedTab = ChannelTab.HOME
+                }
+            } else if (previousLivestreamId == null && currentLivestreamId != null && !initialIsWide) {
+                selectedTab = ChannelTab.CHAT
+            } else if (previousLivestreamId != null && currentLivestreamId == null && selectedTab == ChannelTab.CHAT) {
                 selectedTab = ChannelTab.HOME
             }
+            previousLivestreamId = currentLivestreamId
         }
+    }
+
+    LaunchedEffect(state.liveAnnouncementId) {
+        val announcementId = state.liveAnnouncementId ?: return@LaunchedEffect
+        playerHost?.triggerLiveAnnouncement(announcementId)
+        viewModel.consumeLiveAnnouncement(announcementId)
     }
 
     val inlineInsets = WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
@@ -201,10 +230,31 @@ fun ChannelScreen(
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(inlineInsets)
+                .let {
+                    if (playerHost?.mode == PlayerMode.Fullscreen) {
+                        it.windowInsetsPadding(WindowInsets.displayCutout)
+                    } else {
+                        it.windowInsetsPadding(inlineInsets)
+                    }
+                }
         ) {
             val screenWidthDp = maxWidth
             val isWide = screenWidthDp >= WIDE_BREAKPOINT_DP.dp
+            val visibleTabs = remember(isWide) {
+                if (isWide) ChannelTab.entries.filter { it != ChannelTab.CHAT }
+                else ChannelTab.entries
+            }
+            val effectiveSelectedTab = if (isWide && selectedTab == ChannelTab.CHAT) {
+                ChannelTab.HOME
+            } else {
+                selectedTab
+            }
+
+            LaunchedEffect(isWide) {
+                if (isWide && selectedTab == ChannelTab.CHAT) {
+                    selectedTab = ChannelTab.HOME
+                }
+            }
             val bannerWidthPx = remember(screenWidthDp, density) {
                 with(density) { screenWidthDp.toPx().toInt() }
             }
@@ -262,7 +312,7 @@ fun ChannelScreen(
                                         )
                                     } else {
                                         Text(
-                                            "CHANNEL OFFLINE",
+                                            stringResource(R.string.channel_offline),
                                             color = Color.Gray,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -293,7 +343,7 @@ fun ChannelScreen(
                                                         (totalH * 0.24f).roundToInt()
                                                     }
                                                 val theaterTargetPx =
-                                                    (totalH - headerPx).coerceAtLeast(normalHeightPx)
+                                                    (totalH - headerPx).coerceIn(0, totalH)
                                                 (normalHeightPx + (theaterTargetPx - normalHeightPx) * theaterAnim.value).roundToInt()
                                             } else {
                                                 normalHeightPx
@@ -320,7 +370,7 @@ fun ChannelScreen(
 
                                 // ChannelHeaderInfo: geniş ekranda (tablet) theater mod dahil her zaman görünür, mobilde kontrollerle senkronize
                                 AnimatedVisibility(
-                                    visible = if (isWide) true else isControlsVisible,
+                                    visible = if (isWide || !isLive) true else isControlsVisible,
                                     enter = expandVertically(tween(300)) + fadeIn(tween(300)),
                                     exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
                                 ) {
@@ -342,17 +392,18 @@ fun ChannelScreen(
 
                                 // ChannelTabsRow: geniş ekranda theater modda gizlenir, mobilde kontrollerle senkronize
                                 AnimatedVisibility(
-                                    visible = if (isWide) !isTheaterMode else isControlsVisible,
+                                    visible = if (isWide) (!isTheaterMode || !isLive) else (!isLive || isControlsVisible),
                                     enter = expandVertically(tween(300)) + fadeIn(tween(300)),
                                     exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
                                 ) {
                                     ChannelTabsRow(
-                                        selectedTab = selectedTab,
+                                        tabs = visibleTabs,
+                                        selectedTab = effectiveSelectedTab,
                                         onTabSelected = { selectedTab = it }
                                     )
                                 }
 
-                                if (selectedTab == ChannelTab.CHAT && !hasSideChat) {
+                                if (effectiveSelectedTab == ChannelTab.CHAT && !hasSideChat) {
                                     sharedChat(
                                         channel,
                                         null,
@@ -362,7 +413,7 @@ fun ChannelScreen(
                                     )
                                 } else {
                                     AnimatedVisibility(
-                                        visible = if (isWide) !isTheaterMode else true,
+                                        visible = if (isWide) (!isTheaterMode || !isLive) else true,
                                         enter = expandVertically(tween(300)) + fadeIn(tween(300)),
                                         exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
                                         modifier = Modifier
@@ -374,7 +425,7 @@ fun ChannelScreen(
                                         ) {
                                             item {
                                                 ChannelTabContent(
-                                                    tab = selectedTab,
+                                                    tab = effectiveSelectedTab,
                                                     channel = channel,
                                                     videos = state.videos,
                                                     onNavigateToVideos = {
@@ -796,15 +847,17 @@ private fun ChannelHeaderInfo(
 
 @Composable
 private fun ChannelTabsRow(
+    tabs: List<ChannelTab>,
     selectedTab: ChannelTab,
     onTabSelected: (ChannelTab) -> Unit
 ) {
+    val selectedIndex = tabs.indexOf(selectedTab).coerceAtLeast(0)
     PrimaryTabRow(
-        selectedTabIndex = selectedTab.ordinal,
+        selectedTabIndex = selectedIndex,
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.primary
     ) {
-        ChannelTab.entries.forEach { tab ->
+        tabs.forEach { tab ->
             Tab(
                 selected = selectedTab == tab,
                 onClick = { onTabSelected(tab) },

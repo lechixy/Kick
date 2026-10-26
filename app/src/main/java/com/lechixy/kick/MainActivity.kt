@@ -83,6 +83,7 @@ import com.lechixy.kick.ui.components.ExpansionSource
 import com.lechixy.kick.ui.components.PlayerHost
 import com.lechixy.kick.ui.screens.browse.BrowseScreen
 import com.lechixy.kick.ui.screens.channel.ChannelScreen
+import com.lechixy.kick.ui.screens.channel.ChannelViewModel
 import com.lechixy.kick.ui.screens.channel.findActivity
 import com.lechixy.kick.ui.screens.following.FollowingScreen
 import com.lechixy.kick.ui.screens.following.FollowingViewModel
@@ -371,6 +372,22 @@ fun KickApp() {
                                 }
                             }
                         }
+                    }
+                }
+
+                val activeSlug = playerHost.slug
+                if (activeSlug != null) {
+                    val activeChannelVm: ChannelViewModel = viewModel(key = activeSlug)
+                    val activeChannelState by activeChannelVm.uiState.collectAsStateWithLifecycle()
+                    LaunchedEffect(activeSlug, activeChannelState.channel) {
+                        activeChannelState.channel?.let { detail ->
+                            playerHost.onChannelLoaded(activeSlug, detail)
+                        }
+                    }
+                    LaunchedEffect(activeSlug, activeChannelState.liveAnnouncementId) {
+                        val announcementId = activeChannelState.liveAnnouncementId ?: return@LaunchedEffect
+                        playerHost.triggerLiveAnnouncement(announcementId)
+                        activeChannelVm.consumeLiveAnnouncement(announcementId)
                     }
                 }
 

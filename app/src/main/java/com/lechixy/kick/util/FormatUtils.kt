@@ -26,11 +26,16 @@ object FormatUtils {
     // Tarihi UTC olarak parse eder ve Epoch millis döndürür
     fun parseUtcStartTimeToMillis(dateString: String?): Long {
         if (dateString.isNullOrBlank()) return 0L
+        val normalized = dateString
+            .trim()
+            .replace('T', ' ')
+            .substringBefore('.')
+            .trimEnd('Z')
         return runCatching {
             val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply {
                 timeZone = TimeZone.getTimeZone("UTC") // Kritik nokta: UTC olarak yorumla
             }
-            sdf.parse(dateString)?.time ?: 0L
+            sdf.parse(normalized)?.time ?: 0L
         }.getOrDefault(0L)
     }
 

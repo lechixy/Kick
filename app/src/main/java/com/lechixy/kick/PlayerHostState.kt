@@ -155,8 +155,24 @@ class PlayerHostState(
     var expansionSource by mutableStateOf<com.lechixy.kick.ui.components.ExpansionSource?>(null)
         private set
 
+    var activeLiveAnnouncementId by mutableStateOf<Long?>(null)
+        private set
+
+    fun triggerLiveAnnouncement(announcementId: Long) {
+        activeLiveAnnouncementId = announcementId
+    }
+
+    fun clearLiveAnnouncement(announcementId: Long) {
+        if (activeLiveAnnouncementId == announcementId) {
+            activeLiveAnnouncementId = null
+        }
+    }
+
     fun open(slug: String, source: com.lechixy.kick.ui.components.ExpansionSource? = null) {
-        if (this.slug != slug) channel = null
+        if (this.slug != slug) {
+            channel = null
+            activeLiveAnnouncementId = null
+        }
         this.slug = slug
         pageSlug = slug
         this.expansionSource = if (mode == PlayerMode.Hidden) source else null
@@ -172,9 +188,13 @@ class PlayerHostState(
 
     fun onChannelLoaded(slug: String, detail: ChannelDetail) {
         if (slug != this.slug) return
-        channel = detail
+        if (channel != detail) {
+            channel = detail
+        }
         if (detail.livestream == null) {            // yayın yoksa player/mini olmasın
             pendingAutoFullscreen = false
+            activeLiveAnnouncementId = null
+            isTheaterMode = false
             when (mode) {
                 PlayerMode.Fullscreen -> mode = PlayerMode.Expanded
                 PlayerMode.Mini -> close()
@@ -222,6 +242,7 @@ class PlayerHostState(
     fun close() {
         isExiting = false
         pendingAutoFullscreen = false
+        activeLiveAnnouncementId = null
         mode = PlayerMode.Hidden
         slug = null
         channel = null

@@ -19,6 +19,8 @@ import com.lechixy.kick.data.model.chat.RealtimeAuthRequest
 import com.lechixy.kick.data.model.chat.RealtimeClientInfo
 import com.lechixy.kick.data.model.chat.RealtimeConnectionRequest
 import com.lechixy.kick.data.model.chat.RewardRedeemedEvent
+import com.lechixy.kick.data.model.chat.StopStreamBroadcastEvent
+import com.lechixy.kick.data.model.chat.StreamerIsLiveEvent
 import com.lechixy.kick.data.model.chat.SubscribePayload
 import com.lechixy.kick.data.model.chat.UserBannedEvent
 import com.lechixy.kick.data.model.chat.withSelectedBadgesOnly
@@ -438,6 +440,20 @@ class KickChatWebSocketClient(
                     val event = decodeEventPayload<PointsUpdatedEvent>(data) ?: return
                     _pointsUpdated.value = event
                     _events.tryEmit(ChatWebSocketEvent.PointsUpdated(event))
+                }
+
+                "App\\Events\\StreamerIsLive",
+                "StreamerIsLive" -> {
+                    val data = rawData ?: return
+                    val event = decodeEventPayload<StreamerIsLiveEvent>(data) ?: return
+                    _events.tryEmit(ChatWebSocketEvent.StreamerIsLive(event))
+                }
+
+                "App\\Events\\StopStreamBroadcast",
+                "StopStreamBroadcast" -> {
+                    val data = rawData ?: return
+                    val event = decodeEventPayload<StopStreamBroadcastEvent>(data) ?: return
+                    _events.tryEmit(ChatWebSocketEvent.StopStreamBroadcast(event))
                 }
             }
         } catch (_: Exception) {

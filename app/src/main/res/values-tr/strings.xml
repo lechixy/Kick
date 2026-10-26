@@ -33,4 +33,6 @@
     <string name="message_deleted_by_ai_moderator">Mesaj yapay zeka moderatörü tarafından silindi</string>
     <string name="message_deleted_rule_violation">Mesaj kullanıcının kural ihlali nedeniyle silindi</string>
     <string name="message_deleted_by_moderator">Mesaj moderatör tarafından silindi</string>
+    <string name="streamer_is_live">%1$s YAYINDA!</string>
+    <string name="channel_offline">KANAL ÇEVRİMDIŞI</string>
 </resources>

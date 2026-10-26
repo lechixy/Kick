@@ -17,6 +17,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -82,6 +84,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
@@ -89,6 +92,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -103,6 +107,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.media3.ui.PlayerView
+import coil3.compose.AsyncImage
 import com.lechixy.kick.PlayerMode
 import com.lechixy.kick.R
 import com.lechixy.kick.data.model.ChannelDetail
@@ -123,9 +128,6 @@ import com.lechixy.kick.util.FormatUtils.parseUtcStartTimeToMillis
 import com.lechixy.kick.util.NotificationUtils
 import com.lechixy.kick.util.PlayerUtils
 import com.lechixy.kick.util.VideoQualityOption
-import androidx.compose.animation.core.tween
-import androidx.compose.ui.layout.ContentScale
-import coil3.compose.AsyncImage
 import com.lechixy.kick.util.buildOptimizedImageRequest
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
@@ -150,6 +152,7 @@ fun KickPlayerView(
     onToggleChat: () -> Unit = {},
     isInPipMode: Boolean = false,
     isMini: Boolean = false,
+    hideBufferingIndicator: Boolean = false,
     pendingAutoFullscreen: Boolean = false,
     onConsumeAutoFullscreen: (Boolean) -> Unit = {},
     onFullScreenChange: (Boolean) -> Unit = {},
@@ -165,7 +168,13 @@ fun KickPlayerView(
 
     val player by rememberMediaController()
 
-    var hasRenderedFirstFrame by remember(playbackUrl) { mutableStateOf(false) }
+    val stableId = remember(channel?.slug, playbackUrl, channel?.livestream?.id) {
+        val baseId = channel?.slug ?: playbackUrl
+        val liveId = channel?.livestream?.id
+        if (liveId != null) "${baseId}_$liveId" else baseId
+    }
+
+    var hasRenderedFirstFrame by remember(playbackUrl, stableId) { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
     var isPlayerReady by remember { mutableStateOf(false) }
     var loadedMediaId by remember { mutableStateOf<String?>(null) }
@@ -173,6 +182,7 @@ fun KickPlayerView(
     var isMuted by remember { mutableStateOf(false) }
     var volume by remember { mutableFloatStateOf(1f) }
     var playbackError by remember { mutableStateOf<String?>(null) }
+    var liveRetryTrigger by remember { mutableIntStateOf(0) }
     var showControls by remember { mutableStateOf(false) }
     var isAdjustingVolume by remember { mutableStateOf(false) }
 
@@ -322,6 +332,7 @@ fun KickPlayerView(
     var liveOffsetMs by remember { mutableLongStateOf(0L) }
     var isAtLiveEdge by remember { mutableStateOf(true) }
     val isLiveStream = channel?.livestream != null || player?.isCurrentMediaItemLive == true
+    val latestIsLiveStream by rememberUpdatedState(isLiveStream)
 
     LaunchedEffect(player, isLiveStream, lowLatencyEnabled) {
         val p = player ?: return@LaunchedEffect
@@ -350,7 +361,7 @@ fun KickPlayerView(
     /**
      * Player listener
      */
-    DisposableEffect(player) {
+    DisposableEffect(player, stableId) {
         val p = player
         if (p == null) {
             onDispose { }
@@ -363,10 +374,15 @@ fun KickPlayerView(
             var previousPlayWhenReady = p.playWhenReady
             val listener = object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
-                    isBuffering = playbackState == Player.STATE_BUFFERING
+                    val live = latestIsLiveStream || p.isCurrentMediaItemLive
+                    isBuffering = playbackState == Player.STATE_BUFFERING ||
+                            (live && (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE))
                     isPlayerReady = playbackState == Player.STATE_READY
                     if (playbackState == Player.STATE_READY && p.playWhenReady) {
                         hasRenderedFirstFrame = true
+                        playbackError = null
+                    } else if (live && playbackState == Player.STATE_ENDED) {
+                        liveRetryTrigger++
                     }
                     loadedMediaId = p.currentMediaItem?.mediaId
                 }
@@ -374,6 +390,7 @@ fun KickPlayerView(
                 override fun onRenderedFirstFrame() {
                     hasRenderedFirstFrame = true
                     isPlayerReady = true
+                    playbackError = null
                     loadedMediaId = p.currentMediaItem?.mediaId
                 }
 
@@ -381,12 +398,13 @@ fun KickPlayerView(
                     isPlaying = playing
                     if (playing) {
                         hasRenderedFirstFrame = true
+                        playbackError = null
                     }
                 }
 
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                     if (playWhenReady && !previousPlayWhenReady) {
-                        val live = channel?.livestream != null || p.isCurrentMediaItemLive
+                        val live = latestIsLiveStream || p.isCurrentMediaItemLive
                         if (live) {
                             if (p.distanceToLiveEdgeMs() > 15000L) {
                                 p.seekToDefaultPosition()
@@ -405,18 +423,27 @@ fun KickPlayerView(
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    playbackError = error.message ?: "Oynatma hatası"
-                    isBuffering = false
-                    isPlayerReady = false
+                    val live = latestIsLiveStream || p.isCurrentMediaItemLive
+                    if (live) {
+                        playbackError = null
+                        isBuffering = true
+                        isPlayerReady = false
+                        liveRetryTrigger++
+                    } else {
+                        playbackError = error.message ?: "Oynatma hatası"
+                        isBuffering = false
+                        isPlayerReady = false
+                    }
                 }
             }
 
-            isPlaying = p.isPlaying
-            if (p.isPlaying || p.playbackState == Player.STATE_READY) {
+            val isSameMedia = p.currentMediaItem?.mediaId == stableId
+            isPlaying = isSameMedia && p.isPlaying
+            if (isSameMedia && (p.isPlaying || p.playbackState == Player.STATE_READY)) {
                 hasRenderedFirstFrame = true
             }
-            isBuffering = p.playbackState == Player.STATE_BUFFERING
-            isPlayerReady = p.playbackState == Player.STATE_READY
+            isBuffering = !isSameMedia || p.playbackState == Player.STATE_BUFFERING
+            isPlayerReady = isSameMedia && p.playbackState == Player.STATE_READY
             loadedMediaId = p.currentMediaItem?.mediaId
             refreshQualities(p.currentTracks)
 
@@ -425,8 +452,20 @@ fun KickPlayerView(
         }
     }
 
-    val stableId = channel?.slug ?: playbackUrl
-    LaunchedEffect(player, stableId, lowLatencyEnabled) {
+    LaunchedEffect(player, liveRetryTrigger, isLiveStream) {
+        val p = player ?: return@LaunchedEffect
+        if (liveRetryTrigger <= 0 || !isLiveStream) return@LaunchedEffect
+        delay(2000.milliseconds)
+        if (isActive && latestIsLiveStream && p.playbackState != Player.STATE_READY) {
+            isBuffering = true
+            playbackError = null
+            p.seekToDefaultPosition()
+            p.prepare()
+            p.play()
+        }
+    }
+
+    LaunchedEffect(player, stableId, playbackUrl, lowLatencyEnabled) {
         val p = player ?: return@LaunchedEffect
         if (playbackUrl.isBlank()) return@LaunchedEffect
 
@@ -434,6 +473,7 @@ fun KickPlayerView(
 
         val currentItem = p.currentMediaItem
         val alreadyLoaded = currentItem?.mediaId == stableId &&
+                currentItem.localConfiguration?.uri?.toString() == playbackUrl &&
                 currentItem.mediaMetadata.extras?.getBoolean(
                     EXTRA_LOW_LATENCY,
                     lowLatencyEnabled
@@ -441,10 +481,15 @@ fun KickPlayerView(
         if (alreadyLoaded) {
             loadedMediaId = stableId
             isPlayerReady = p.playbackState == Player.STATE_READY
-            if (p.playbackState == Player.STATE_IDLE) p.prepare()
+            if (p.playbackState == Player.STATE_IDLE || p.playbackState == Player.STATE_ENDED) {
+                p.seekToDefaultPosition()
+                p.prepare()
+                p.play()
+            }
             return@LaunchedEffect
         }
 
+        hasRenderedFirstFrame = false
         isBuffering = true
         isPlayerReady = false
         loadedMediaId = stableId
@@ -563,7 +608,7 @@ fun KickPlayerView(
             )
         }
 
-        if (isBuffering && playbackError == null) {
+        if (isBuffering && playbackError == null && !hideBufferingIndicator) {
             CircularProgressIndicator(
                 modifier = Modifier.size(if (isMini) 24.dp else 44.dp)
             )
@@ -937,6 +982,7 @@ fun KickPlayerView(
                 title = {
                     Text("Cast")
                 },
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                 text = {
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -970,7 +1016,7 @@ fun KickPlayerView(
                             SettingCard(
                                 title = "Web Video Caster",
                                 description = "Samsung (Tizen), LG (webOS), Roku, Fire TV, Apple TV ve DLNA destekli televizyonlara yayın göndermek için en mükemmel yöntemdir.",
-                                icon = R.drawable.webvideocasterlogo,
+                                image = R.drawable.webvideocasterlogo,
                                 onClick = {
                                     showCastDialog = false
                                     val poster =
@@ -1219,6 +1265,11 @@ internal fun PlayerControlsOverlay(
                 else it
             }
     ) {
+        val isCompact = !isFullScreen
+        val configuration = LocalConfiguration.current
+        val isWide = configuration.screenWidthDp >= WIDE_BREAKPOINT_DP
+        val showChatButton = isFullScreen || isTheaterMode || isWide
+
         /**
          * Top
          */
@@ -1226,7 +1277,12 @@ internal fun PlayerControlsOverlay(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
-                .padding(start = 4.dp, top = 8.dp, end = 12.dp, bottom = 8.dp),
+                .padding(
+                    start = if (isCompact) 2.dp else 4.dp,
+                    top = if (isCompact) 2.dp else 8.dp,
+                    end = if (isCompact) 6.dp else 12.dp,
+                    bottom = if (isCompact) 2.dp else 8.dp
+                ),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1235,11 +1291,11 @@ internal fun PlayerControlsOverlay(
              */
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (isCompact) 4.dp else 8.dp)
             ) {
                 IconButton(
                     onClick = onMinimize,
-                    modifier = modifier
+                    modifier = if (isCompact) Modifier.size(36.dp) else Modifier
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.keyboard_arrow_down_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
@@ -1253,6 +1309,8 @@ internal fun PlayerControlsOverlay(
                         color = Color.White,
                         style = labelStyle,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
@@ -1281,7 +1339,9 @@ internal fun PlayerControlsOverlay(
                                 text = "Sleep: ${(sleepRemainingSeconds + 59) / 60}m",
                                 color = Color.White,
                                 style = labelStyle,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -1290,26 +1350,27 @@ internal fun PlayerControlsOverlay(
             /**
              * Top End/Right
              */
-            val configuration = LocalConfiguration.current
-            val isWide = configuration.screenWidthDp >= WIDE_BREAKPOINT_DP
-            val showChatButton = isFullScreen || isTheaterMode || isWide
-
             Column(
                 horizontalAlignment = Alignment.End,
-//                verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(if (isCompact) 4.dp else 8.dp)
                 ) {
-                    IconButton(onClick = onOpenCastDialog) {
+                    IconButton(
+                        onClick = onOpenCastDialog,
+                        modifier = if (isCompact) Modifier.size(36.dp) else Modifier
+                    ) {
                         Icon(
                             painter = painterResource(id = if (isCastDialogVisible) R.drawable.cast_24dp_e3e3e3_fill1_wght400_grad0_opsz24 else R.drawable.cast_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                             contentDescription = "Cast",
                             tint = Color.White
                         )
                     }
-                    IconButton(onClick = onOpenSettings) {
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = if (isCompact) Modifier.size(36.dp) else Modifier
+                    ) {
                         Icon(
                             painter = painterResource(id = if (isSettingsDialogVisible) R.drawable.settings_24dp_e3e3e3_fill1_wght400_grad0_opsz24 else R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                             contentDescription = "Settings",
@@ -1341,7 +1402,9 @@ internal fun PlayerControlsOverlay(
                                 text = stringResource(R.string.chat),
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color.White
+                                color = Color.White,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -1377,23 +1440,37 @@ internal fun PlayerControlsOverlay(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(
+                    horizontal = if (isCompact) 8.dp else 16.dp,
+                    vertical = if (isCompact) 4.dp else 8.dp
+                ),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             /**
              * Bottom Start/Left
              */
-            val isCompact = !isFullScreen
             val itemSpacing = if (isCompact) 4.dp else 8.dp
-            val sliderWidth = if (isCompact) 56.dp else 110.dp
+            val targetSliderWidth = when {
+                isCompact -> 52.dp
+                isChatVisible -> 88.dp
+                else -> 115.dp
+            }
+            val sliderWidth by animateDpAsState(
+                targetValue = targetSliderWidth,
+                animationSpec = tween(durationMillis = 250),
+                label = "volumeSliderWidth"
+            )
 
             Row(
                 modifier = Modifier.weight(1f, fill = false),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(itemSpacing)
             ) {
-                IconButton(onClick = onToggleMute, modifier = Modifier.size(32.dp)) {
+                IconButton(
+                    onClick = onToggleMute,
+                    modifier = Modifier.size(if (isCompact) 28.dp else 32.dp)
+                ) {
                     Icon(
                         painter = painterResource(
                             id = if (isMuted || volume == 0f) R.drawable.volume_off_24dp_e3e3e3_fill0_wght400_grad0_opsz24
@@ -1401,7 +1478,7 @@ internal fun PlayerControlsOverlay(
                         ),
                         contentDescription = "Mute",
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(if (isCompact) 18.dp else 20.dp)
                     )
                 }
                 Slider(
@@ -1415,7 +1492,9 @@ internal fun PlayerControlsOverlay(
                     text = "${(if (isMuted) 0f else volume * 100).toInt()}%",
                     color = Color.White,
                     style = labelStyle,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false
                 )
                 Separator()
                 Box(
@@ -1427,7 +1506,9 @@ internal fun PlayerControlsOverlay(
                     text = streamDuration,
                     color = Color.White,
                     style = labelStyle,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false
                 )
 
                 if (isLive) {
@@ -1438,7 +1519,10 @@ internal fun PlayerControlsOverlay(
                         modifier = Modifier.padding(start = 2.dp)
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            modifier = Modifier.padding(
+                                horizontal = if (isCompact) 5.dp else 6.dp,
+                                vertical = 2.dp
+                            ),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
@@ -1458,14 +1542,20 @@ internal fun PlayerControlsOverlay(
                                 },
                                 color = Color.White,
                                 style = labelStyle,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
                             )
                             if (!isAtLiveEdge) {
                                 Text(
                                     text = "• ${stringResource(R.string.go_to_live)}",
                                     color = MaterialTheme.colorScheme.secondary,
                                     style = labelStyle,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -1479,9 +1569,12 @@ internal fun PlayerControlsOverlay(
             Row(
                 modifier = Modifier.wrapContentWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (isCompact) 2.dp else 8.dp)
             ) {
-                IconButton(onClick = onToggleTheater) {
+                IconButton(
+                    onClick = onToggleTheater,
+                    modifier = if (isCompact) Modifier.size(36.dp) else Modifier
+                ) {
                     Icon(
                         painter = painterResource(
                             id = if (isTheaterMode) R.drawable.theaters_24dp_e3e3e3_fill1_wght400_grad0_opsz24
@@ -1491,7 +1584,10 @@ internal fun PlayerControlsOverlay(
                         tint = if (isTheaterMode) MaterialTheme.colorScheme.primary else Color.White
                     )
                 }
-                IconButton(onClick = onToggleFullScreen) {
+                IconButton(
+                    onClick = onToggleFullScreen,
+                    modifier = if (isCompact) Modifier.size(36.dp) else Modifier
+                ) {
                     Icon(
                         painter = painterResource(
                             id = if (isFullScreen) R.drawable.fullscreen_exit_24dp_e3e3e3_fill0_wght400_grad0_opsz24
@@ -1606,7 +1702,9 @@ internal fun Separator() {
         text = " | ",
         color = Color.White.copy(alpha = 0.5f),
         style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.SemiBold
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        softWrap = false
     )
 }
 

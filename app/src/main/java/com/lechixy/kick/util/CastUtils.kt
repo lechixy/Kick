@@ -49,7 +49,7 @@ object CastUtils {
             }.onFailure {
                 val browserIntent = Intent(
                     Intent.ACTION_VIEW,
-                    "https://play.google.com/store/apps/details?id=$WVC_PACKAGE_NAME".toUri()
+                    "https://play.google.com/store/apps/details?id=${WVC_PACKAGE_NAME}".toUri()
                 ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
                 runCatching { context.startActivity(browserIntent) }
             }

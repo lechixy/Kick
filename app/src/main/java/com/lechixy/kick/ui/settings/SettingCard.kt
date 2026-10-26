@@ -1,6 +1,7 @@
 package com.lechixy.kick.ui.settings
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ fun SettingCard(
     modifier: Modifier = Modifier,
     description: String? = null,
     icon: Int? = null,
+    image: Int? = null,
     enabled: Boolean = true,
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLow,
     borderColor: Color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
@@ -69,7 +71,16 @@ fun SettingCard(
                     Icon(
                         painter = painterResource(id = icon),
                         contentDescription = null,
-                        tint = if (enabled) iconTint else iconTint.copy(alpha = 0.38f),
+                        tint = if (enabled) iconTint else iconTint.copy(alpha = iconTint.alpha * 0.38f),
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                }
+
+                if (image != null) {
+                    Image(
+                        painter = painterResource(id = image),
+                        contentDescription = null,
                         modifier = Modifier.size(22.dp)
                     )
                     Spacer(modifier = Modifier.width(16.dp))

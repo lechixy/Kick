@@ -305,6 +305,41 @@ data class PointsUpdatedEvent(
     val channelId: Long? = null
 )
 
+@Serializable
+data class StreamerIsLiveLivestream(
+    val id: Long,
+    @SerialName("channel_id")
+    val channelId: Long? = null,
+    @SerialName("session_title")
+    val sessionTitle: String? = null,
+    val source: String? = null,
+    @SerialName("created_at")
+    val createdAt: String? = null
+)
+
+@Serializable
+data class StreamerIsLiveEvent(
+    val livestream: StreamerIsLiveLivestream? = null
+)
+
+@Serializable
+data class StopStreamChannelRef(
+    val id: Long? = null,
+    @SerialName("is_banned")
+    val isBanned: Boolean = false
+)
+
+@Serializable
+data class StopStreamLivestreamRef(
+    val id: Long? = null,
+    val channel: StopStreamChannelRef? = null
+)
+
+@Serializable
+data class StopStreamBroadcastEvent(
+    val livestream: StopStreamLivestreamRef? = null
+)
+
 sealed interface ChatWebSocketEvent {
     data class MessageReceived(val message: ChatMessage) : ChatWebSocketEvent
     data class Celebration(val event: ChatCelebration) : ChatWebSocketEvent
@@ -316,6 +351,8 @@ sealed interface ChatWebSocketEvent {
     data class PointsUpdated(val event: PointsUpdatedEvent) : ChatWebSocketEvent
     data class PinnedMessageCreated(val event: PinnedMessageInfo) : ChatWebSocketEvent
     data object PinnedMessageDeleted : ChatWebSocketEvent
+    data class StreamerIsLive(val event: StreamerIsLiveEvent) : ChatWebSocketEvent
+    data class StopStreamBroadcast(val event: StopStreamBroadcastEvent) : ChatWebSocketEvent
 }
 
 fun ChatIdentity.withSelectedBadgesOnly(): ChatIdentity = copy(
