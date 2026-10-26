@@ -241,175 +241,178 @@ fun KickApp() {
         color = MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onBackground
     ) {
-        KickNavScaffold(
-            hidden = isScaffoldHidden,
-            currentRoute = currentRoute,
-            onNavigate = { targetRoute ->
-                if (playerHost.isChannelVisible) playerHost.minimize()
-                if (currentRoute != targetRoute) {
-                    navController.navigate(targetRoute) {
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            inclusive = false
+        Box(Modifier.fillMaxSize()) {
+            KickNavScaffold(
+                hidden = isScaffoldHidden,
+                currentRoute = currentRoute,
+                onNavigate = { targetRoute ->
+                    if (playerHost.isChannelVisible) playerHost.minimize()
+                    if (currentRoute != targetRoute) {
+                        navController.navigate(targetRoute) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                inclusive = false
+                            }
+                            launchSingleTop = true
                         }
-                        launchSingleTop = true
                     }
                 }
-            }
-        ) {
-            Box(Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)) {
-                val animDuration = 350
-                NavHost(
-                    navController = navController,
-                    startDestination = "home",
-                    // 1. İLERİ GİDİŞ: Hedef ekran içeri girerken
-                    enterTransition = {
-                        fadeIn(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
-                                scaleIn(
-                                    initialScale = 0.94f,
-                                    animationSpec = tween(
-                                        animDuration,
-                                        easing = FastOutSlowInEasing
+            ) {
+                Box(Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)) {
+                    val animDuration = 350
+                    NavHost(
+                        navController = navController,
+                        startDestination = "home",
+                        // 1. İLERİ GİDİŞ: Hedef ekran içeri girerken
+                        enterTransition = {
+                            fadeIn(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
+                                    scaleIn(
+                                        initialScale = 0.94f,
+                                        animationSpec = tween(
+                                            animDuration,
+                                            easing = FastOutSlowInEasing
+                                        )
                                     )
-                                )
-                    },
+                        },
 
-                    // 2. İLERİ GİDİŞ: Arkada kalan (Home vb.) ekrandan çıkarken
-                    exitTransition = {
-                        fadeOut(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
-                                scaleOut(
-                                    targetScale = 0.98f,
-                                    animationSpec = tween(
-                                        animDuration,
-                                        easing = FastOutSlowInEasing
+                        // 2. İLERİ GİDİŞ: Arkada kalan (Home vb.) ekrandan çıkarken
+                        exitTransition = {
+                            fadeOut(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
+                                    scaleOut(
+                                        targetScale = 0.98f,
+                                        animationSpec = tween(
+                                            animDuration,
+                                            easing = FastOutSlowInEasing
+                                        )
                                     )
-                                )
-                    },
+                        },
 
-                    // 3. GERİ GELİŞ: Geri dönülen sayfa (Home) tekrar görünürken
-                    popEnterTransition = {
-                        fadeIn(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
-                                scaleIn(
-                                    initialScale = 0.98f,
-                                    animationSpec = tween(
-                                        animDuration,
-                                        easing = FastOutSlowInEasing
+                        // 3. GERİ GELİŞ: Geri dönülen sayfa (Home) tekrar görünürken
+                        popEnterTransition = {
+                            fadeIn(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
+                                    scaleIn(
+                                        initialScale = 0.98f,
+                                        animationSpec = tween(
+                                            animDuration,
+                                            easing = FastOutSlowInEasing
+                                        )
                                     )
-                                )
-                    },
+                        },
 
-                    // 4. GERİ GELİŞ: Kapatılan sayfa yok olurken
-                    popExitTransition = {
-                        fadeOut(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
-                                scaleOut(
-                                    targetScale = 0.94f,
-                                    animationSpec = tween(
-                                        animDuration,
-                                        easing = FastOutSlowInEasing
+                        // 4. GERİ GELİŞ: Kapatılan sayfa yok olurken
+                        popExitTransition = {
+                            fadeOut(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
+                                    scaleOut(
+                                        targetScale = 0.94f,
+                                        animationSpec = tween(
+                                            animDuration,
+                                            easing = FastOutSlowInEasing
+                                        )
                                     )
-                                )
-                    }
-                ) {
-                    composable("home") {
-                        val homeViewModel: HomeViewModel = hiltViewModel()
-                        HomeScreen(
-                            viewModel = homeViewModel,
-                            onStreamClick = { channelSlug, source -> openChannel(channelSlug, source) },
-                            onSettingsClick = { navController.navigate("settings") }
-                        )
-                    }
+                        }
+                    ) {
+                        composable("home") {
+                            val homeViewModel: HomeViewModel = hiltViewModel()
+                            HomeScreen(
+                                viewModel = homeViewModel,
+                                onStreamClick = { channelSlug, source -> openChannel(channelSlug, source) },
+                                onSettingsClick = { navController.navigate("settings") }
+                            )
+                        }
 
-                    composable("following") {
-                        val followingViewModel: FollowingViewModel = viewModel()
-                        FollowingScreen(
-                            viewModel = followingViewModel,
-                            onStreamClick = { channelSlug, source -> openChannel(channelSlug, source) }
-                        )
-                    }
+                        composable("following") {
+                            val followingViewModel: FollowingViewModel = viewModel()
+                            FollowingScreen(
+                                viewModel = followingViewModel,
+                                onStreamClick = { channelSlug, source -> openChannel(channelSlug, source) }
+                            )
+                        }
 
-                    composable("browse") {
-                        BrowseScreen(
-                            onChannelClick = { channelSlug, source -> openChannel(channelSlug, source) }
-                        )
-                    }
+                        composable("browse") {
+                            BrowseScreen(
+                                onChannelClick = { channelSlug, source -> openChannel(channelSlug, source) }
+                            )
+                        }
 
-                    composable("settings") {
-                        SettingsScreen(
-                            onBackClick = { navController.popBackStack() },
-                            onSubsettingClick = { subsettingRoute -> navController.navigate("settings/${subsettingRoute.name.lowercase()}") }
-                        )
-                    }
+                        composable("settings") {
+                            SettingsScreen(
+                                onBackClick = { navController.popBackStack() },
+                                onSubsettingClick = { subsettingRoute -> navController.navigate("settings/${subsettingRoute.name.lowercase()}") }
+                            )
+                        }
 
-                    composable(
-                        route = "settings/{settingRoute}",
-                        arguments = listOf(navArgument("settingRoute") {
-                            type = NavType.StringType
-                        })
-                    ) { backStackEntry ->
-                        val settingRoute = backStackEntry.arguments?.getString("settingRoute") ?: ""
+                        composable(
+                            route = "settings/{settingRoute}",
+                            arguments = listOf(navArgument("settingRoute") {
+                                type = NavType.StringType
+                            })
+                        ) { backStackEntry ->
+                            val settingRoute = backStackEntry.arguments?.getString("settingRoute") ?: ""
 
-                        when (settingRoute) {
-                            "general" -> {
-                                GeneralSettingsScreen(
-                                    onBackClick = { navController.popBackStack() }
-                                )
-                            }
+                            when (settingRoute) {
+                                "general" -> {
+                                    GeneralSettingsScreen(
+                                        onBackClick = { navController.popBackStack() }
+                                    )
+                                }
 
-                            "playback" -> {
-                                com.lechixy.kick.ui.screens.settings.playback.PlayerPlaybackSettingsScreen(
-                                    onBackClick = { navController.popBackStack() }
-                                )
-                            }
+                                "playback" -> {
+                                    com.lechixy.kick.ui.screens.settings.playback.PlayerPlaybackSettingsScreen(
+                                        onBackClick = { navController.popBackStack() }
+                                    )
+                                }
 
-                            else -> {
-                                Row(
-                                    modifier = Modifier.fillMaxSize(),
-                                    Arrangement.Center,
-                                    Alignment.CenterVertically
-                                ) {
-                                    Text("Unknown route: $settingRoute")
+                                else -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxSize(),
+                                        Arrangement.Center,
+                                        Alignment.CenterVertically
+                                    ) {
+                                        Text("Unknown route: $settingRoute")
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                val activeSlug = playerHost.slug
-                if (activeSlug != null) {
-                    val activeChannelVm: ChannelViewModel = viewModel(key = activeSlug)
-                    val activeChannelState by activeChannelVm.uiState.collectAsStateWithLifecycle()
-                    LaunchedEffect(activeSlug, activeChannelState.channel) {
-                        activeChannelState.channel?.let { detail ->
-                            playerHost.onChannelLoaded(activeSlug, detail)
+                    val activeSlug = playerHost.slug
+                    if (activeSlug != null) {
+                        val activeChannelVm: ChannelViewModel = viewModel(key = activeSlug)
+                        val activeChannelState by activeChannelVm.uiState.collectAsStateWithLifecycle()
+                        LaunchedEffect(activeSlug, activeChannelState.channel) {
+                            activeChannelState.channel?.let { detail ->
+                                playerHost.onChannelLoaded(activeSlug, detail)
+                            }
+                        }
+                        LaunchedEffect(activeSlug, activeChannelState.liveAnnouncementId) {
+                            val announcementId = activeChannelState.liveAnnouncementId ?: return@LaunchedEffect
+                            playerHost.triggerLiveAnnouncement(announcementId)
+                            activeChannelVm.consumeLiveAnnouncement(announcementId)
                         }
                     }
-                    LaunchedEffect(activeSlug, activeChannelState.liveAnnouncementId) {
-                        val announcementId = activeChannelState.liveAnnouncementId ?: return@LaunchedEffect
-                        playerHost.triggerLiveAnnouncement(announcementId)
-                        activeChannelVm.consumeLiveAnnouncement(announcementId)
-                    }
+
+                    PlayerHost(
+                        host = playerHost,
+                        isInPipMode = isInPipMode,
+                        onMinimize = playerHost::minimize,
+                        onExpand = playerHost::expand,
+                        onClose = playerHost::close,
+                        pageContent = { slug ->
+                            ChannelScreen(
+                                channelSlug = slug,
+                                playerHost = playerHost,
+                                viewModel = viewModel(key = slug),
+                                onChannelLoaded = { playerHost.onChannelLoaded(slug, it) },
+                                onBackClick = playerHost::minimize,
+                            )
+                        }
+                    )
+
+                    BackHandler(enabled = playerHost.mode == PlayerMode.Expanded && !playerHost.isExiting) { playerHost.minimize() }
                 }
-
-                PlayerHost(
-                    host = playerHost,
-                    isInPipMode = isInPipMode,
-                    onMinimize = playerHost::minimize,
-                    onExpand = playerHost::expand,
-                    onClose = playerHost::close,
-                    pageContent = { slug ->
-                        ChannelScreen(
-                            channelSlug = slug,
-                            playerHost = playerHost,
-                            viewModel = viewModel(key = slug),
-                            onChannelLoaded = { playerHost.onChannelLoaded(slug, it) },
-                            onBackClick = playerHost::minimize,
-                        )
-                    }
-                )
-
-                BackHandler(enabled = playerHost.mode == PlayerMode.Expanded && !playerHost.isExiting) { playerHost.minimize() }
             }
+            if (!isInPipMode) com.lechixy.kick.ui.components.NetworkInfoBar(Modifier.align(Alignment.BottomCenter))
         }
     }
 }

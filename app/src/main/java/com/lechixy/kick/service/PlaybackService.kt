@@ -52,6 +52,7 @@ class PlaybackService : MediaSessionService() {
     private var lowLatencyEnabled: Boolean = SettingsKeys.LOW_LATENCY.defaultValue
 
     private var mediaSession: MediaSession? = null
+    private var progressTracker: PlaybackProgressTracker? = null
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -142,15 +143,30 @@ class PlaybackService : MediaSessionService() {
                     .build(),
                 /* handleAudioFocus = */ true
             )
+            .setSeekBackIncrementMs(10_000)
+            .setSeekForwardIncrementMs(10_000)
             .setHandleAudioBecomingNoisy(true)
             .build()
 
+        player.addListener(object : Player.Listener {
+            override fun onEvents(player: Player, events: Player.Events) {
+                if (events.containsAny(Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED)) {
+                    com.lechixy.kick.data.remote.NetworkMonitor.reportPlaybackBuffering(
+                        player.playWhenReady && player.playbackState == Player.STATE_BUFFERING
+                    )
+                }
+            }
+        })
+        progressTracker = PlaybackProgressTracker(player)
         mediaSession = MediaSession.Builder(this, LiveAwarePlayer(player)).build()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = mediaSession
 
     override fun onDestroy() {
+        com.lechixy.kick.data.remote.NetworkMonitor.reportPlaybackBuffering(false)
+        progressTracker?.close()
+        progressTracker = null
         serviceScope.cancel()
         mediaSession?.run {
             player.release()
@@ -293,8 +309,10 @@ private class KickHlsPlaylistParser(
     }
 }
 
+const val EXTRA_RECORDING_ID = "kick_recording_id"
 const val EXTRA_IS_LIVE = "kick_is_live"
 const val EXTRA_START_TIME_MS = "kick_start_time_ms"
+const val EXTRA_END_TIME_MS = "kick_end_time_ms"
 const val EXTRA_LOW_LATENCY = "kick_low_latency"
 
 @OptIn(UnstableApi::class)
@@ -308,7 +326,8 @@ fun buildPlaybackMediaItem(
     artwork: Uri,
     startTimeMs: Long = 0L,
     vodDurationMs: Long? = null,
-    isLowLatency: Boolean = true
+    isLowLatency: Boolean = true,
+    recordingId: String? = null
 ): MediaItem {
     val subtitle = buildString {
         append(if (isLive) "🔴 Canlı" else "Kayıt")
@@ -330,7 +349,11 @@ fun buildPlaybackMediaItem(
         }
         .setExtras(Bundle().apply {
             putBoolean(EXTRA_IS_LIVE, isLive)
+            if (!isLive && recordingId != null) putString(EXTRA_RECORDING_ID, recordingId)
             putLong(EXTRA_START_TIME_MS, startTimeMs)
+            if (!isLive && vodDurationMs != null && vodDurationMs > 0) {
+                putLong(EXTRA_END_TIME_MS, if (startTimeMs > 0) startTimeMs + vodDurationMs else vodDurationMs)
+            }
             putBoolean(EXTRA_LOW_LATENCY, isLowLatency)
         })
         .build()

@@ -35,4 +35,11 @@
     <string name="message_deleted_by_moderator">Mesaj moderatör tarafından silindi</string>
     <string name="streamer_is_live">%1$s YAYINDA!</string>
     <string name="channel_offline">KANAL ÇEVRİMDIŞI</string>
+    <string name="play_live">Canlı oynat</string>
+    <string name="connection_weak">Bağlantı zayıf</string>
+    <string name="connection_lost">Bağlantı koptu</string>
+    <string name="connection_restored">Bağlantı yeniden bağlandı</string>
+    <string name="expand_profile_photo">Profil fotoğrafını büyüt</string>
+    <string name="close_profile_photo">Profil fotoğrafını kapat</string>
+    <string name="views">görüntüleme</string>
 </resources>

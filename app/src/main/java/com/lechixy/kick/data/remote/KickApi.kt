@@ -1,11 +1,16 @@
 package com.lechixy.kick.data.remote
 
+import com.lechixy.kick.data.model.ChannelClips
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelEventResponse
 import com.lechixy.kick.data.model.ChannelVideo
+import com.lechixy.kick.data.model.ClipResponse
 import com.lechixy.kick.data.model.CurrentViewersResponse
 import com.lechixy.kick.data.model.LivestreamResponse
+import com.lechixy.kick.data.model.PlaybackRequest
+import com.lechixy.kick.data.model.PlaybackResponse
 import com.lechixy.kick.data.model.SearchResponse
+import com.lechixy.kick.data.model.VideoDetailResponse
 import com.lechixy.kick.data.model.chat.ChatHistoryResponse
 import com.lechixy.kick.data.model.chat.RealtimeAuthRequest
 import com.lechixy.kick.data.model.chat.RealtimeAuthResponse
@@ -19,6 +24,21 @@ import retrofit2.http.Query
 import retrofit2.http.Url
 
 interface KickApi {
+    @GET("https://kick.com/api/v1/video/{uuid}")
+    suspend fun getVideoDetail(@Path("uuid") uuid: String): VideoDetailResponse
+
+    @POST("api/v1/stream/{id}/playback")
+    suspend fun getRecordedPlayback(
+        @Path("id") id: String,
+        @Body request: PlaybackRequest
+    ): PlaybackResponse
+
+    @GET("https://kick.com/api/v2/clips/{id}")
+    suspend fun getClip(@Path("id") id: String): ClipResponse
+
+    @GET
+    suspend fun getChannelClips(@Url url: String): ChannelClips
+
     @GET("api/v1/livestreams/featured")
     suspend fun getLivestreams(
         @Query("limit") limit: Int = 20,

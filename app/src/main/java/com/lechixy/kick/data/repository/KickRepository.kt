@@ -5,15 +5,43 @@ import com.lechixy.kick.data.model.ChannelEvent
 import com.lechixy.kick.data.model.ChannelVideo
 import com.lechixy.kick.data.model.CurrentViewersResponse
 import com.lechixy.kick.data.model.Livestream
+import com.lechixy.kick.data.model.PlaybackResponse
+import com.lechixy.kick.data.model.PlaybackRequest
 import com.lechixy.kick.data.model.SearchData
 import com.lechixy.kick.data.model.chat.ChatHistoryData
 import com.lechixy.kick.data.model.chat.withSelectedBadgesOnly
 import com.lechixy.kick.data.remote.KickApi
 import com.lechixy.kick.data.remote.KickChatWebSocketClient
+import retrofit2.HttpException
 
 class KickRepository(
     private val api: KickApi
 ) {
+
+    suspend fun getRecordedPlayback(id: String, videoUuid: String? = null): PlaybackResponse {
+        if (videoUuid != null) {
+            return api.getRecordedPlayback(resolveVodId(videoUuid), PlaybackRequest())
+        }
+        return try {
+            api.getRecordedPlayback(id, PlaybackRequest())
+        } catch (error: HttpException) {
+            if (error.code() != 404) throw error
+            // Sessions saved before video UUIDs and stream IDs were separated may contain a UUID here.
+            val vodId = resolveVodId(id)
+            if (vodId == id) throw error
+            api.getRecordedPlayback(vodId, PlaybackRequest())
+        }
+    }
+
+    private suspend fun resolveVodId(videoUuid: String): String {
+        return api.getVideoDetail(videoUuid).livestream?.vodId?.takeIf { it.isNotBlank() }
+            ?: error("Kayıt için VOD kimliği bulunamadı")
+    }
+
+    suspend fun getClip(id: String) = api.getClip(id).clip
+
+    suspend fun getChannelClips(slug: String) =
+        api.getChannelClips("https://kick.com/api/v2/channels/$slug/clips").clips
 
     val chatWebSocketClient: KickChatWebSocketClient by lazy {
         KickChatWebSocketClient(api)

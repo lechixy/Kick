@@ -95,12 +95,12 @@ fun resolveEventChipColors(
 }
 
 fun resolveLanguageChipColors(
-    langIso: String?,
+    language: String?,
     defaultContainerColor: Color,
     defaultContentColor: Color
 ): Pair<Color, Color> {
-    return when (langIso?.trim()?.lowercase()) {
-        "tr" -> resolveFlagChipColors(
+    return when (language?.trim()?.lowercase()) {
+        "Turkish" -> resolveFlagChipColors(
             containerHex = "#E30A17",
             contentHex = "#FFFFFF",
             defaultContainerColor = defaultContainerColor,

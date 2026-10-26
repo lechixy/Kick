@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -111,10 +112,12 @@ import coil3.compose.AsyncImage
 import com.lechixy.kick.PlayerMode
 import com.lechixy.kick.R
 import com.lechixy.kick.data.model.ChannelDetail
+import com.lechixy.kick.data.model.RecordedPlayback
 import com.lechixy.kick.data.model.getBannerUrl
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.service.EXTRA_LOW_LATENCY
+import com.lechixy.kick.data.local.PlaybackProgressStore
 import com.lechixy.kick.service.PlaybackService
 import com.lechixy.kick.service.buildPlaybackMediaItem
 import com.lechixy.kick.ui.screens.channel.findActivity
@@ -129,12 +132,12 @@ import com.lechixy.kick.util.NotificationUtils
 import com.lechixy.kick.util.PlayerUtils
 import com.lechixy.kick.util.VideoQualityOption
 import com.lechixy.kick.util.buildOptimizedImageRequest
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.time.Duration.Companion.milliseconds
 
 @SuppressLint("UseKtx")
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -146,6 +149,7 @@ fun KickPlayerView(
     channelName: String = "",
     streamTitle: String = "",
     channel: ChannelDetail? = null,
+    recording: RecordedPlayback? = null,
     isFullScreen: Boolean = false,
     isTheaterMode: Boolean = false,
     isChatVisible: Boolean = true,
@@ -168,10 +172,10 @@ fun KickPlayerView(
 
     val player by rememberMediaController()
 
-    val stableId = remember(channel?.slug, playbackUrl, channel?.livestream?.id) {
+    val stableId = remember(channel?.slug, playbackUrl, if (recording == null) channel?.livestream?.id else recording.id) {
         val baseId = channel?.slug ?: playbackUrl
-        val liveId = channel?.livestream?.id
-        if (liveId != null) "${baseId}_$liveId" else baseId
+        val liveId = if (recording == null) channel?.livestream?.id else null
+        if (recording != null) "${baseId}_recording_${recording.id}" else if (liveId != null) "${baseId}_$liveId" else baseId
     }
 
     var hasRenderedFirstFrame by remember(playbackUrl, stableId) { mutableStateOf(false) }
@@ -183,6 +187,7 @@ fun KickPlayerView(
     var volume by remember { mutableFloatStateOf(1f) }
     var playbackError by remember { mutableStateOf<String?>(null) }
     var liveRetryTrigger by remember { mutableIntStateOf(0) }
+    var isSeeking by remember(stableId) { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(false) }
     var isAdjustingVolume by remember { mutableStateOf(false) }
 
@@ -316,8 +321,8 @@ fun KickPlayerView(
         player?.volume = if (isMuted) 0f else volume
     }
 
-    LaunchedEffect(showControls, isAdjustingVolume) {
-        if (showControls && !isAdjustingVolume) {
+    LaunchedEffect(showControls, isAdjustingVolume, isSeeking) {
+        if (showControls && !isAdjustingVolume && !isSeeking) {
             delay(3500.milliseconds)
             showControls = false
         }
@@ -331,8 +336,20 @@ fun KickPlayerView(
 
     var liveOffsetMs by remember { mutableLongStateOf(0L) }
     var isAtLiveEdge by remember { mutableStateOf(true) }
-    val isLiveStream = channel?.livestream != null || player?.isCurrentMediaItemLive == true
+    val isLiveStream = recording == null && (channel?.livestream != null || player?.isCurrentMediaItemLive == true)
     val latestIsLiveStream by rememberUpdatedState(isLiveStream)
+    var positionMs by remember(stableId) { mutableLongStateOf(0L) }
+    var durationMs by remember(stableId) { mutableLongStateOf(recording?.durationMs ?: 0L) }
+    LaunchedEffect(player, stableId, isLiveStream) {
+        if (isLiveStream) return@LaunchedEffect
+        while (isActive) {
+            player?.takeIf { it.currentMediaItem?.mediaId == stableId }?.let { current ->
+                positionMs = current.currentPosition.coerceAtLeast(0)
+                if (current.duration > 0 && current.duration != C.TIME_UNSET) durationMs = current.duration
+            }
+            delay(250)
+        }
+    }
 
     LaunchedEffect(player, isLiveStream, lowLatencyEnabled) {
         val p = player ?: return@LaunchedEffect
@@ -374,7 +391,7 @@ fun KickPlayerView(
             var previousPlayWhenReady = p.playWhenReady
             val listener = object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
-                    val live = latestIsLiveStream || p.isCurrentMediaItemLive
+                    val live = latestIsLiveStream
                     isBuffering = playbackState == Player.STATE_BUFFERING ||
                             (live && (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE))
                     isPlayerReady = playbackState == Player.STATE_READY
@@ -404,7 +421,7 @@ fun KickPlayerView(
 
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                     if (playWhenReady && !previousPlayWhenReady) {
-                        val live = latestIsLiveStream || p.isCurrentMediaItemLive
+                        val live = latestIsLiveStream
                         if (live) {
                             if (p.distanceToLiveEdgeMs() > 15000L) {
                                 p.seekToDefaultPosition()
@@ -423,7 +440,7 @@ fun KickPlayerView(
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    val live = latestIsLiveStream || p.isCurrentMediaItemLive
+                    val live = latestIsLiveStream
                     if (live) {
                         playbackError = null
                         isBuffering = true
@@ -493,17 +510,17 @@ fun KickPlayerView(
         isBuffering = true
         isPlayerReady = false
         loadedMediaId = stableId
-        val pic: String = (channel?.getBannerUrl() ?: channel?.user?.profilePic
-        ?: "https://placehold.co/600x400/EEE/31343C?font=open-sans&text=No%20banner") as String
+        val pic: String = (recording?.thumbnail ?: channel?.getBannerUrl() ?: channel?.user?.profilePic
+        ?: "https://placehold.co/600x400/EEE/31343C?font=open-sans&text=No%20banner")
 
-        val isLive = channel?.livestream != null
+        val isLive = isLiveStream
         val mediaItem = buildPlaybackMediaItem(
             playbackUrl = playbackUrl,
             mediaId = stableId,
             isLive = isLive,
-            title = streamTitle.ifBlank { "Canlı Yayın" },
+            title = streamTitle.ifBlank { if (isLiveStream) "Canlı Yayın" else "Kayıt" },
             channelName = channelName.ifBlank { "Kick" },
-            viewersText = channel?.livestream?.viewerCount
+            viewersText = (if (isLiveStream) channel?.livestream?.viewerCount else null)
                 ?.let {
                     "${FormatUtils.formatViewersCount(it)} ${
                         context.applicationContext.getString(
@@ -512,11 +529,20 @@ fun KickPlayerView(
                     }"
                 },
             artwork = pic.toUri(),
-            startTimeMs = parseUtcStartTimeToMillis(channel?.livestream?.startTime),
+            startTimeMs = parseUtcStartTimeToMillis(if (recording != null) recording.startTime else channel?.livestream?.startTime),
+            vodDurationMs = recording?.durationMs,
+            recordingId = recording?.progressId,
             isLowLatency = lowLatencyEnabled
         )
 
-        p.setMediaItem(mediaItem)
+        if (recording != null) {
+            val resumePosition = PlaybackProgressStore.get(recording.progressId)?.let { saved ->
+                saved.resumePosition(recording.durationMs.takeIf { it > 0 } ?: saved.durationMs)
+            } ?: 0L
+            p.setMediaItem(mediaItem, resumePosition)
+        } else {
+            p.setMediaItem(mediaItem)
+        }
         p.prepare()
         p.play()
     }
@@ -533,7 +559,7 @@ fun KickPlayerView(
     ) {
         if (
             pendingAutoFullscreen &&
-            channel?.livestream != null &&
+            isLiveStream &&
             isPlayerReady &&
             loadedMediaId == stableId &&
             !isMini &&
@@ -582,10 +608,9 @@ fun KickPlayerView(
             modifier = Modifier.fillMaxSize()
         )
 
-        val overlayThumbnail = remember(previewThumbnailUrl, channel) {
-            previewThumbnailUrl
-                ?: channel?.livestream?.thumbnail?.url
-                ?: channel?.getBannerUrl()
+        val overlayThumbnail = remember(previewThumbnailUrl, channel, recording?.id) {
+            if (recording != null) recording.thumbnail ?: channel?.getBannerUrl()
+            else previewThumbnailUrl ?: channel?.livestream?.thumbnail?.url ?: channel?.getBannerUrl()
         }
 
         AnimatedVisibility(
@@ -635,8 +660,8 @@ fun KickPlayerView(
                 if (isPlaying) {
                     p.pause()
                 } else {
-                    val live = channel?.livestream != null || p.isCurrentMediaItemLive
-                    if (live) {
+                    val live = isLiveStream
+                    if (live || p.playbackState == Player.STATE_ENDED) {
                         p.seekToDefaultPosition()
                     }
                     p.play()
@@ -674,6 +699,12 @@ fun KickPlayerView(
                 streamTitle = streamTitle,
                 viewersText = viewersText,
                 streamDuration = streamDuration,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                onSeek = { target -> player?.seekTo(target.coerceIn(0L, durationMs.coerceAtLeast(0L))) },
+                onSeekingChanged = { isSeeking = it },
+                onSeekBack = { player?.let { it.seekTo((it.currentPosition - 10_000).coerceAtLeast(0)) } },
+                onSeekForward = { player?.let { it.seekTo((it.currentPosition + 10_000).coerceIn(0, durationMs.coerceAtLeast(0))) } },
                 isLive = isLiveStream,
                 isAtLiveEdge = isAtLiveEdge,
                 behindLiveText = formatLiveOffset(liveOffsetMs),
@@ -1049,11 +1080,12 @@ private fun rememberMediaController(): State<Player?> {
     val playerState = remember { mutableStateOf<Player?>(null) }
 
     DisposableEffect(context) {
-        val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
-        val future = MediaController.Builder(context, token).buildAsync()
+        val appContext = context.applicationContext
+        val token = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
+        val future = MediaController.Builder(appContext, token).buildAsync()
         future.addListener(
             { playerState.value = runCatching { future.get() }.getOrNull() },
-            ContextCompat.getMainExecutor(context)
+            ContextCompat.getMainExecutor(appContext)
         )
         onDispose {
             val p = playerState.value
@@ -1063,7 +1095,7 @@ private fun rememberMediaController(): State<Player?> {
                 p?.stop()
                 p?.clearMediaItems()      // session/bildirim tamamen temizlensin
             }
-            // Komutun servise ulaşması için release'i biraz geciktir
+            // Application context kullanıldığı için Activity leak oluşmaz.
             Handler(Looper.getMainLooper()).postDelayed(
                 { MediaController.releaseFuture(future) },
                 if (changing) 0L else 500L
@@ -1239,6 +1271,12 @@ internal fun PlayerControlsOverlay(
     streamTitle: String,
     viewersText: String,
     streamDuration: String,
+    positionMs: Long = 0L,
+    durationMs: Long = 0L,
+    onSeek: (Long) -> Unit = {},
+    onSeekingChanged: (Boolean) -> Unit = {},
+    onSeekBack: () -> Unit = {},
+    onSeekForward: () -> Unit = {},
     isLive: Boolean = false,
     isAtLiveEdge: Boolean = true,
     behindLiveText: String = "",
@@ -1415,187 +1453,233 @@ internal fun PlayerControlsOverlay(
         /**
          * Play Icon / Center
          */
-        IconButton(
-            onClick = onTogglePlay,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(56.dp)
-                .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+        Row(
+            modifier = Modifier.align(Alignment.Center),
+            horizontalArrangement = Arrangement.spacedBy(28.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                painter = painterResource(
-                    id = if (isPlaying) R.drawable.pause_24dp_e3e3e3_fill1_wght400_grad0_opsz24
-                    else R.drawable.play_arrow_24dp_e3e3e3_fill1_wght400_grad0_opsz24
-                ),
-                contentDescription = "Play/Pause",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp)
-            )
-        }
+            if (!isLive) {
+                IconButton(onClick = onSeekBack) {
+                    Icon(painterResource(R.drawable.replay_10_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                        contentDescription = "10 saniye geri", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+            IconButton(
+                onClick = onTogglePlay,
+                modifier = Modifier
+                    .size(56.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+            ) {
+                Icon(
+                    painter = painterResource(
+                        id = if (isPlaying) R.drawable.pause_24dp_e3e3e3_fill1_wght400_grad0_opsz24
+                        else R.drawable.play_arrow_24dp_e3e3e3_fill1_wght400_grad0_opsz24
+                    ),
+                    contentDescription = "Play/Pause",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
 
+            if (!isLive) {
+                IconButton(onClick = onSeekForward) {
+                    Icon(painterResource(R.drawable.forward_10_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                        contentDescription = "10 saniye ileri", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
         /**
          * Bottom
          */
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .padding(
-                    horizontal = if (isCompact) 8.dp else 16.dp,
-                    vertical = if (isCompact) 4.dp else 8.dp
-                ),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            /**
-             * Bottom Start/Left
-             */
-            val itemSpacing = if (isCompact) 4.dp else 8.dp
-            val targetSliderWidth = when {
-                isCompact -> 52.dp
-                isChatVisible -> 88.dp
-                else -> 115.dp
-            }
-            val sliderWidth by animateDpAsState(
-                targetValue = targetSliderWidth,
-                animationSpec = tween(durationMillis = 250),
-                label = "volumeSliderWidth"
-            )
-
-            Row(
-                modifier = Modifier.weight(1f, fill = false),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(itemSpacing)
-            ) {
-                IconButton(
-                    onClick = onToggleMute,
-                    modifier = Modifier.size(if (isCompact) 28.dp else 32.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(
-                            id = if (isMuted || volume == 0f) R.drawable.volume_off_24dp_e3e3e3_fill0_wght400_grad0_opsz24
-                            else R.drawable.volume_up_24dp_e3e3e3_fill0_wght400_grad0_opsz24
-                        ),
-                        contentDescription = "Mute",
-                        tint = Color.White,
-                        modifier = Modifier.size(if (isCompact) 18.dp else 20.dp)
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+            if (!isLive) {
+                var remaining by remember { mutableStateOf(false) }
+                var scrubPosition by remember { mutableStateOf<Float?>(null) }
+                val shownPosition = scrubPosition?.toLong() ?: positionMs
+                Column(Modifier.fillMaxWidth().padding(horizontal = if (isCompact) 12.dp else 20.dp)) {
+                    Text(
+                        text = (if (remaining) "-" + FormatUtils.formatDuration((durationMs - shownPosition).coerceAtLeast(0))
+                            else FormatUtils.formatDuration(shownPosition)) + " / " + FormatUtils.formatDuration(durationMs),
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.clickable { remaining = !remaining }.padding(vertical = 2.dp)
+                    )
+                    Slider(
+                        value = (scrubPosition ?: positionMs.toFloat()).coerceIn(0f, durationMs.coerceAtLeast(1).toFloat()),
+                        valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(),
+                        enabled = durationMs > 0,
+                        onValueChange = { scrubPosition = it; onSeekingChanged(true) },
+                        onValueChangeFinished = {
+                            scrubPosition?.let { onSeek(it.toLong()) }
+                            scrubPosition = null
+                            onSeekingChanged(false)
+                        },
+                        modifier = Modifier.fillMaxWidth().height(24.dp)
                     )
                 }
-                Slider(
-                    value = if (isMuted) 0f else volume,
-                    onValueChange = onVolumeChange,
-                    onValueChangeFinished = onVolumeChangeFinished,
-                    valueRange = 0f..1f,
-                    modifier = Modifier.width(sliderWidth)
-                )
-                Text(
-                    text = "${(if (isMuted) 0f else volume * 100).toInt()}%",
-                    color = Color.White,
-                    style = labelStyle,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    softWrap = false
-                )
-                Separator()
-                Box(
-                    modifier = Modifier
-                        .size(if (isCompact) 8.dp else 10.dp)
-                        .background(color = MaterialTheme.colorScheme.primary, shape = CircleShape)
-                )
-                Text(
-                    text = streamDuration,
-                    color = Color.White,
-                    style = labelStyle,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    softWrap = false
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = if (isCompact) 8.dp else 16.dp,
+                        vertical = if (isCompact) 4.dp else 8.dp
+                    ),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                /**
+                 * Bottom Start/Left
+                 */
+                val itemSpacing = if (isCompact) 4.dp else 8.dp
+                val targetSliderWidth = when {
+                    isCompact -> 52.dp
+                    isChatVisible -> 88.dp
+                    else -> 115.dp
+                }
+                val sliderWidth by animateDpAsState(
+                    targetValue = targetSliderWidth,
+                    animationSpec = tween(durationMillis = 250),
+                    label = "volumeSliderWidth"
                 )
 
-                if (isLive) {
-                    Separator()
-                    Surface(
-                        onClick = { if (!isAtLiveEdge) onGoToLive() },
-                        shape = RoundedCornerShape(4.dp),
-                        modifier = Modifier.padding(start = 2.dp)
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(itemSpacing)
+                ) {
+                    IconButton(
+                        onClick = onToggleMute,
+                        modifier = Modifier.size(if (isCompact) 28.dp else 32.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(
-                                horizontal = if (isCompact) 5.dp else 6.dp,
-                                vertical = 2.dp
+                        Icon(
+                            painter = painterResource(
+                                id = if (isMuted || volume == 0f) R.drawable.volume_off_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+                                else R.drawable.volume_up_24dp_e3e3e3_fill0_wght400_grad0_opsz24
                             ),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            contentDescription = "Mute",
+                            tint = Color.White,
+                            modifier = Modifier.size(if (isCompact) 18.dp else 20.dp)
+                        )
+                    }
+                    Slider(
+                        value = if (isMuted) 0f else volume,
+                        onValueChange = onVolumeChange,
+                        onValueChangeFinished = onVolumeChangeFinished,
+                        valueRange = 0f..1f,
+                        modifier = Modifier.width(sliderWidth)
+                    )
+                    Text(
+                        text = "${(if (isMuted) 0f else volume * 100).toInt()}%",
+                        color = Color.White,
+                        style = labelStyle,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                    if (isLive) {
+                        Separator()
+                        Box(
+                            modifier = Modifier
+                                .size(if (isCompact) 8.dp else 10.dp)
+                                .background(color = MaterialTheme.colorScheme.primary, shape = CircleShape)
+                        )
+                        Text(
+                            text = streamDuration,
+                            color = Color.White,
+                            style = labelStyle,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+
+                    }
+                    if (isLive) {
+                        Separator()
+                        Surface(
+                            onClick = { if (!isAtLiveEdge) onGoToLive() },
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.padding(start = 2.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .background(
-                                        color = if (isAtLiveEdge) Color.White else Color.LightGray,
-                                        shape = CircleShape
-                                    )
-                            )
-                            Text(
-                                text = if (isAtLiveEdge) {
-                                    stringResource(R.string.live_badge)
-                                } else {
-                                    "${stringResource(R.string.live_badge)} $behindLiveText"
-                                },
-                                color = Color.White,
-                                style = labelStyle,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (!isAtLiveEdge) {
+                            Row(
+                                modifier = Modifier.padding(
+                                    horizontal = if (isCompact) 5.dp else 6.dp,
+                                    vertical = 2.dp
+                                ),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(
+                                            color = if (isAtLiveEdge) Color.White else Color.LightGray,
+                                            shape = CircleShape
+                                        )
+                                )
                                 Text(
-                                    text = "• ${stringResource(R.string.go_to_live)}",
-                                    color = MaterialTheme.colorScheme.secondary,
+                                    text = if (isAtLiveEdge) {
+                                        stringResource(R.string.live_badge)
+                                    } else {
+                                        "${stringResource(R.string.live_badge)} $behindLiveText"
+                                    },
+                                    color = Color.White,
                                     style = labelStyle,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     softWrap = false,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                if (!isAtLiveEdge) {
+                                    Text(
+                                        text = "• ${stringResource(R.string.go_to_live)}",
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        style = labelStyle,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            /**
-             * Bottom End/Right
-             */
-            Row(
-                modifier = Modifier.wrapContentWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(if (isCompact) 2.dp else 8.dp)
-            ) {
-                IconButton(
-                    onClick = onToggleTheater,
-                    modifier = if (isCompact) Modifier.size(36.dp) else Modifier
+                /**
+                 * Bottom End/Right
+                 */
+                Row(
+                    modifier = Modifier.wrapContentWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(if (isCompact) 2.dp else 8.dp)
                 ) {
-                    Icon(
-                        painter = painterResource(
-                            id = if (isTheaterMode) R.drawable.theaters_24dp_e3e3e3_fill1_wght400_grad0_opsz24
-                            else R.drawable.theaters_24dp_e3e3e3_fill0_wght400_grad0_opsz24
-                        ),
-                        contentDescription = "Theater Mode",
-                        tint = if (isTheaterMode) MaterialTheme.colorScheme.primary else Color.White
-                    )
-                }
-                IconButton(
-                    onClick = onToggleFullScreen,
-                    modifier = if (isCompact) Modifier.size(36.dp) else Modifier
-                ) {
-                    Icon(
-                        painter = painterResource(
-                            id = if (isFullScreen) R.drawable.fullscreen_exit_24dp_e3e3e3_fill0_wght400_grad0_opsz24
-                            else R.drawable.fullscreen_24dp_e3e3e3_fill0_wght400_grad0_opsz24
-                        ),
-                        contentDescription = "Fullscreen",
-                        tint = Color.White
-                    )
+                    IconButton(
+                        onClick = onToggleTheater,
+                        modifier = if (isCompact) Modifier.size(36.dp) else Modifier
+                    ) {
+                        Icon(
+                            painter = painterResource(
+                                id = if (isTheaterMode) R.drawable.theaters_24dp_e3e3e3_fill1_wght400_grad0_opsz24
+                                else R.drawable.theaters_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+                            ),
+                            contentDescription = "Theater Mode",
+                            tint = if (isTheaterMode) MaterialTheme.colorScheme.primary else Color.White
+                        )
+                    }
+                    IconButton(
+                        onClick = onToggleFullScreen,
+                        modifier = if (isCompact) Modifier.size(36.dp) else Modifier
+                    ) {
+                        Icon(
+                            painter = painterResource(
+                                id = if (isFullScreen) R.drawable.fullscreen_exit_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+                                else R.drawable.fullscreen_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+                            ),
+                            contentDescription = "Fullscreen",
+                            tint = Color.White
+                        )
+                    }
                 }
             }
         }

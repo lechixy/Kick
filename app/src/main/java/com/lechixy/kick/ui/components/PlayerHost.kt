@@ -33,8 +33,10 @@ import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -45,14 +47,15 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
@@ -80,15 +83,17 @@ import com.lechixy.kick.PlayerHostState
 import com.lechixy.kick.PlayerMode
 import com.lechixy.kick.R
 import com.lechixy.kick.data.model.getBannerUrl
+import com.lechixy.kick.data.remote.KickNetwork
+import com.lechixy.kick.data.repository.KickRepository
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.screens.channel.findActivity
 import com.lechixy.kick.util.buildOptimizedImageRequest
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 internal const val WIDE_BREAKPOINT_DP = 700
 internal const val CHAT_WIDTH_FRACTION = 0.35f
@@ -185,7 +190,7 @@ fun PlayerHost(
     }
     val loaded = host.channel
     val playerVisible =
-        loaded == null || loaded.livestream != null   // yüklenirken shell, canlıysa player, offline'da yok
+        host.recording != null || loaded == null || loaded.livestream != null   // yüklenirken shell, canlıysa player, offline'da yok
     var dragScale by remember { mutableFloatStateOf(1f) }   // madde 3
     var playerDy by remember { mutableFloatStateOf(0f) }    // madde 4
     val metrics = remember { ViewportMetrics() }
@@ -1164,8 +1169,42 @@ private fun PlayerSurface(
 ) {
     val context = LocalContext.current
     val channel = host.channel
-    val isLive = channel?.livestream != null
-    val playbackUrl = channel?.playbackUrl
+    val recording = host.recording
+    val isLive = recording == null && channel?.livestream != null
+    var resolvedUrl by rememberSaveable(recording?.id) { mutableStateOf(recording?.directUrl) }
+    var resolvedDuration by rememberSaveable(recording?.id) { mutableStateOf(recording?.durationMs ?: 0L) }
+    var resolvedTitle by rememberSaveable(recording?.id) { mutableStateOf(recording?.title.orEmpty()) }
+    var loadError by remember(recording?.id) { mutableStateOf<String?>(null) }
+    var retry by remember(recording?.id) { mutableStateOf(0) }
+    LaunchedEffect(recording?.id, retry) {
+        if (recording == null || !resolvedUrl.isNullOrBlank()) return@LaunchedEffect
+        loadError = null
+        try {
+            val repository = KickRepository(
+                KickNetwork.api
+            )
+            if (recording.id.startsWith("clip_")) {
+                val clip = repository.getClip(recording.id)
+                check(!clip.clipUrl.isNullOrBlank())
+                resolvedUrl = clip.clipUrl
+                resolvedDuration = (clip.duration * 1000).toLong()
+                resolvedTitle = clip.title
+                host.updateRecordingMetadata(recording.id, resolvedTitle, resolvedDuration)
+                return@LaunchedEffect
+            }
+            val response = repository.getRecordedPlayback(recording.id, recording.videoUuid)
+            check(response.playbackUrl.vod.isNotBlank())
+            resolvedUrl = response.playbackUrl.vod
+            if (response.videoSession.durationSeconds > 0) resolvedDuration = response.videoSession.durationSeconds * 1000
+            if (response.videoSession.title.isNotBlank()) resolvedTitle = response.videoSession.title
+            host.updateRecordingMetadata(recording.id, resolvedTitle, resolvedDuration)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            loadError = "Kayıt yüklenemedi. Tekrar dene"
+        }
+    }
+    val playbackUrl = if (recording != null) resolvedUrl else channel?.playbackUrl
     val announcementId = host.activeLiveAnnouncementId
 
     Box(
@@ -1173,13 +1212,14 @@ private fun PlayerSurface(
             .fillMaxSize()
             .background(Color.Black), contentAlignment = Alignment.Center
     ) {
-        if (channel != null && isLive && !playbackUrl.isNullOrBlank()) {
+        if (channel != null && (isLive || recording != null) && !playbackUrl.isNullOrBlank()) {
             // PiP parametreleri (sourceRectHint, autoEnter) KickPlayerView içinde yönetiliyor.
             KickPlayerView(
                 playbackUrl = playbackUrl,
                 previewThumbnailUrl = previewThumbnailUrl,
                 channelName = channel.user?.username ?: channel.slug,
-                streamTitle = channel.livestream.sessionTitle ?: "Canlı Yayın",
+                streamTitle = if (recording != null) resolvedTitle else channel.livestream?.sessionTitle ?: "Canlı Yayın",
+                recording = recording?.copy(title = resolvedTitle, durationMs = resolvedDuration),
                 channel = channel,
                 isFullScreen = mode == PlayerMode.Fullscreen,
                 isTheaterMode = host.isTheaterMode,
@@ -1220,6 +1260,10 @@ private fun PlayerSurface(
                     color = Color.Gray,
                     fontWeight = FontWeight.Bold
                 )
+            }
+            if (recording != null) {
+                if (loadError == null) CircularProgressIndicator()
+                else TextButton(onClick = { retry++ }) { Text(loadError.orEmpty()) }
             }
             if (!isInPipMode) {
                 ShellChrome(mode = mode, onMinimize = {

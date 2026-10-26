@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.lechixy.kick.data.model.playbackId
 import com.lechixy.kick.data.model.ChannelVideo
 import com.lechixy.kick.util.FormatUtils
 import com.lechixy.kick.util.buildOptimizedImageRequest
@@ -35,6 +36,7 @@ import java.util.Locale
 fun VideoCard(
     video: ChannelVideo,
     modifier: Modifier = Modifier,
+    progressId: String? = video.video?.uuid ?: video.uuid ?: video.playbackId,
     onClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -106,6 +108,7 @@ fun VideoCard(
                 }
             }
 
+            PlaybackProgressBar(progressId)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

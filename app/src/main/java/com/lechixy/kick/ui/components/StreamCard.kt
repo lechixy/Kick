@@ -49,7 +49,8 @@ fun StreamCard(
     modifier: Modifier = Modifier,
     isDataSaverActive: Boolean = false,
     onClick: () -> Unit = {},
-    onClickWithSource: ((ExpansionSource) -> Unit)? = null
+    onClickWithSource: ((ExpansionSource) -> Unit)? = null,
+    recordingId: String? = null
 ) {
     val context = LocalContext.current
     var cardCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -154,6 +155,7 @@ fun StreamCard(
                 }
             }
 
+            PlaybackProgressBar(recordingId)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

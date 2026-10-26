@@ -13,7 +13,9 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.lechixy.kick.data.model.ChannelDetail
+import com.lechixy.kick.data.model.RecordedPlayback
 import kotlin.math.roundToInt
+import kotlinx.serialization.json.Json
 
 /**
  * Hidden     : oturum yok (player hiç yok, PiP kapalı, normal uygulama)
@@ -43,6 +45,26 @@ class PlayerHostState(
     /** Son yüklenen kanal detayı: ChannelScreen kapansa (VM ölse) bile mini player bununla yaşar. */
     var channel by mutableStateOf<ChannelDetail?>(null)
         private set
+
+    var recording by mutableStateOf<RecordedPlayback?>(null)
+        private set
+
+    fun playRecording(recording: RecordedPlayback) {
+        this.recording = recording
+        activeLiveAnnouncementId = null
+        pendingAutoFullscreen = false
+        if (mode == PlayerMode.Mini) mode = PlayerMode.Expanded
+    }
+
+    fun updateRecordingMetadata(id: String, title: String, durationMs: Long) {
+        val current = recording?.takeIf { it.id == id } ?: return
+        recording = current.copy(title = title, durationMs = durationMs)
+    }
+
+    fun playLive() {
+        recording = null
+        activeLiveAnnouncementId = null
+    }
 
     var isExiting by mutableStateOf(false)
         private set
@@ -159,7 +181,7 @@ class PlayerHostState(
         private set
 
     fun triggerLiveAnnouncement(announcementId: Long) {
-        activeLiveAnnouncementId = announcementId
+        if (recording == null) activeLiveAnnouncementId = announcementId
     }
 
     fun clearLiveAnnouncement(announcementId: Long) {
@@ -170,6 +192,7 @@ class PlayerHostState(
 
     fun open(slug: String, source: com.lechixy.kick.ui.components.ExpansionSource? = null) {
         if (this.slug != slug) {
+            recording = null
             channel = null
             activeLiveAnnouncementId = null
         }
@@ -191,7 +214,7 @@ class PlayerHostState(
         if (channel != detail) {
             channel = detail
         }
-        if (detail.livestream == null) {            // yayın yoksa player/mini olmasın
+        if (detail.livestream == null && recording == null) {            // Canlı veya kayıt yoksa player/mini olmasın
             pendingAutoFullscreen = false
             activeLiveAnnouncementId = null
             isTheaterMode = false
@@ -230,8 +253,8 @@ class PlayerHostState(
     fun minimize() {
         pendingAutoFullscreen = false
         if (slug == null || mode == PlayerMode.Hidden) return
-        val offline = channel == null || channel?.livestream == null
-        if (offline) requestClose() else mode = PlayerMode.Mini   // yayın yokken mini'ye geçme, direkt kapan
+        val offline = recording == null && (channel == null || channel?.livestream == null)
+        if (offline) requestClose() else mode = PlayerMode.Mini   // Oynatılacak içerik yoksa kapat
     }
 
     fun expand() {
@@ -246,6 +269,7 @@ class PlayerHostState(
         mode = PlayerMode.Hidden
         slug = null
         channel = null
+        recording = null
         pageSlug = null
         isTheaterMode = false
         isChatVisible = true
@@ -255,13 +279,20 @@ class PlayerHostState(
 
     companion object {
         val Saver = listSaver<PlayerHostState, Any?>(
-            save = { listOf(it.mode.name, it.slug, it.chatWidthFraction) },
+            save = {
+                listOf(it.mode.name, it.slug, it.chatWidthFraction,
+                    it.recording?.let { recording -> Json.encodeToString(recording) })
+            },
             restore = {
                 PlayerHostState(
                     initialMode = PlayerMode.valueOf(it[0] as String),
                     initialSlug = it[1] as String?,
                     initialChatWidthFraction = (it.getOrNull(2) as? Float) ?: 0.35f
-                )
+                ).apply {
+                    recording = (it.getOrNull(3) as? String)?.let { saved ->
+                        runCatching { Json.decodeFromString<RecordedPlayback>(saved) }.getOrNull()
+                    }
+                }
             }
         )
     }

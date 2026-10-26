@@ -5,11 +5,10 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -43,7 +42,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -89,10 +87,14 @@ import com.lechixy.kick.PlayerHostState
 import com.lechixy.kick.PlayerMode
 import com.lechixy.kick.R
 import com.lechixy.kick.data.local.FollowManager
+import com.lechixy.kick.data.model.ChannelClip
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelEvent
 import com.lechixy.kick.data.model.ChannelVideo
+import com.lechixy.kick.data.model.RecordedPlayback
+import com.lechixy.kick.data.model.VideoThumbnail
 import com.lechixy.kick.data.model.getBannerUrl
+import com.lechixy.kick.data.model.toRecording
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.components.AnimatedCounterText
@@ -153,6 +155,7 @@ fun ChannelScreen(
         FollowManager.isFollowing(channelSlug)
     }
 
+    var isProfilePhotoExpanded by remember(channelSlug) { mutableStateOf(false) }
     val isControlsVisible = playerHost?.isControlsVisible ?: true
     val isChatVisible = playerHost?.isChatVisible ?: true
     val chatWidthFraction = playerHost?.chatWidthFraction ?: CHAT_WIDTH_FRACTION
@@ -189,7 +192,7 @@ fun ChannelScreen(
                 if (currentLivestreamId == null && selectedTab == ChannelTab.CHAT) {
                     selectedTab = ChannelTab.HOME
                 }
-            } else if (previousLivestreamId == null && currentLivestreamId != null && !initialIsWide) {
+            } else if (previousLivestreamId == null && currentLivestreamId != null && !initialIsWide && playerHost?.recording == null) {
                 selectedTab = ChannelTab.CHAT
             } else if (previousLivestreamId != null && currentLivestreamId == null && selectedTab == ChannelTab.CHAT) {
                 selectedTab = ChannelTab.HOME
@@ -208,14 +211,21 @@ fun ChannelScreen(
     val density = LocalDensity.current
 
     val channel = state.channel
-    val sharedChat = remember(viewModel, channel?.id) {
+    val sharedChat = remember(viewModel, channel?.id, playerHost?.recording?.id) {
         movableContentOf<ChannelDetail, (() -> Unit)?, Modifier> { ch, onHide, chatMod ->
-            ChannelChatSection(
-                viewModel = viewModel,
-                channel = ch,
-                onHideChat = onHide,
-                modifier = chatMod
-            )
+            if (playerHost?.recording != null) {
+                Box(chatMod, contentAlignment = Alignment.Center) {
+                    Text("Kayıt sohbeti yakında eklenecek.", modifier = Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.outline)
+                }
+            } else {
+                ChannelChatSection(
+                    viewModel = viewModel,
+                    channel = ch,
+                    onHideChat = onHide,
+                    modifier = chatMod
+                )
+            }
         }
     }
 
@@ -275,7 +285,7 @@ fun ChannelScreen(
                             Modifier.fillMaxSize()
                         ) {
                             // Player'ın oturduğu yer (PlayerHost bu alanı işliyor)
-                            if (channel != null && channel.livestream == null) {
+                            if (channel != null && channel.livestream == null && playerHost?.recording == null) {
                                 val bannerUrl = remember(channel, bannerWidthPx) {
                                     channel.getBannerUrl(targetWidthPx = bannerWidthPx)
                                 }
@@ -359,7 +369,8 @@ fun ChannelScreen(
                             }
 
                             if (channel != null) {
-                                val isLive = channel.livestream != null
+                                val isLive = channel.livestream != null && playerHost?.recording == null
+                                val hasPlayback = isLive || playerHost?.recording != null
                                 val lastLiveText = remember(state.videos) {
                                     val latestVideo = state.videos.firstOrNull()
                                     FormatUtils.formatLastLive(
@@ -370,13 +381,16 @@ fun ChannelScreen(
 
                                 // ChannelHeaderInfo: geniş ekranda (tablet) theater mod dahil her zaman görünür, mobilde kontrollerle senkronize
                                 AnimatedVisibility(
-                                    visible = if (isWide || !isLive) true else isControlsVisible,
+                                    visible = isProfilePhotoExpanded || if (isWide || !hasPlayback) true else isControlsVisible,
                                     enter = expandVertically(tween(300)) + fadeIn(tween(300)),
                                     exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
                                 ) {
                                     ChannelHeaderInfo(
                                         channel = channel,
                                         event = state.event,
+                                        recording = playerHost?.recording,
+                                        onPlayLive = { playerHost?.playLive() },
+                                        onProfilePhotoExpandedChange = { isProfilePhotoExpanded = it },
                                         isLive = isLive,
                                         lastLiveText = lastLiveText,
                                         isFollowing = isFollowing,
@@ -392,7 +406,7 @@ fun ChannelScreen(
 
                                 // ChannelTabsRow: geniş ekranda theater modda gizlenir, mobilde kontrollerle senkronize
                                 AnimatedVisibility(
-                                    visible = if (isWide) (!isTheaterMode || !isLive) else (!isLive || isControlsVisible),
+                                    visible = if (isWide) (!isTheaterMode || !hasPlayback) else (!hasPlayback || isControlsVisible),
                                     enter = expandVertically(tween(300)) + fadeIn(tween(300)),
                                     exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
                                 ) {
@@ -413,7 +427,7 @@ fun ChannelScreen(
                                     )
                                 } else {
                                     AnimatedVisibility(
-                                        visible = if (isWide) (!isTheaterMode || !isLive) else true,
+                                        visible = if (isWide) (!isTheaterMode || !hasPlayback) else true,
                                         enter = expandVertically(tween(300)) + fadeIn(tween(300)),
                                         exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
                                         modifier = Modifier
@@ -428,6 +442,11 @@ fun ChannelScreen(
                                                     tab = effectiveSelectedTab,
                                                     channel = channel,
                                                     videos = state.videos,
+                                                    clips = state.clips,
+                                                    clipsError = state.clipsError,
+                                                    isClipsLoading = state.isClipsLoading,
+                                                    onRetryClips = viewModel::retryClips,
+                                                    onPlayRecording = { playerHost?.playRecording(it) },
                                                     onNavigateToVideos = {
                                                         selectedTab = ChannelTab.VIDEOS
                                                     }
@@ -621,6 +640,9 @@ private fun ChannelHeaderInfo(
     isFollowing: Boolean,
     onFollowClick: () -> Unit,
     context: Context,
+    recording: RecordedPlayback? = null,
+    onPlayLive: () -> Unit = {},
+    onProfilePhotoExpandedChange: (Boolean) -> Unit = {},
     onHeightMeasured: (Int) -> Unit = {}
 ) {
     Column(
@@ -629,7 +651,9 @@ private fun ChannelHeaderInfo(
             .wrapContentHeight(Alignment.Top, unbounded = true)
             .onSizeChanged { onHeightMeasured(it.height) }
     ) {
-        if (isLive && channel.livestream != null) {
+        val liveAvailable = isLive && channel.livestream != null
+        val recordingAvailable = recording != null
+        if ((liveAvailable) || recordingAvailable) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -643,7 +667,10 @@ private fun ChannelHeaderInfo(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = channel.livestream.sessionTitle ?: "No title",
+                        text = when(liveAvailable) {
+                            true -> channel.livestream.sessionTitle ?: "No title"
+                            false -> recording?.title ?: "No title"
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
@@ -652,7 +679,13 @@ private fun ChannelHeaderInfo(
                             .weight(1f)
                             .padding(end = 8.dp)
                     )
-                    LiveBadge()
+                    if (liveAvailable) LiveBadge()
+                    if (recordingAvailable) {
+                        Text(
+                            text = FormatUtils.formatLastLive(recording.startTime),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
 
                 Row(
@@ -667,11 +700,20 @@ private fun ChannelHeaderInfo(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        channel.livestream.categories.forEach { category ->
-                            var translatedName = category.name
-                            if (translatedName == "Just Chatting") translatedName = stringResource(R.string.category_just_chatting)
+                        val categories = if (liveAvailable) {
+                            channel.livestream.categories.map { it.name }
+                        } else {
+                            recording?.categories?.map { it.name }
+                        }
+
+                        categories?.forEach { name ->
+                            val translatedName = when (name) {
+                                "Just Chatting" -> stringResource(R.string.category_just_chatting)
+                                else -> name
+                            }
                             TagChip(tag = translatedName)
                         }
+                        // Event
                         event?.title?.takeIf { it.isNotBlank() }?.let { eventTitle ->
                             val defaultContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
                             val defaultContentColor = MaterialTheme.colorScheme.primary
@@ -693,21 +735,27 @@ private fun ChannelHeaderInfo(
                                 contentColor = eventContentColor
                             )
                         }
-                        channel.livestream.tags.forEach { tag ->
-                            TagChip(tag = tag)
+                        if (liveAvailable) {
+                            channel.livestream.tags.forEach { tag ->
+                                TagChip(tag = tag)
+                            }
                         }
-                        val languageLabel = channel.livestream.language?.takeIf { it.isNotBlank() }
-                            ?: channel.livestream.langIso?.takeIf { it.isNotBlank() }
+
+                        val languageLabel = if (liveAvailable) {
+                            channel.livestream.language?.takeIf { it.isNotBlank() }
+                        } else {
+                            recording?.language?.takeIf { it.isNotBlank() }
+                        }
                         if (!languageLabel.isNullOrBlank()) {
                             val defaultContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
                             val defaultContentColor = MaterialTheme.colorScheme.primary
                             val (langContainerColor, langContentColor) = remember(
-                                channel.livestream.langIso,
+                                languageLabel,
                                 defaultContainerColor,
                                 defaultContentColor
                             ) {
                                 resolveLanguageChipColors(
-                                    langIso = channel.livestream.langIso,
+                                    language = languageLabel,
                                     defaultContainerColor = defaultContainerColor,
                                     defaultContentColor = defaultContentColor
                                 )
@@ -720,28 +768,36 @@ private fun ChannelHeaderInfo(
                         }
                     }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.group_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                            contentDescription = "Viewers",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        androidx.compose.runtime.key(channel.id) {
-                            AnimatedCounterText(
-                                count = channel.livestream.viewerCount,
+                    val viewerCount = if (liveAvailable) {
+                        channel.livestream.viewerCount
+                    } else {
+                        recording?.views?.toInt()
+                    }
+
+                    if (viewerCount != null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                painter = if (liveAvailable) painterResource(R.drawable.group_24dp_e3e3e3_fill0_wght400_grad0_opsz24) else painterResource(R.drawable.visibility_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                                contentDescription = if (liveAvailable) stringResource(R.string.viewers) else stringResource(R.string.views),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            androidx.compose.runtime.key(channel.id) {
+                                AnimatedCounterText(
+                                    count = viewerCount,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Text(
+                                text = if (liveAvailable) stringResource(R.string.viewers) else stringResource(R.string.views),
                                 style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
+                                color = MaterialTheme.colorScheme.outline
                             )
                         }
-                        Text(
-                            text = stringResource(R.string.viewers),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
                     }
                 }
             }
@@ -753,20 +809,11 @@ private fun ChannelHeaderInfo(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AsyncImage(
-                model = remember(channel.user?.profilePic) {
-                    buildOptimizedImageRequest(
-                        context = context,
-                        data = channel.user?.profilePic,
-                        targetWidthDp = 64,
-                        targetHeightDp = 64
-                    )
-                },
-                contentDescription = channel.user?.username,
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop
+            com.lechixy.kick.ui.components.ExpandableProfilePhoto(
+                url = channel.user?.profilePic,
+                username = channel.user?.username,
+                onExpandedChange = onProfilePhotoExpandedChange,
+                modifier = Modifier.size(56.dp)
             )
 
             Column(
@@ -810,11 +857,29 @@ private fun ChannelHeaderInfo(
                     )
                 }
 
-                if (!isLive) {
+                if (!isLive && recording == null) {
                     Text(
                         text = lastLiveText,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+
+            if (recordingAvailable) {
+                Button(
+                    onClick = onPlayLive,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.play_live),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -878,6 +943,11 @@ private fun ChannelTabContent(
     tab: ChannelTab,
     channel: ChannelDetail,
     videos: List<ChannelVideo>,
+    clips: List<ChannelClip>,
+    clipsError: String?,
+    isClipsLoading: Boolean,
+    onRetryClips: () -> Unit,
+    onPlayRecording: (RecordedPlayback) -> Unit,
     onNavigateToVideos: () -> Unit
 ) {
     when (tab) {
@@ -924,7 +994,9 @@ private fun ChannelTabContent(
                                     .weight(1f, fill = false)
                                     .widthIn(min = 280.dp)
                             ) {
-                                VideoCard(video = video)
+                                VideoCard(video = video, onClick = {
+                                    video.toRecording()?.let(onPlayRecording)
+                                })
                             }
                         }
                     }
@@ -986,7 +1058,9 @@ private fun ChannelTabContent(
                                 .weight(1f, fill = false)
                                 .widthIn(min = 280.dp)
                         ) {
-                            VideoCard(video = video)
+                            VideoCard(video = video, onClick = {
+                                    video.toRecording()?.let(onPlayRecording)
+                                })
                         }
                     }
                 }
@@ -994,16 +1068,27 @@ private fun ChannelTabContent(
         }
 
         ChannelTab.CLIPS -> {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Klipler yakında eklenecek.",
-                    color = MaterialTheme.colorScheme.outline
-                )
+            if (isClipsLoading) {
+                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            } else if (clipsError != null) {
+                Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(clipsError, color = MaterialTheme.colorScheme.outline)
+                    TextButton(onClick = onRetryClips) { Text("Tekrar dene") }
+                }
+            } else if (clips.isEmpty()) {
+                Text("Klip bulunamadı.", modifier = Modifier.padding(32.dp), color = MaterialTheme.colorScheme.outline)
+            } else {
+                FlowRow(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp), maxItemsInEachRow = 3) {
+                    clips.forEach { clip ->
+                        Box(Modifier.weight(1f, fill = false).widthIn(min = 280.dp)) {
+                            VideoCard(video = ChannelVideo(
+                                id = 0, sessionTitle = clip.title, duration = (clip.duration * 1000).toLong(),
+                                views = clip.views, thumbnail = VideoThumbnail(src = clip.thumbnailUrl)
+                            ), progressId = clip.id, onClick = { onPlayRecording(clip.toRecording()) })
+                        }
+                    }
+                }
             }
         }
     }

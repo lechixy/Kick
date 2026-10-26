@@ -3,6 +3,7 @@ package com.lechixy.kick.ui.screens.channel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lechixy.kick.data.model.ChannelClip
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelEvent
 import com.lechixy.kick.data.model.ChannelLivestream
@@ -33,6 +34,9 @@ data class ChannelUiState(
     val channel: ChannelDetail? = null,
     val event: ChannelEvent? = null,
     val videos: List<ChannelVideo> = emptyList(),
+    val clips: List<ChannelClip> = emptyList(),
+    val clipsError: String? = null,
+    val isClipsLoading: Boolean = true,
     val chatHistory: ChatHistoryData? = null,
     val error: String? = null,
     val liveAnnouncementId: Long? = null
@@ -257,6 +261,8 @@ class ChannelViewModel(
                     error = null
                 )
 
+                // Clip loading must not delay live playback or channel metadata.
+                loadClips(slug)
                 if (autoConnectChat) {
                     connectChat()
                 }
@@ -272,6 +278,26 @@ class ChannelViewModel(
                     isLoading = false,
                     error = e.message ?: "Failed to load channel"
                 )
+            }
+        }
+    }
+
+    fun retryClips() {
+        loadedSlug?.let { loadClips(it) }
+    }
+
+    private fun loadClips(slug: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isClipsLoading = true, clipsError = null) }
+            try {
+                val clips = repository.getChannelClips(slug)
+                if (loadedSlug == slug) _uiState.update { it.copy(clips = clips, isClipsLoading = false) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (loadedSlug == slug) _uiState.update {
+                    it.copy(isClipsLoading = false, clipsError = "Klipler yüklenemedi")
+                }
             }
         }
     }

@@ -34,4 +34,11 @@
     <string name="message_deleted_by_moderator">Message deleted by moderator</string>
     <string name="streamer_is_live">%1$s IS LIVE!</string>
     <string name="channel_offline">CHANNEL OFFLINE</string>
+    <string name="play_live">Play live</string>
+    <string name="connection_weak">Connection is weak</string>
+    <string name="connection_lost">Connection lost</string>
+    <string name="connection_restored">Connection restored</string>
+    <string name="expand_profile_photo">Enlarge profile photo</string>
+    <string name="close_profile_photo">Close profile photo</string>
+    <string name="views">views</string>
 </resources>
