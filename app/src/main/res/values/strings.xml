@@ -41,4 +41,27 @@
     <string name="expand_profile_photo">Enlarge profile photo</string>
     <string name="close_profile_photo">Close profile photo</string>
     <string name="views">views</string>
+    <string name="chat_message_placeholder">Send a message</string>
+    <string name="chat_send">Chat</string>
+    <string name="chat_sending">Sending…</string>
+    <string name="chat_identity">Chat identity</string>
+    <string name="chat_channel_points">Channel points</string>
+    <string name="chat_kicks_balance">Kicks balance</string>
+    <string name="chat_rules">Chat rules</string>
+    <string name="chat_expand_rules">Expand rules</string>
+    <string name="chat_collapse_rules">Collapse rules</string>
+    <string name="chat_slow_mode">Slow mode activated · %1$d s</string>
+    <string name="chat_available">Chat is open</string>
+    <string name="chat_emotes_only">Emote only</string>
+    <string name="chat_subscribers_only">Subscribers only</string>
+    <string name="chat_followers_only">Followers only</string>
+    <string name="chat_account_age">Minimum account age required</string>
+    <string name="chat_cooldown">Next message in %1$d s</string>
+    <string name="chat_connect_to_send">Connect to chat to send a message.</string>
+    <string name="chat_checking_permissions">Checking chat permissions…</string>
+    <string name="chat_permissions_failed">Could not verify chat permissions.</string>
+    <string name="chat_retry">Retry</string>
+    <string name="chat_send_unknown">Could not confirm delivery. Check chat before sending again.</string>
+    <string name="chat_banned">You cannot send messages in this channel.</string>
+    <string name="chat_follow_duration_required">Required follow time has not elapsed.</string>
 </resources>

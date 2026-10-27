@@ -24,6 +24,7 @@ fun HomeTopBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         ColoredAppText()
+        com.lechixy.kick.ui.components.account.AccountButton()
 //        Image(
 //            painter = painterResource(id = R.drawable.kick_logo),
 //            contentDescription = "KICK",

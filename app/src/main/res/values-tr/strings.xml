@@ -42,4 +42,27 @@
     <string name="expand_profile_photo">Profil fotoğrafını büyüt</string>
     <string name="close_profile_photo">Profil fotoğrafını kapat</string>
     <string name="views">görüntüleme</string>
+    <string name="chat_message_placeholder">Bir mesaj gönder</string>
+    <string name="chat_send">Sohbet</string>
+    <string name="chat_sending">Gönderiliyor…</string>
+    <string name="chat_identity">Sohbet kimliği</string>
+    <string name="chat_channel_points">Kanal puanları</string>
+    <string name="chat_kicks_balance">Kicks bakiyesi</string>
+    <string name="chat_rules">Sohbet kuralları</string>
+    <string name="chat_expand_rules">Kuralları genişlet</string>
+    <string name="chat_collapse_rules">Kuralları daralt</string>
+    <string name="chat_slow_mode">Yavaş mod etkin · %1$d sn</string>
+    <string name="chat_available">Sohbet açık</string>
+    <string name="chat_emotes_only">Yalnızca emote</string>
+    <string name="chat_subscribers_only">Yalnızca aboneler</string>
+    <string name="chat_followers_only">Yalnızca takipçiler</string>
+    <string name="chat_account_age">Minimum hesap yaşı gerekli</string>
+    <string name="chat_cooldown">Sonraki mesaj için %1$d sn</string>
+    <string name="chat_connect_to_send">Mesaj göndermek için sohbete bağlanın.</string>
+    <string name="chat_checking_permissions">Sohbet izinleri kontrol ediliyor…</string>
+    <string name="chat_permissions_failed">Sohbet izinleri doğrulanamadı.</string>
+    <string name="chat_retry">Yeniden dene</string>
+    <string name="chat_send_unknown">Gönderim sonucu doğrulanamadı. Tekrar göndermeden sohbeti kontrol edin.</string>
+    <string name="chat_banned">Bu kanalda mesaj gönderemezsiniz.</string>
+    <string name="chat_follow_duration_required">Gerekli takip süresi henüz dolmadı.</string>
 </resources>

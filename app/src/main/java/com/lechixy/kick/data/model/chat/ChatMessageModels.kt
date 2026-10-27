@@ -348,6 +348,7 @@ sealed interface ChatWebSocketEvent {
     data class ChannelSubscribed(val event: ChannelSubscriptionEvent) : ChatWebSocketEvent
     data class UserBanned(val event: UserBannedEvent) : ChatWebSocketEvent
     data class MessageDeleted(val event: MessageDeletedEvent) : ChatWebSocketEvent
+    data class SettingsChanged(val settings: JsonObject) : ChatWebSocketEvent
     data class PointsUpdated(val event: PointsUpdatedEvent) : ChatWebSocketEvent
     data class PinnedMessageCreated(val event: PinnedMessageInfo) : ChatWebSocketEvent
     data object PinnedMessageDeleted : ChatWebSocketEvent

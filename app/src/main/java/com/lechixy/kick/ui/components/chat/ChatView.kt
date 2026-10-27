@@ -119,7 +119,8 @@ fun ChatView(
     streamerSlug: String? = null,
     onConnectClick: () -> Unit = {},
     onDisconnectClick: () -> Unit = {},
-    onHideChat: (() -> Unit)? = null
+    onHideChat: (() -> Unit)? = null,
+    composer: @Composable () -> Unit = {}
 ) {
     val repository = LocalSettingsRepository.current
     val fontSize by repository
@@ -510,6 +511,7 @@ fun ChatView(
                 }
             }
         }
+        composer()
     }
 }
 

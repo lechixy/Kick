@@ -63,18 +63,38 @@ class ChannelViewModel(
     val pointsUpdated: StateFlow<PointsUpdatedEvent?> = repository.chatWebSocketClient.pointsUpdated
     val chatConnectionState: StateFlow<ChatConnectionState> = repository.chatWebSocketClient.connectionState
 
+    private val _chatSettings = MutableStateFlow(kotlinx.serialization.json.JsonObject(emptyMap()))
+    val chatSettings = _chatSettings.asStateFlow()
+    private val seenRules = mutableSetOf<Pair<Long, Long>>()
+    fun rulesSeen(generation: Long, channelId: Long) = (generation to channelId) in seenRules
+    fun markRulesSeen(generation: Long, channelId: Long) { seenRules.add(generation to channelId) }
+
     private var viewersPollingJob: Job? = null
     private var liveRefreshJob: Job? = null
     private var loadedSlug: String? = null
 
+    private var observedAccount: Pair<Long, Long?>? = null
+
     init {
         observeWebSocketEvents()
+        viewModelScope.launch {
+            com.lechixy.kick.data.account.AccountGraph.auth.session
+                .collect { session ->
+                    if (observedAccount != (session.generation to session.profile?.userId)) {
+                        observedAccount = session.generation to session.profile?.userId
+                        repository.chatWebSocketClient.refreshAccountConnection()
+                    }
+                }
+        }
     }
 
     private fun observeWebSocketEvents() {
         viewModelScope.launch {
             repository.chatWebSocketClient.events.collect { wsEvent ->
                 when (wsEvent) {
+                    is ChatWebSocketEvent.SettingsChanged -> _chatSettings.update {
+                        com.lechixy.kick.data.account.ChatSettingsUpdates.merge(it, wsEvent.settings)
+                    }
                     is ChatWebSocketEvent.StreamerIsLive -> handleStreamerIsLive(wsEvent.event)
                     is ChatWebSocketEvent.StopStreamBroadcast -> handleStopStreamBroadcast(wsEvent.event)
                     else -> Unit
@@ -216,6 +236,7 @@ class ChannelViewModel(
         viewModelScope.launch {
             if (loadedSlug != null && !loadedSlug.equals(slug, ignoreCase = true)) {
                 repository.chatWebSocketClient.disconnect()
+                _chatSettings.value = kotlinx.serialization.json.JsonObject(emptyMap())
             }
             loadedSlug = slug
             liveRefreshJob?.cancel()

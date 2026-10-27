@@ -95,6 +95,7 @@ fun SettingsScreen(
                     .padding(12.dp)
                     .widthIn(max = 840.dp), // WinUI 3 desktop/tablet responsive max width limit
             ) {
+                item { com.lechixy.kick.ui.components.account.AccountPanel() }
                 item {
                     FlowRow(
                         modifier = Modifier

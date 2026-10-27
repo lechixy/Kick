@@ -1,145 +1,55 @@
 package com.lechixy.kick.ui.screens.following
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.lechixy.kick.R
-import com.lechixy.kick.data.local.FollowManager
-import com.lechixy.kick.data.model.toLivestream
+import com.lechixy.kick.data.account.AccountGraph
+import com.lechixy.kick.data.account.SessionStatus
 import com.lechixy.kick.ui.components.ExpansionSource
-import com.lechixy.kick.ui.components.StreamCard
+import com.lechixy.kick.ui.components.account.FollowedChannelCard
 
 @Composable
 fun FollowingScreen(
     viewModel: FollowingViewModel = viewModel(),
     onStreamClick: (channelSlug: String, source: ExpansionSource?) -> Unit
 ) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val session by viewModel.session.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val followedSlugs by FollowManager.followedSlugs.collectAsState()
-    val state by viewModel.uiState.collectAsState()
-
-    LaunchedEffect(followedSlugs) {
-        viewModel.loadFollowingChannels(followedSlugs)
-    }
-
-    val online = state.online
-    val offline = state.offline
-
-    Scaffold(
-        topBar = {
-            Text(
-                text = stringResource(R.string.following),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .statusBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
-            )
-        }
-    ) { paddingValues ->
-        when {
-            state.isLoading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
+        Text("Takip edilenler", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(vertical = 12.dp))
+        if (!session.signedIn) {
+            Text("Takip etmek için giriş yapın.")
+            session.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            if (session.status == SessionStatus.Connecting) {
+                TextButton(onClick = { AccountGraph.auth.cancelLogin() }) { Text("Girişi iptal et") }
+            } else Button(onClick = { AccountGraph.auth.beginLogin(context) }) { Text("Kick ile giriş yap") }
+        } else {
+            TextButton(onClick = viewModel::refresh, enabled = !state.loading) { Text("Yenile") }
+            if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            if (state.loaded && state.channels.isEmpty()) Text("Henüz takip ettiğin bir kanal yok.")
+            LazyVerticalGrid(columns = GridCells.Adaptive(280.dp), modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val online = state.channels.filter { it.live }
+                val offline = state.channels.filterNot { it.live }
+                if (online.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { Text("Canlı kanallar") }
+                items(online, key = { it.slug }) { channel ->
+                    FollowedChannelCard(channel) { onStreamClick(channel.slug, null) }
                 }
-            }
-
-            followedSlugs.isEmpty() -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Henüz takip ettiğin bir kanal yok.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.outline
-                    )
+                if (offline.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { Text("Çevrimdışı kanallar") }
+                items(offline, key = { it.slug }) { channel ->
+                    FollowedChannelCard(channel) { onStreamClick(channel.slug, null) }
                 }
-            }
-
-            else -> {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 280.dp),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text(
-                            text = "Online Channels",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    // TODO: Fix online and offline channels
-                    if (online.isEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            Text(
-                                text = "There is no live channels from followed channels.",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    } else {
-                        items(online, key = { "followed_${it.id}" }) { channel ->
-                            StreamCard(
-                                stream = channel.toLivestream(),
-                                onClick = { onStreamClick(channel.slug, null) },
-                                onClickWithSource = { source ->
-                                    onStreamClick(channel.slug, source)
-                                }
-                            )
-                        }
-                    }
-//                    item(span = { GridItemSpan(maxLineSpan) }) {
-//                        Text(
-//                            text = "Offline Channels",
-//                            style = MaterialTheme.typography.titleMedium,
-//                            fontWeight = FontWeight.Bold,
-//                            color = MaterialTheme.colorScheme.outline
-//                        )
-//                    }
-//                    items(channels, key = { it.id }) { channel ->
-//                        ChannelCard(
-//                            channel = channel,
-//                            onChannelClick = {
-//                                channel.slug.let(onStreamClick)
-//                            }
-//                        )
-//                    }
+                if (state.nextCursor != null) item(span = { GridItemSpan(maxLineSpan) }) {
+                    TextButton(onClick = viewModel::loadMore, enabled = !state.loading) { Text("Daha fazla yükle") }
                 }
             }
         }

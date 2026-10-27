@@ -21,6 +21,7 @@
         android:localeConfig="@xml/locales_config"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="false"
         android:theme="@style/Theme.Kick">
         <activity
             android:name=".MainActivity"
@@ -35,6 +36,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity android:name=".KickWebLoginActivity" android:exported="false"
+            android:launchMode="singleTop" android:windowSoftInputMode="adjustResize" />
 
         <!-- Services-->
         <!-- Android 12 ve öncesinde AppCompat'in seçilen dili kalıcı tutabilmesi için zorunlu servis -->

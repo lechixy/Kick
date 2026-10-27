@@ -46,7 +46,10 @@ data class CentrifugoPushData(
 data class CentrifugoPublication(
     val data: CentrifugoEventData? = null,
     val tags: Map<String, String>? = null
-)
+) {
+    val eventName: String?
+        get() = data?.event?.trim()?.takeIf { it.isNotEmpty() } ?: tags?.get("event")?.trim()
+}
 
 @Serializable
 data class CentrifugoEventData(

@@ -86,6 +86,7 @@ object ChatTextParser {
             .toSet()
 
         for (badgeInfo in identity.badges) {
+            if (badgeInfo.active == false) continue
             val badgeType = badgeInfo.type.lowercase()
             if (badgeType in v2BadgeNames) continue
 
@@ -130,6 +131,28 @@ object ChatTextParser {
                             name = badgeInfo.text ?: "OG",
                             drawableRes = R.drawable.og_badge,
                             sortOrder = badgeInfo.sortOrder ?: 4
+                        )
+                    )
+                }
+
+                "vip" -> {
+                    result.add(
+                        ResolvedChatBadge(
+                            key = "badge_local_vip",
+                            name = badgeInfo.text ?: "VIP",
+                            drawableRes = R.drawable.vip_badge,
+                            sortOrder = badgeInfo.sortOrder ?: 5
+                        )
+                    )
+                }
+
+                "founder" -> {
+                    result.add(
+                        ResolvedChatBadge(
+                            key = "badge_local_founder",
+                            name = badgeInfo.text ?: "Founder",
+                            drawableRes = R.drawable.founder_badge,
+                            sortOrder = badgeInfo.sortOrder ?: 6
                         )
                     )
                 }
@@ -391,9 +414,9 @@ object ChatTextParser {
                                             placeholderVerticalAlign = PlaceholderVerticalAlign.Center
                                         )
                                     ) {
-                                        AsyncImage(
-                                            model = emoteUrl,
-                                            contentDescription = token.name,
+                                        SynchronizedEmote(
+                                            url = emoteUrl,
+                                            name = token.name,
                                             modifier = Modifier.fillMaxSize()
                                         )
                                     }
@@ -720,9 +743,9 @@ object ChatTextParser {
                                 placeholderVerticalAlign = PlaceholderVerticalAlign.Center
                             )
                         ) {
-                            AsyncImage(
-                                model = emoteUrl,
-                                contentDescription = token.name,
+                            SynchronizedEmote(
+                                url = emoteUrl,
+                                name = token.name,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }

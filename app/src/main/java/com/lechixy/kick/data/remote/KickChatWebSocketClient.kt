@@ -87,6 +87,7 @@ class KickChatWebSocketClient(
     private var currentChatroomId: Long? = null
     private var reconnectJob: Job? = null
     private var heartbeatJob: Job? = null
+    private var connectionJob: Job? = null
     private var isIntentionallyClosed = false
     private val lastServerActivityMs = AtomicLong(0L)
 
@@ -141,14 +142,16 @@ class KickChatWebSocketClient(
         isIntentionallyClosed = false
 
         _connectionState.value = ChatConnectionState.CONNECTING
-        clientScope.launch {
+        connectionJob = clientScope.launch {
             startConnectionFlow(channelId, chatroomId)
         }
     }
 
     private suspend fun startConnectionFlow(channelId: Long, chatroomId: Long) {
         try {
-            val guestClientId = (10000000..99999999).random().toString()
+            val account = runCatching { com.lechixy.kick.data.account.AccountGraph.auth }.getOrNull()
+            val userId = account?.session?.value?.takeIf { it.signedIn }?.profile?.userId
+            val guestClientId = userId?.toString() ?: (10000000..99999999).random().toString()
 
             val connectionReq = RealtimeConnectionRequest(
                 client = RealtimeClientInfo(id = guestClientId, type = "web"),
@@ -162,6 +165,8 @@ class KickChatWebSocketClient(
 
             val connectionRes = try {
                 api.getChannelChatConnection(channelId, connectionReq)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 api.getRealtimeConnection(connectionReq)
             }
@@ -171,8 +176,15 @@ class KickChatWebSocketClient(
                 ?: "wss://realtime.us-east-1.platform.kick.com/connection/websocket"
 
             val authReq = RealtimeAuthRequest(clientId = guestClientId)
-            val authRes = api.getRealtimeAuth(authReq)
-            val token = authRes.data?.token.orEmpty()
+            val authenticatedToken = if (userId != null) try {
+                account.request("https://web.kick.com/api/v1/realtime/auth/connection", "POST",
+                    kotlinx.serialization.json.buildJsonObject {
+                        put("client_id", JsonPrimitive(guestClientId))
+                    })?.get("data")?.let { it as? JsonObject }?.get("token")
+                    ?.let { it as? JsonPrimitive }?.content
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+              catch (_: Exception) { null } else null
+            val token = authenticatedToken ?: api.getRealtimeAuth(authReq).data?.token.orEmpty()
 
             val request = Request.Builder()
                 .url(wsUrl)
@@ -184,8 +196,10 @@ class KickChatWebSocketClient(
                 .build()
 
             webSocket?.cancel()
-            val listener = createWebSocketListener(token, guestClientId, channelId, chatroomId)
+            val listener = createWebSocketListener(token, guestClientId, channelId, chatroomId, authenticatedToken != null)
             webSocket = client.newWebSocket(request, listener)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e(tag, "Failed to initiate chat connection: ${e.message}", e)
             _connectionState.value = ChatConnectionState.ERROR
@@ -218,7 +232,8 @@ class KickChatWebSocketClient(
         token: String,
         clientId: String,
         channelId: Long,
-        chatroomId: Long
+        chatroomId: Long,
+        authenticated: Boolean
     ) = object : WebSocketListener() {
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -247,6 +262,7 @@ class KickChatWebSocketClient(
             )
 
             for ((ch, id) in subscriptions) {
+                if (ch.startsWith("private-") && !authenticated) continue
                 val subToken = if (ch.startsWith("private-")) token else null
                 val subFrame = CentrifugoSubscribeFrame(
                     subscribe = SubscribePayload(channel = ch, flag = 1, token = subToken),
@@ -323,9 +339,20 @@ class KickChatWebSocketClient(
             val publication = pushFrame.push?.pub ?: pushFrame.pub ?: return
             val eventData = publication.data ?: return
             val rawData = eventData.data
-            val eventType = eventData.event ?: publication.tags?.get("event") ?: return
+            val eventType = publication.eventName ?: return
 
             when (eventType) {
+                "App\\Events\\ChatroomUpdatedEvent", "ChatroomUpdatedEvent",
+                "App\\Events\\ChatSettingsChanged", "ChatSettingsChanged" -> {
+                    val payload = rawData?.let { decodeEventPayload<JsonObject>(it) } ?: return
+                    val eventChannel = (payload["channel"] as? JsonObject)?.get("id")
+                    if (eventChannel != null && (eventChannel as? JsonPrimitive)?.content != channelId.toString()) return
+                    if (eventType.endsWith("ChatroomUpdatedEvent") &&
+                        (payload["id"] as? JsonPrimitive)?.content != chatroomId.toString()) return
+                    _events.tryEmit(ChatWebSocketEvent.SettingsChanged(
+                        com.lechixy.kick.data.account.ChatSettingsUpdates.normalize(payload)))
+                }
+
                 "App\\Events\\ChatMessageEvent",
                 "ChatMessageEvent" -> {
                     val data = rawData ?: return
@@ -564,12 +591,21 @@ class KickChatWebSocketClient(
         }
     }
 
+    fun refreshAccountConnection() {
+        val channelId = currentChannelId ?: return
+        val chatroomId = currentChatroomId ?: return
+        if (isIntentionallyClosed) return
+        disconnectInternal(clearMessages = false)
+        connect(channelId, chatroomId)
+    }
+
     fun disconnect() {
         isIntentionallyClosed = true
         disconnectInternal(clearMessages = true)
     }
 
     private fun disconnectInternal(clearMessages: Boolean = true) {
+        connectionJob?.cancel()
         reconnectJob?.cancel()
         heartbeatJob?.cancel()
         webSocket?.close(1000, "Disconnect requested")

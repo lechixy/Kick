@@ -75,7 +75,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.lechixy.kick.data.local.FollowManager
 import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.data.settings.SettingsRepository
@@ -205,7 +204,6 @@ fun KickApp() {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
 
-    FollowManager.init(context)
 
     // Tek yerde tutulan player oturumu; ChannelScreen, mini player ve nav bar buradan beslenir.
     val playerHost = rememberPlayerHostState()

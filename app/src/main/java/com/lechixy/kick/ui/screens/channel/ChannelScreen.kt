@@ -86,7 +86,7 @@ import coil3.compose.AsyncImage
 import com.lechixy.kick.PlayerHostState
 import com.lechixy.kick.PlayerMode
 import com.lechixy.kick.R
-import com.lechixy.kick.data.local.FollowManager
+import com.lechixy.kick.ui.components.account.rememberAccountFollowAction
 import com.lechixy.kick.data.model.ChannelClip
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelEvent
@@ -150,10 +150,7 @@ fun ChannelScreen(
         mutableStateOf(if (initialIsWide) ChannelTab.HOME else ChannelTab.CHAT)
     }
 
-    val followedSlugs by FollowManager.followedSlugs.collectAsState()
-    val isFollowing = remember(followedSlugs, channelSlug) {
-        FollowManager.isFollowing(channelSlug)
-    }
+    val followAction = rememberAccountFollowAction(channelSlug)
 
     var isProfilePhotoExpanded by remember(channelSlug) { mutableStateOf(false) }
     val isControlsVisible = playerHost?.isControlsVisible ?: true
@@ -393,8 +390,10 @@ fun ChannelScreen(
                                         onProfilePhotoExpandedChange = { isProfilePhotoExpanded = it },
                                         isLive = isLive,
                                         lastLiveText = lastLiveText,
-                                        isFollowing = isFollowing,
-                                        onFollowClick = { FollowManager.toggleFollow(channelSlug) },
+                                        isFollowing = followAction.following,
+                                        followLabel = followAction.label,
+                                        followEnabled = followAction.enabled,
+                                        onFollowClick = followAction.onClick,
                                         context = context,
                                         onHeightMeasured = { heightPx ->
                                             if (heightPx > 0 && playerHost?.channelHeaderHeightPx != heightPx) {
@@ -601,6 +600,8 @@ private fun ChannelChatSection(
     val chatConnectionState by viewModel.chatConnectionState.collectAsState()
     val pinnedMessage by viewModel.pinnedMessage.collectAsState()
     val userColors by viewModel.userColors.collectAsState()
+    val chatSettings by viewModel.chatSettings.collectAsState()
+    val pointsUpdated by viewModel.pointsUpdated.collectAsState()
 
     ChatView(
         messages = chatMessages,
@@ -614,6 +615,10 @@ private fun ChannelChatSection(
         onConnectClick = viewModel::connectChat,
         onDisconnectClick = viewModel::disconnectChat,
         onHideChat = onHideChat,
+        composer = { com.lechixy.kick.ui.components.account.AccountChatComposer(
+            channel, chatConnectionState, chatSettings, pointsUpdated,
+            rulesSeen = { generation -> viewModel.rulesSeen(generation, channel.id) },
+            markRulesSeen = { generation -> viewModel.markRulesSeen(generation, channel.id) }) },
         modifier = modifier
     )
 }
@@ -639,6 +644,8 @@ private fun ChannelHeaderInfo(
     lastLiveText: String,
     isFollowing: Boolean,
     onFollowClick: () -> Unit,
+    followLabel: String,
+    followEnabled: Boolean,
     context: Context,
     recording: RecordedPlayback? = null,
     onPlayLive: () -> Unit = {},
@@ -886,6 +893,7 @@ private fun ChannelHeaderInfo(
 
             Button(
                 onClick = onFollowClick,
+                enabled = followEnabled,
                 shape = RoundedCornerShape(8.dp),
                 colors = if (isFollowing) {
                     ButtonDefaults.buttonColors(
@@ -901,7 +909,7 @@ private fun ChannelHeaderInfo(
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text = if (isFollowing) stringResource(R.string.following_button) else stringResource(R.string.follow),
+                    text = followLabel,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold
                 )

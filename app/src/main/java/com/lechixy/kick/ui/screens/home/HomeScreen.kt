@@ -31,7 +31,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import com.lechixy.kick.data.local.FollowManager
+import com.lechixy.kick.data.account.AccountGraph
+import com.lechixy.kick.ui.components.account.AccountFollowingSection
+import androidx.compose.foundation.layout.fillMaxWidth
 import com.lechixy.kick.ui.components.ExpansionSource
 import com.lechixy.kick.ui.components.HomeTopBar
 import com.lechixy.kick.ui.components.StreamCard
@@ -45,7 +47,6 @@ fun HomeScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val pullState = rememberPullToRefreshState()
-    val followedSlugs by FollowManager.followedSlugs.collectAsState()
 
     val isDataSaverActive = false
 
@@ -59,7 +60,7 @@ fun HomeScreen(
     ) { paddingValues ->
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
-            onRefresh = viewModel::refresh,
+            onRefresh = { viewModel.refresh(); AccountGraph.following.refresh() },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
@@ -74,119 +75,57 @@ fun HomeScreen(
                 )
             }
         ) {
-            when {
-                state.isLoading -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
+            val streams = remember(state.streams) { state.streams.distinctBy { it.id } }
+            val categories = remember(streams) {
+                streams.mapNotNull { it.category }.distinctBy { it.id }
+                    .sortedByDescending { category -> streams.count { it.category?.id == category.id } }
+                    .take(10)
+            }
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 280.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Account loading/failure is independent from anonymous recommendations.
+                item(key = "account_following", span = { GridItemSpan(maxLineSpan) }) {
+                    AccountFollowingSection { slug -> onStreamClick(slug, null) }
                 }
-                state.error != null -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = state.error ?: "Unknown error",
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(16.dp)
-                        )
-                    }
-                }
-                else -> {
-                    val normalizedFollowed = remember(followedSlugs) {
-                        followedSlugs.map { it.trim().lowercase() }.toSet()
-                    }
-
-                    val followedStreams = remember(state.streams, normalizedFollowed) {
-                        state.streams.filter { stream ->
-                            val slug = stream.channel?.slug?.trim()?.lowercase() ?: ""
-                            normalizedFollowed.contains(slug)
-                        }.distinctBy { it.id }
-                    }
-
-                    val otherStreams = remember(state.streams, normalizedFollowed) {
-                        state.streams.filterNot { stream ->
-                            val slug = stream.channel?.slug?.trim()?.lowercase() ?: ""
-                            normalizedFollowed.contains(slug)
-                        }.distinctBy { it.id }
-                    }
-
-                    val categories = remember(state.streams) {
-                        state.streams
-                            .mapNotNull { it.category }
-                            .distinctBy { it.id }
-                            .sortedByDescending { category ->
-                                state.streams.count { it.category?.id == category.id }
-                            }
-                            .take(10)
-                    }
-
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 280.dp),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        if (followedStreams.isNotEmpty()) {
-                            item(span = { GridItemSpan(maxLineSpan) }) {
-                                Text(
-                                    text = "FOLLOWED CHANNELS",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            items(followedStreams, key = { "followed_${it.id}" }) { stream ->
-                                StreamCard(
-                                    stream = stream,
-                                    isDataSaverActive = false, // Takip edilenlerde her zaman resim yüklenir
-                                    onClick = { stream.channel?.slug?.let { slug -> onStreamClick(slug, null) } },
-                                    onClickWithSource = { source ->
-                                        stream.channel?.slug?.let { slug -> onStreamClick(slug, source) }
-                                    }
-                                )
-                            }
+                if (state.isLoading) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
                         }
-
-                        if (categories.isNotEmpty()) {
-                            item(span = { GridItemSpan(maxLineSpan) }) {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(
-                                        text = "POPULAR CATEGORIES",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        items(categories, key = { it.id }) { cat ->
-                                            AssistChip(
-                                                onClick = {},
-                                                label = { Text(cat.name) }
-                                            )
-                                        }
-                                    }
+                    }
+                }
+                state.error?.let { error ->
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Text(error, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+                    }
+                }
+                if (categories.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("POPULAR CATEGORIES", style = MaterialTheme.typography.titleSmall)
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(categories, key = { it.id }) { category ->
+                                    AssistChip(onClick = {}, label = { Text(category.name) })
                                 }
                             }
                         }
-
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            Text(
-                                text = "LIVE NOW",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        items(otherStreams, key = { it.id }) { stream ->
-                            StreamCard(
-                                stream = stream,
-                                isDataSaverActive = isDataSaverActive, // Tasarruf modu açıksa resim yerine Tasarruf Modu yazar
-                                onClick = { stream.channel?.slug?.let { slug -> onStreamClick(slug, null) } },
-                                onClickWithSource = { source ->
-                                    stream.channel?.slug?.let { slug -> onStreamClick(slug, source) }
-                                }
-                            )
-                        }
                     }
+                }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text("LIVE NOW", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+                items(streams, key = { it.id }) { stream ->
+                    StreamCard(
+                        stream = stream,
+                        isDataSaverActive = isDataSaverActive,
+                        onClick = { stream.channel?.slug?.let { onStreamClick(it, null) } },
+                        onClickWithSource = { source -> stream.channel?.slug?.let { onStreamClick(it, source) } }
+                    )
                 }
             }
         }
