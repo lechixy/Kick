@@ -1,0 +1,261 @@
+package com.lechixy.kick.ui.screens.settings
+
+import android.graphics.PixelFormat
+import android.view.Gravity
+import android.view.WindowManager
+import android.view.inspector.WindowInspector
+import androidx.activity.ComponentActivity
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.lechixy.kick.BuildConfig
+import com.lechixy.kick.R
+import com.lechixy.kick.data.remote.ViewerTrackingDiagnostics
+import com.lechixy.kick.data.settings.LocalSettingsRepository
+import com.lechixy.kick.data.settings.SettingsKeys
+import com.lechixy.kick.ui.screens.channel.findActivity
+import com.lechixy.kick.ui.settings.SettingSwitch
+import com.lechixy.kick.ui.settings.SettingsTopBar
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.combine
+import java.text.DateFormat
+import java.util.Date
+
+@Composable
+fun DeveloperToolsScreen(onBackClick: () -> Unit, onTriggerLive: () -> Unit, canTriggerLive: Boolean) {
+    val repository = LocalSettingsRepository.current
+    val unlocked by repository.get(SettingsKeys.DEVELOPER_ENABLED).collectAsStateWithLifecycle(false)
+    Scaffold(topBar = { SettingsTopBar(stringResource(R.string.developer_tools), onBackClick) }) { padding ->
+        if (BuildConfig.DEBUG || unlocked) Column(Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SettingSwitch(key = SettingsKeys.DEVELOPER_FLOATING_MENU, title = stringResource(R.string.developer_floating_menu))
+            DeveloperToolsContent(onTriggerLive, canTriggerLive)
+        }
+    }
+}
+
+@Composable
+private fun DeveloperToolsContent(onTriggerLive: () -> Unit, canTriggerLive: Boolean) {
+    val state by ViewerTrackingDiagnostics.state.collectAsStateWithLifecycle()
+    fun time(value: Long?) = value?.let { DateFormat.getTimeInstance().format(Date(it)) } ?: "—"
+    Button(onClick = onTriggerLive, enabled = canTriggerLive) { Text(stringResource(R.string.developer_trigger_live)) }
+    if (!canTriggerLive) Text(stringResource(R.string.developer_live_required), style = MaterialTheme.typography.bodySmall)
+    HorizontalDivider()
+    Text(stringResource(R.string.developer_viewer_socket), style = MaterialTheme.typography.titleMedium)
+    val status = when (state.status) {
+        "metadata" -> R.string.developer_status_metadata
+        "token" -> R.string.developer_status_token
+        "connecting" -> R.string.developer_status_connecting
+        "connected" -> R.string.developer_status_connected
+        "retrying" -> R.string.developer_status_retrying
+        else -> R.string.developer_status_idle
+    }
+    Text(stringResource(status))
+    Text("Channel: ${state.session?.channelId ?: "—"}\nLivestream: ${state.session?.livestreamId ?: "—"}\nVOD: ${state.session?.vodId ?: "—"}", style = MaterialTheme.typography.bodySmall)
+    Text(stringResource(R.string.developer_socket_times, time(state.connectedAt), time(state.lastPing), time(state.lastPong),
+        state.latencyMs?.toString() ?: "—", time(state.lastHandshake), time(state.lastWatchEvent), state.reconnects), style = MaterialTheme.typography.bodySmall)
+    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+}
+
+/** A bounded, non-focusable application subwindow. It never participates in screen measurement,
+ * changes soft-input behavior, dims a dialog, or intercepts touches outside its own bounds. */
+@Composable
+fun DeveloperToolsOverlay(isInPipMode: Boolean, onTriggerLive: () -> Unit, canTriggerLive: Boolean) {
+    val repository = LocalSettingsRepository.current
+    val unlocked by repository.get(SettingsKeys.DEVELOPER_ENABLED).collectAsStateWithLifecycle(false)
+    val floating by repository.get(SettingsKeys.DEVELOPER_FLOATING_MENU).collectAsStateWithLifecycle(true)
+    val activity = LocalContext.current.findActivity() as? ComponentActivity ?: return
+    val parent = rememberCompositionContext()
+    val trigger by rememberUpdatedState(onTriggerLive)
+    val canTrigger by rememberUpdatedState(canTriggerLive)
+    val scope = rememberCoroutineScope()
+    val position by remember(repository) {
+        combine(repository.get(SettingsKeys.DEVELOPER_MENU_X), repository.get(SettingsKeys.DEVELOPER_MENU_Y)) { x, y -> x to y }
+    }.collectAsStateWithLifecycle(initialValue = null)
+    val savedPosition = position ?: return
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    if ((!BuildConfig.DEBUG && !unlocked) || !floating || isInPipMode) return
+    DisposableEffect(activity, parent, configuration.screenWidthDp, configuration.screenHeightDp) {
+        val manager = activity.getSystemService(WindowManager::class.java)
+        var xFraction = savedPosition.first.coerceIn(0f, 1f)
+        var yFraction = savedPosition.second.coerceIn(0f, 1f)
+        val windowBounds = manager.currentWindowMetrics.bounds
+        val maxPanelWidth = with(density) { windowBounds.width().toDp() - 16.dp }
+        val maxPanelHeight = with(density) { windowBounds.height().toDp() - 48.dp }
+        val expandedWidth = with(density) { minOf(340.dp, maxPanelWidth).roundToPx() }
+        val collapsedWidth = with(density) { minOf(260.dp, maxPanelWidth).roundToPx() }
+        val expandedHeight = with(density) { minOf(468.dp, maxPanelHeight).roundToPx() }
+        val collapsedHeight = with(density) { 48.dp.roundToPx() }
+        val view = ComposeView(activity).apply {
+            setParentCompositionContext(parent)
+            setViewTreeLifecycleOwner(activity)
+            setViewTreeViewModelStoreOwner(activity)
+            setViewTreeSavedStateRegistryOwner(activity)
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        }
+        val params = WindowManager.LayoutParams(
+            if (expanded) expandedWidth else collapsedWidth,
+            if (expanded) expandedHeight else collapsedHeight,
+            WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.LEFT; token = activity.window.decorView.windowToken }
+        val initialRoomX = (windowBounds.width() - params.width).coerceAtLeast(0)
+        val initialRoomY = (windowBounds.height() - params.height).coerceAtLeast(0)
+        params.x = (initialRoomX * xFraction).toInt()
+        params.y = (initialRoomY * yFraction).toInt()
+        var resizeJob: Job? = null
+        fun savePosition() {
+            val x = xFraction
+            val y = yFraction
+            scope.launch {
+                repository.set(SettingsKeys.DEVELOPER_MENU_X, x)
+                repository.set(SettingsKeys.DEVELOPER_MENU_Y, y)
+            }
+        }
+        fun resizeWindow(isExpanded: Boolean) {
+            val bounds = manager.currentWindowMetrics.bounds
+            params.width = if (isExpanded) expandedWidth else collapsedWidth
+            params.height = if (isExpanded) expandedHeight else collapsedHeight
+            // Growing content must not continuously move the window's anchor. Clamp only once
+            // when changing modes, and let Compose animate inside this fixed native envelope.
+            params.x = params.x.coerceIn(0, (bounds.width() - params.width).coerceAtLeast(0))
+            params.y = params.y.coerceIn(0, (bounds.height() - params.height).coerceAtLeast(0))
+            val roomX = (bounds.width() - params.width).coerceAtLeast(0)
+            val roomY = (bounds.height() - params.height).coerceAtLeast(0)
+            xFraction = if (roomX > 0) params.x.toFloat() / roomX else 0.5f
+            yFraction = if (roomY > 0) params.y.toFloat() / roomY else 0.5f
+            if (view.isAttachedToWindow) manager.updateViewLayout(view, params)
+            savePosition()
+        }
+        fun toggleExpanded() {
+            resizeJob?.cancel()
+            val next = !expanded
+            if (next) resizeWindow(true)
+            expanded = next
+            if (!next) resizeJob = scope.launch {
+                delay(220)
+                if (!expanded) resizeWindow(false)
+            }
+        }
+        view.setContent {
+            var visible by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) { visible = true }
+            val opacity by animateFloatAsState(if (visible) 1f else 0f, tween(180), label = "developerOpacity")
+            val expandDescription = stringResource(if (expanded) R.string.developer_minimize else R.string.developer_expand)
+            Surface(shape = MaterialTheme.shapes.large, shadowElevation = 8.dp, tonalElevation = 6.dp,
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                        alpha = opacity; scaleX = 0.96f + opacity * 0.04f; scaleY = scaleX
+                    }) {
+                Column {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp).heightIn(min = 48.dp).pointerInput(Unit) {
+                        detectDragGestures(onDragEnd = { savePosition() }, onDragCancel = { savePosition() }) { change, amount ->
+                            change.consume()
+                            val bounds = manager.currentWindowMetrics.bounds
+                            val roomX = (bounds.width() - params.width).coerceAtLeast(0)
+                            val roomY = (bounds.height() - params.height).coerceAtLeast(0)
+                            params.x = (params.x + amount.x.toInt()).coerceIn(0, roomX)
+                            params.y = (params.y + amount.y.toInt()).coerceIn(0, roomY)
+                            xFraction = if (roomX > 0) params.x.toFloat() / roomX else 0.5f
+                            yFraction = if (roomY > 0) params.y.toFloat() / roomY else 0.5f
+                            if (view.isAttachedToWindow) manager.updateViewLayout(view, params)
+                        }
+                    }, verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = ::toggleExpanded, modifier = Modifier.weight(1f)) {
+                            Text(stringResource(R.string.developer_tools), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                        IconButton(onClick = ::toggleExpanded, modifier = Modifier.size(40.dp).semantics { contentDescription = expandDescription }) {
+                            Text(if (expanded) "−" else "+", style = MaterialTheme.typography.titleLarge)
+                        }
+                        IconButton(onClick = {
+                            visible = false
+                            scope.launch { delay(180); repository.set(SettingsKeys.DEVELOPER_FLOATING_MENU, false) }
+                        }, modifier = Modifier.size(40.dp)) {
+                            Icon(painterResource(R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                                contentDescription = stringResource(R.string.developer_close), modifier = Modifier.size(20.dp))
+                        }
+                    }
+                    AnimatedVisibility(expanded, enter = expandVertically(tween(220)) + fadeIn(tween(160)),
+                        exit = shrinkVertically(tween(220)) + fadeOut(tween(120))) {
+                        Column(Modifier.fillMaxWidth().heightIn(max = minOf(420.dp, maxPanelHeight - 48.dp))
+                            .verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            DeveloperToolsContent({ trigger() }, canTrigger)
+                        }
+                    }
+                }
+            }
+        }
+        fun attach() {
+            if (!view.isAttachedToWindow && !activity.isFinishing) {
+                params.token = activity.window.decorView.windowToken
+                if (params.token != null) try { manager.addView(view, params) }
+                catch (_: WindowManager.BadTokenException) { /* Parent window has just closed. Retry on focus change. */ }
+            }
+        }
+        fun detach() { if (view.isAttachedToWindow) manager.removeViewImmediate(view) }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) attach()
+            if (event == Lifecycle.Event.ON_PAUSE) detach()
+        }
+        activity.lifecycle.addObserver(observer)
+        val attachTask = Runnable { if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) attach() }
+        activity.window.decorView.post(attachTask)
+        // Dialogs and focusable popups own separate windows. Follow their token so the tools
+        // remain above them without taking focus or changing any existing window's flags.
+        val followFocusedWindow = scope.launch {
+            while (isActive) {
+                delay(200)
+                if (!activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) continue
+                val focused = WindowInspector.getGlobalWindowViews().lastOrNull {
+                    it !== view && it.hasWindowFocus() && it.isAttachedToWindow
+                } ?: continue
+                if (params.token != focused.windowToken || !view.isAttachedToWindow) {
+                    detach()
+                    params.token = focused.windowToken
+                    try { manager.addView(view, params) }
+                    catch (_: WindowManager.BadTokenException) { /* Dialog closed during attachment. */ }
+                }
+            }
+        }
+        onDispose {
+            resizeJob?.cancel()
+            followFocusedWindow.cancel()
+            activity.window.decorView.removeCallbacks(attachTask)
+            activity.lifecycle.removeObserver(observer)
+            detach()
+            view.disposeComposition()
+        }
+    }
+}

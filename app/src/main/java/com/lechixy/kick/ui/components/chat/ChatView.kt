@@ -5,7 +5,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.spring
@@ -360,6 +359,8 @@ fun ChatView(
             }
 
             val currentPrimaryColor by rememberUpdatedState(MaterialTheme.colorScheme.primary)
+            val raidContext = androidx.compose.ui.platform.LocalContext.current
+            val currentRaidContext by rememberUpdatedState(raidContext)
             val currentUserColors by rememberUpdatedState(userColors)
             val tickerEventQueue = remember {
                 mutableStateListOf<ChatTickerOverlayItem>()
@@ -372,6 +373,21 @@ fun ChatView(
             LaunchedEffect(chatEvents) {
                 chatEvents.collect { wsEvent ->
                     val tickerItem = when (wsEvent) {
+                        is ChatWebSocketEvent.StreamHosted -> {
+                            val raid = wsEvent.event
+                            ChatTickerOverlayItem(
+                                id = "raid_${raid.message.id}",
+                                iconRes = R.drawable.swords_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
+                                segments = listOf(
+                                    ChatTextParser.EventTextSegment(raid.user.username, isBold = true,
+                                        color = ChatTextParser.parseHexColor(currentUserColors[raid.user.username.lowercase()], currentPrimaryColor)),
+                                    ChatTextParser.EventTextSegment(currentRaidContext.getString(R.string.chat_raid_suffix, raid.message.numberOfViewers), isBold = false)
+                                ),
+                                accentColor = currentPrimaryColor,
+                                durationMillis = 30_000L,
+                                source = ChatTickerEventSource.Raid(raid)
+                            )
+                        }
                         is ChatWebSocketEvent.GiftedSubscriptions -> {
                             buildGiftedSubscriptionsTickerItem(
                                 event = wsEvent.event,
@@ -419,7 +435,7 @@ fun ChatView(
                         else -> null
                     }
                     if (tickerItem != null) {
-                        tickerEventQueue.add(tickerItem)
+                        if (tickerEventQueue.none { it.id == tickerItem.id }) tickerEventQueue.add(tickerItem)
                     }
                 }
             }
@@ -882,6 +898,7 @@ private fun ChatHeader(
 }
 
 sealed interface ChatTickerEventSource {
+    data class Raid(val event: com.lechixy.kick.data.model.chat.StreamHostedEvent) : ChatTickerEventSource
     data class GiftedSubscriptions(val event: GiftedSubscriptionsEvent) : ChatTickerEventSource
     data class Celebration(val event: ChatCelebration, val username: String = "") :
         ChatTickerEventSource

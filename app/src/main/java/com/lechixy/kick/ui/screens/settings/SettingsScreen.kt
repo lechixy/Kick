@@ -24,6 +24,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.res.stringResource
+import com.lechixy.kick.BuildConfig
+import com.lechixy.kick.data.settings.LocalSettingsRepository
+import com.lechixy.kick.data.settings.SettingsKeys
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +49,7 @@ enum class SettingsDestinations(
     val description: String,
     val icon: Int
 ) {
+    DEVELOPER("Developer tools", "Runtime diagnostics and event previews", R.drawable.apps_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
     GENERAL(
         "General",
         "Basic app behavior, localization, and system defaults",
@@ -67,6 +75,10 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val appInfo = getVersionAndInfo(context)
+    val repository = LocalSettingsRepository.current
+    val unlocked by repository.get(SettingsKeys.DEVELOPER_ENABLED).collectAsStateWithLifecycle(false)
+    val scope = rememberCoroutineScope()
+    var developerTaps by remember { mutableIntStateOf(0) }
 
     Scaffold(
         topBar = {
@@ -105,10 +117,10 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         maxItemsInEachRow = 3
                     ) {
-                        SettingsDestinations.entries.forEach { dest ->
+                        SettingsDestinations.entries.filter { it != SettingsDestinations.DEVELOPER || BuildConfig.DEBUG || unlocked }.forEach { dest ->
                             SettingCard(
-                                title = dest.title,
-                                description = dest.description,
+                                title = if (dest == SettingsDestinations.DEVELOPER) stringResource(R.string.developer_tools) else dest.title,
+                                description = if (dest == SettingsDestinations.DEVELOPER) stringResource(R.string.developer_description) else dest.description,
                                 icon = dest.icon,
                                 onClick = {
                                     onSubsettingClick(dest)
@@ -138,9 +150,13 @@ fun SettingsScreen(
                                 )
                                 .clip(shape = RoundedCornerShape(20.dp))
                                 .clickable {
-                                    Toast
-                                        .makeText(context, "💖", Toast.LENGTH_SHORT)
-                                        .show()
+                                    if (!BuildConfig.DEBUG && !unlocked) {
+                                        developerTaps++
+                                        if (developerTaps >= 7) scope.launch {
+                                            repository.set(SettingsKeys.DEVELOPER_ENABLED, true)
+                                            Toast.makeText(context, R.string.developer_unlocked, Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else Toast.makeText(context, "💖", Toast.LENGTH_SHORT).show()
                                 }
                                 .padding(25.dp),
                             verticalArrangement = Arrangement.Center,

@@ -65,6 +65,7 @@ fun ChannelDetail.toLivestream(): Livestream {
 @Serializable
 data class ChannelLivestream(
     val id: Long,
+    @SerialName("vod_id") val vodId: String? = null,
     val slug: String? = null,
     @SerialName("channel_id") val channelId: Long? = null,
     @SerialName("created_at") val createdAt: String? = null,

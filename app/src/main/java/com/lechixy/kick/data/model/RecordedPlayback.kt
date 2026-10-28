@@ -81,4 +81,4 @@ fun ChannelVideo.toRecording(): RecordedPlayback? = playbackId?.let { id ->
 data class VideoDetailResponse(val livestream: VideoDetailLivestream? = null)
 
 @Serializable
-data class VideoDetailLivestream(@SerialName("vod_id") val vodId: String? = null)
+data class VideoDetailLivestream(@SerialName("vod_id") val vodId: String? = null, val id: Long? = null)

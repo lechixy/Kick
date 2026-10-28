@@ -39,7 +39,8 @@ data class ChannelUiState(
     val isClipsLoading: Boolean = true,
     val chatHistory: ChatHistoryData? = null,
     val error: String? = null,
-    val liveAnnouncementId: Long? = null
+    val liveAnnouncementId: Long? = null,
+    val lastHourGiftedSubsRank: Int? = null
 )
 
 class ChannelViewModel(
@@ -71,6 +72,7 @@ class ChannelViewModel(
 
     private var viewersPollingJob: Job? = null
     private var liveRefreshJob: Job? = null
+    private var leaderboardJob: Job? = null
     private var loadedSlug: String? = null
 
     private var observedAccount: Pair<Long, Long?>? = null
@@ -241,7 +243,8 @@ class ChannelViewModel(
             loadedSlug = slug
             liveRefreshJob?.cancel()
             viewersPollingJob?.cancel()
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null, liveAnnouncementId = null)
+            leaderboardJob?.cancel()
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null, liveAnnouncementId = null, lastHourGiftedSubsRank = null)
 
             try {
                 val channelDeferred = async { repository.getChannel(slug) }
@@ -283,6 +286,7 @@ class ChannelViewModel(
                 )
 
                 // Clip loading must not delay live playback or channel metadata.
+                startLeaderboardPolling(channel.id)
                 loadClips(slug)
                 if (autoConnectChat) {
                     connectChat()
@@ -329,6 +333,19 @@ class ChannelViewModel(
             while (isActive) {
                 delay(VIEWERS_POLL_INTERVAL_MS)
                 updateLivestreamViewers(livestreamId)
+            }
+        }
+    }
+
+    private fun startLeaderboardPolling(channelId: Long) {
+        leaderboardJob?.cancel()
+        leaderboardJob = viewModelScope.launch {
+            while (isActive) {
+                val rank = try { repository.getLastHourGiftedSubsRank(channelId) }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { null }
+                _uiState.update { if (it.channel?.id == channelId) it.copy(lastHourGiftedSubsRank = rank) else it }
+                delay(60_000L)
             }
         }
     }

@@ -1,21 +1,52 @@
 package com.lechixy.kick.ui.components.account
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RichTooltip
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -30,14 +61,24 @@ import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import coil3.gif.AnimatedImageDecoder
 import com.lechixy.kick.R
-import com.lechixy.kick.data.account.*
+import com.lechixy.kick.data.account.AccountGraph
+import com.lechixy.kick.data.account.Challenge
+import com.lechixy.kick.data.account.ChallengeLoadFailure
+import com.lechixy.kick.data.account.ChallengesState
+import com.lechixy.kick.data.account.Condition
+import com.lechixy.kick.data.account.DropTableEntry
+import com.lechixy.kick.data.account.Window
+import com.lechixy.kick.data.account.challengeCountdown
+import com.lechixy.kick.data.account.formatDropChance
+import com.lechixy.kick.data.account.orderChallenges
+import com.lechixy.kick.data.account.rewardAnimationImageUrl
 import com.lechixy.kick.ui.theme.KickTheme
 import com.lechixy.kick.ui.theme.Theme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @Composable
 fun ChallengesButton() {
@@ -74,13 +115,18 @@ fun ChallengesButton() {
 @Composable
 fun ChallengeDialog(state: ChallengesState, streakDays: Int?, now: Instant, onRefresh: () -> Unit, onDismiss: () -> Unit) {
     AdaptiveModalSheet(onDismiss = onDismiss, sheetWidth = 480.dp) { close ->
-        val snackbar = remember { SnackbarHostState() }
-        val scope = rememberCoroutineScope()
-        val pendingMessage = stringResource(R.string.challenges_claim_pending)
-        Box(Modifier.fillMaxWidth()) {
+        val reward = state.reward
+        if (reward != null) {
+            val context = LocalContext.current
+            val imageLoader = remember(context) { ImageLoader.Builder(context).build() }
+            DisposableEffect(imageLoader) { onDispose { imageLoader.shutdown() } }
+            RewardRouletteReveal(reward, imageLoader, onConfirm = {
+                AccountGraph.challenges.acknowledgeReward()
+                AccountGraph.dashboard.refresh()
+            })
+        } else {
             ChallengeDialogContent(state, streakDays, now, onRefresh, close,
-                onClaim = { scope.launch { snackbar.showSnackbar(pendingMessage) } })
-            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(16.dp))
+                onClaim = AccountGraph.challenges::claim)
         }
     }
 }
@@ -119,6 +165,11 @@ internal fun ChallengeDialogContent(state: ChallengesState, streakDays: Int?, no
             TextButton(onClick = onRefresh, enabled = !state.loading) { Text(stringResource(R.string.chat_retry)) }
         }
         if (state.loaded && challenges.isEmpty()) Text(stringResource(R.string.challenges_empty))
+        if (state.claimFailed) {
+            Text(if (state.claimHttpStatus != null) stringResource(R.string.challenges_claim_http_failed, state.claimHttpStatus)
+                else stringResource(R.string.challenges_claim_failed), color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = onRefresh, enabled = !state.loading) { Text(stringResource(R.string.chat_retry)) }
+        }
         if (challenges.isNotEmpty()) {
             if (challenges.size > 1) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -134,14 +185,16 @@ internal fun ChallengeDialogContent(state: ChallengesState, streakDays: Int?, no
             }
             HorizontalPager(state = pager, key = { challenges[it].id }, pageSpacing = 12.dp,
                 verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) { index ->
-                ChallengeCardItem(challenges[index], streakDays, now, imageLoader, onClaim)
+                ChallengeCardItem(challenges[index], streakDays, now, imageLoader, onClaim,
+                    claiming = state.claimingId == challenges[index].id, claimEnabled = state.claimingId == null)
             }
         }
     }
 }
 
 @Composable
-fun ChallengeCardItem(challenge: Challenge, streakDays: Int?, now: Instant, imageLoader: ImageLoader, onClaim: (Challenge) -> Unit) {
+fun ChallengeCardItem(challenge: Challenge, streakDays: Int?, now: Instant, imageLoader: ImageLoader, onClaim: (Challenge) -> Unit,
+    claiming: Boolean = false, claimEnabled: Boolean = true) {
     val previewUrl = remember(challenge.animations?.idleUrl) { rewardAnimationImageUrl(challenge.animations?.idleUrl) }
     val locale = LocalConfiguration.current.locales[0]
     val eventEnd = challenge.activePeriod?.end
@@ -150,38 +203,40 @@ fun ChallengeCardItem(challenge: Challenge, streakDays: Int?, now: Instant, imag
             .withLocale(locale).withZone(ZoneId.systemDefault()).format(it) }
     }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Card(modifier = Modifier.fillMaxWidth().testTag("challenge-summary-${challenge.id}"), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(challenge.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(challenge.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (challenge.featured && eventDate != null) {
-                    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.medium) {
+                    Surface(modifier = Modifier.testTag("challenge-metadata-${challenge.id}"), color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.medium) {
                         Text(stringResource(R.string.challenges_event_ends, eventDate), Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
                     }
                 } else if (challenge.recurrence == "daily") {
-                    ChallengeStreakRow(streakDays)
+                    Box(Modifier.testTag("challenge-metadata-${challenge.id}")) { ChallengeStreakRow(streakDays) }
                 }
-                Box(Modifier.padding(top = 8.dp).fillMaxWidth().heightIn(min = 140.dp, max = 200.dp).aspectRatio(1.8f)
-                    .clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerLowest), contentAlignment = Alignment.Center) {
-                    var failed by remember(previewUrl) { mutableStateOf(false) }
-                    if (failed || previewUrl == null) {
-                        Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Icon(painterResource(R.drawable.rewarded_ads_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                                contentDescription = null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.secondary)
-                            Text(stringResource(R.string.challenges_preview_unavailable), style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    } else AsyncImage(model = previewUrl, imageLoader = imageLoader,
-                        contentDescription = stringResource(R.string.challenges_preview, challenge.name),
-                        contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize(), onError = { failed = true })
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    Box(Modifier.fillMaxWidth().height(minOf(maxWidth / 1.8f, 200.dp)).testTag("challenge-preview-${challenge.id}")
+                        .clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerLowest), contentAlignment = Alignment.Center) {
+                        var failed by remember(previewUrl) { mutableStateOf(false) }
+                        if (failed || previewUrl == null) {
+                            Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Icon(painterResource(R.drawable.rewarded_ads_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                                    contentDescription = null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.secondary)
+                                Text(stringResource(R.string.challenges_preview_unavailable), style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        } else AsyncImage(model = previewUrl, imageLoader = imageLoader,
+                            contentDescription = stringResource(R.string.challenges_preview, challenge.name),
+                            contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize(), onError = { failed = true })
+                    }
                 }
             }
         }
         RarityIndicatorRow(challenge.dropTable)
-        Button(onClick = { onClaim(challenge) }, enabled = challenge.canClaim(now), modifier = Modifier.fillMaxWidth(),
+        Button(onClick = { onClaim(challenge) }, enabled = challenge.canClaim(now) && claimEnabled, modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.medium) {
-            Text(stringResource(if (challenge.claimed) R.string.challenges_claimed else R.string.challenges_claim), fontWeight = FontWeight.Bold)
+            Text(stringResource(when { claiming -> R.string.challenges_claiming; challenge.claimed -> R.string.challenges_claimed; else -> R.string.challenges_claim }), fontWeight = FontWeight.Bold)
         }
         val reset = challengeCountdown(challenge.window?.end, now)
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -217,7 +272,7 @@ private fun ChallengeStreakRow(days: Int?) {
 }
 
 @Composable
-private fun rarityName(rarity: String): String = when (rarity.lowercase()) {
+internal fun rarityName(rarity: String): String = when (rarity.lowercase()) {
     "mythic", "mythical" -> stringResource(R.string.rarity_mythic)
     "legendary" -> stringResource(R.string.rarity_legendary)
     "epic" -> stringResource(R.string.rarity_epic)

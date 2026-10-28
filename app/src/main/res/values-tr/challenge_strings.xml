@@ -1,4 +1,12 @@
 <resources>
+    <string name="challenges_claiming">Ödül alınıyor…</string>
+    <string name="challenges_claim_http_failed">Ödül alınamadı (HTTP %1$d). Durumunu kontrol etmek için yenile.</string>
+    <string name="challenges_claim_failed">Ödül alma sonucu doğrulanamadı. Tekrar denemeden önce ödülün durumunu yenileyerek kontrol et.</string>
+    <string name="reward_opening_title">Ödülün açılıyor</string>
+    <string name="reward_reveal_title">Yeni ödülün</string>
+    <string name="reward_preparing">Kalkanlar hazırlanıyor…</string>
+    <string name="reward_spinning">Kalkanın belirleniyor…</string>
+    <string name="reward_winner_card">Kazandığın ödül kartı</string>
     <string name="challenges_title">Ödüllerini Al</string>
     <string name="challenges_load_failed">Ödüller yüklenemedi.</string>
     <string name="challenges_http_failed">Ödüller yüklenemedi (HTTP %1$d).</string>

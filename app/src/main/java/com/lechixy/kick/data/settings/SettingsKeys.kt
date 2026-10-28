@@ -22,6 +22,10 @@ data class SettingKey<T>(
 )
 
 object SettingsKeys {
+    val DEVELOPER_ENABLED = SettingKey(booleanPreferencesKey("developer_enabled"), false, SettingType.BooleanType, isExportable = false)
+    val DEVELOPER_FLOATING_MENU = SettingKey(booleanPreferencesKey("developer_floating_menu"), true, SettingType.BooleanType, isExportable = false)
+    val DEVELOPER_MENU_X = SettingKey(floatPreferencesKey("developer_menu_x"), 0.5f, SettingType.FloatType, isExportable = false)
+    val DEVELOPER_MENU_Y = SettingKey(floatPreferencesKey("developer_menu_y"), 0.5f, SettingType.FloatType, isExportable = false)
     /*
      * General
      */

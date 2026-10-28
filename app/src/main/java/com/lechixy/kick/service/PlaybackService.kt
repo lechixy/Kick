@@ -41,6 +41,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
@@ -53,10 +55,17 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var progressTracker: PlaybackProgressTracker? = null
+    private val viewerTracking = com.lechixy.kick.data.remote.ViewerTrackingClient(
+        CoroutineScope(serviceScope.coroutineContext + Dispatchers.Main.immediate)
+    )
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
+        serviceScope.launch(Dispatchers.Main.immediate) {
+            com.lechixy.kick.data.account.AccountGraph.auth.session.map { it.generation }
+                .distinctUntilChanged().collect { viewerTracking.refreshAuthentication() }
+        }
         serviceScope.launch {
             settingsRepository.get(SettingsKeys.LOW_LATENCY).collect { enabled ->
                 lowLatencyEnabled = enabled
@@ -150,6 +159,15 @@ class PlaybackService : MediaSessionService() {
 
         player.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
+                val extras = player.currentMediaItem?.mediaMetadata?.extras
+                val channelId = extras?.getLong(EXTRA_VIEWER_CHANNEL_ID) ?: 0L
+                val livestreamId = extras?.getLong(EXTRA_VIEWER_LIVESTREAM_ID) ?: 0L
+                val watching = player.playWhenReady && player.playerError == null &&
+                    player.playbackState in listOf(Player.STATE_READY, Player.STATE_BUFFERING) &&
+                    extras?.getBoolean(EXTRA_IS_LIVE) == true && channelId > 0 && livestreamId > 0
+                viewerTracking.setSession(if (watching) com.lechixy.kick.data.remote.ViewerSession(
+                    channelId, livestreamId, extras?.getString(EXTRA_VIEWER_VOD_ID), extras?.getString(EXTRA_VIEWER_CHANNEL_SLUG)
+                ) else null)
                 if (events.containsAny(Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED)) {
                     com.lechixy.kick.data.remote.NetworkMonitor.reportPlaybackBuffering(
                         player.playWhenReady && player.playbackState == Player.STATE_BUFFERING
@@ -164,6 +182,7 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = mediaSession
 
     override fun onDestroy() {
+        viewerTracking.close()
         com.lechixy.kick.data.remote.NetworkMonitor.reportPlaybackBuffering(false)
         progressTracker?.close()
         progressTracker = null
@@ -314,6 +333,10 @@ const val EXTRA_IS_LIVE = "kick_is_live"
 const val EXTRA_START_TIME_MS = "kick_start_time_ms"
 const val EXTRA_END_TIME_MS = "kick_end_time_ms"
 const val EXTRA_LOW_LATENCY = "kick_low_latency"
+const val EXTRA_VIEWER_CHANNEL_ID = "kick_viewer_channel_id"
+const val EXTRA_VIEWER_LIVESTREAM_ID = "kick_viewer_livestream_id"
+const val EXTRA_VIEWER_VOD_ID = "kick_viewer_vod_id"
+const val EXTRA_VIEWER_CHANNEL_SLUG = "kick_viewer_channel_slug"
 
 @OptIn(UnstableApi::class)
 fun buildPlaybackMediaItem(
@@ -327,7 +350,8 @@ fun buildPlaybackMediaItem(
     startTimeMs: Long = 0L,
     vodDurationMs: Long? = null,
     isLowLatency: Boolean = true,
-    recordingId: String? = null
+    recordingId: String? = null,
+    viewerSession: com.lechixy.kick.data.remote.ViewerSession? = null
 ): MediaItem {
     val subtitle = buildString {
         append(if (isLive) "🔴 Canlı" else "Kayıt")
@@ -349,6 +373,12 @@ fun buildPlaybackMediaItem(
         }
         .setExtras(Bundle().apply {
             putBoolean(EXTRA_IS_LIVE, isLive)
+            if (isLive && viewerSession != null) {
+                putLong(EXTRA_VIEWER_CHANNEL_ID, viewerSession.channelId)
+                putLong(EXTRA_VIEWER_LIVESTREAM_ID, viewerSession.livestreamId)
+                putString(EXTRA_VIEWER_VOD_ID, viewerSession.vodId)
+                putString(EXTRA_VIEWER_CHANNEL_SLUG, viewerSession.channelSlug)
+            }
             if (!isLive && recordingId != null) putString(EXTRA_RECORDING_ID, recordingId)
             putLong(EXTRA_START_TIME_MS, startTimeMs)
             if (!isLive && vodDurationMs != null && vodDurationMs > 0) {

@@ -1,4 +1,12 @@
 <resources>
+    <string name="challenges_claiming">Claiming…</string>
+    <string name="challenges_claim_http_failed">Reward could not be claimed (HTTP %1$d). Refresh to check its status.</string>
+    <string name="challenges_claim_failed">The claim result could not be confirmed. Refresh to check the reward before trying again.</string>
+    <string name="reward_opening_title">Opening your reward</string>
+    <string name="reward_reveal_title">Your new reward</string>
+    <string name="reward_preparing">Preparing your shields…</string>
+    <string name="reward_spinning">Finding your shield…</string>
+    <string name="reward_winner_card">Your winning reward card</string>
     <string name="challenges_title">Claim Your Rewards</string>
     <string name="challenges_load_failed">Rewards could not be loaded.</string>
     <string name="challenges_http_failed">Rewards could not be loaded (HTTP %1$d).</string>

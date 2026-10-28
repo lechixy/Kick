@@ -125,4 +125,5 @@
     <string name="account_waiting_login">Waiting for Kick sign in.</string>
     <string name="account_cancel_login">Cancel sign in</string>
     <string name="account_login_optional">Connecting an account is optional. You can watch streams without signing in.</string>
+    <string name="events">Events</string>
 </resources>

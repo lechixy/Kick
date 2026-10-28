@@ -12,6 +12,7 @@ import com.lechixy.kick.data.model.chat.ChatMessageType
 import com.lechixy.kick.data.model.chat.ChatWebSocketEvent
 import com.lechixy.kick.data.model.chat.ConnectPayload
 import com.lechixy.kick.data.model.chat.GiftedSubscriptionsEvent
+import com.lechixy.kick.data.model.chat.toRecipientMessages
 import com.lechixy.kick.data.model.chat.MessageDeletedEvent
 import com.lechixy.kick.data.model.chat.PinnedMessageInfo
 import com.lechixy.kick.data.model.chat.PointsUpdatedEvent
@@ -342,6 +343,12 @@ class KickChatWebSocketClient(
             val eventType = publication.eventName ?: return
 
             when (eventType) {
+                "App\\Events\\StreamHostedEvent", "StreamHostedEvent" -> {
+                    if (pushFrame.push?.channel != "chatrooms.$chatroomId") return
+                    val data = rawData ?: return
+                    val event = decodeEventPayload<com.lechixy.kick.data.model.chat.StreamHostedEvent>(data) ?: return
+                    _events.tryEmit(ChatWebSocketEvent.StreamHosted(event))
+                }
                 "GamificationWatchTimeGoalReached", "App\\Events\\GamificationWatchTimeGoalReached" -> {
                     rawData?.let { payload ->
                         com.lechixy.kick.data.account.AccountGraph.challenges.onGoalReached(
@@ -428,12 +435,11 @@ class KickChatWebSocketClient(
                 "App\\Events\\GiftedSubscriptionsEvent" -> {
                     val data = rawData ?: return
                     val event = decodeEventPayload<GiftedSubscriptionsEvent>(data) ?: return
-                    val eventMessage = ChatMessage(
-                        id = "gift_${System.nanoTime()}_${event.correlationId ?: event.gifterUsername}",
-                        type = ChatMessageType.GIFTED_SUBSCRIPTIONS,
-                        giftedSubscriptions = event
-                    )
-                    addMessage(eventMessage)
+                    val recipientMessages = event.toRecipientMessages()
+                    _messages.update { current ->
+                        val existingIds = current.mapTo(HashSet()) { it.id }
+                        (current + recipientMessages.filterNot { it.id in existingIds }).takeLast(maxMessagesBuffer)
+                    }
                     _events.tryEmit(ChatWebSocketEvent.GiftedSubscriptions(event))
                 }
 

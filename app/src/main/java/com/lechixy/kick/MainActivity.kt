@@ -53,9 +53,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.movableContentOf
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -134,7 +134,11 @@ class MainActivity : ComponentActivity() {
                 if (currentSystemLocale.isNotEmpty() && currentSystemLocale != savedLang) {
                     settingsRepository.set(SettingsKeys.APP_LANGUAGE, currentSystemLocale)
                 } else if (currentSystemLocale.isEmpty() && savedLang.isNotEmpty()) {
-                    AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(savedLang))
+                    AppCompatDelegate.setApplicationLocales(
+                        LocaleListCompat.forLanguageTags(
+                            savedLang
+                        )
+                    )
                 }
             }
         }
@@ -186,6 +190,11 @@ enum class AppDestinations(
         R.drawable.favorite_24dp_e3e3e3_fill0_wght400_grad0_opsz24
     ),
     BROWSE(R.string.browse, R.drawable.search_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+    EVENTS(
+        R.string.events,
+        R.drawable.local_activity_24dp_e3e3e3_fill1_wght400_grad0_opsz24,
+        R.drawable.local_activity_24dp_e3e3e3_fill0_wght400_grad0_opsz24
+    ),
     SETTINGS(
         R.string.settings,
         R.drawable.settings_24dp_e3e3e3_fill1_wght400_grad0_opsz24,
@@ -225,7 +234,8 @@ fun KickApp() {
         onDispose { componentActivity?.removeOnPictureInPictureModeChangedListener(listener) }
     }
 
-    val openChannel: (String, ExpansionSource?) -> Unit = { slug, source -> playerHost.open(slug, source) }
+    val openChannel: (String, ExpansionSource?) -> Unit =
+        { slug, source -> playerHost.open(slug, source) }
     val navType =
         NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(currentWindowAdaptiveInfoV2())
     val useBottomBar = navType.toString().contains("NavigationBar", ignoreCase = true)
@@ -233,7 +243,7 @@ fun KickApp() {
         playerHost.isChannelVisible || playerHost.mode == PlayerMode.Fullscreen || isInPipMode
     } else {
         (playerHost.mode == PlayerMode.Fullscreen && !playerHost.isFullscreenNavigationVisible) ||
-            (playerHost.mode == PlayerMode.Expanded && playerHost.isTheaterMode) || isInPipMode
+                (playerHost.mode == PlayerMode.Expanded && playerHost.isTheaterMode) || isInPipMode
     }
 
     Surface(
@@ -257,16 +267,23 @@ fun KickApp() {
                     }
                 }
             ) {
-                Box(Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                ) {
                     val animDuration = 350
                     NavHost(
                         navController = navController,
                         startDestination = "home",
                         // 1. İLERİ GİDİŞ: Hedef ekran içeri girerken
                         enterTransition = {
-                            fadeIn(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
+                            fadeIn(
+                                animationSpec = tween(
+                                    animDuration,
+                                    easing = FastOutSlowInEasing
+                                )
+                            ) +
                                     scaleIn(
                                         initialScale = 0.94f,
                                         animationSpec = tween(
@@ -278,7 +295,12 @@ fun KickApp() {
 
                         // 2. İLERİ GİDİŞ: Arkada kalan (Home vb.) ekrandan çıkarken
                         exitTransition = {
-                            fadeOut(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
+                            fadeOut(
+                                animationSpec = tween(
+                                    animDuration,
+                                    easing = FastOutSlowInEasing
+                                )
+                            ) +
                                     scaleOut(
                                         targetScale = 0.98f,
                                         animationSpec = tween(
@@ -290,7 +312,12 @@ fun KickApp() {
 
                         // 3. GERİ GELİŞ: Geri dönülen sayfa (Home) tekrar görünürken
                         popEnterTransition = {
-                            fadeIn(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
+                            fadeIn(
+                                animationSpec = tween(
+                                    animDuration,
+                                    easing = FastOutSlowInEasing
+                                )
+                            ) +
                                     scaleIn(
                                         initialScale = 0.98f,
                                         animationSpec = tween(
@@ -302,7 +329,12 @@ fun KickApp() {
 
                         // 4. GERİ GELİŞ: Kapatılan sayfa yok olurken
                         popExitTransition = {
-                            fadeOut(animationSpec = tween(animDuration, easing = FastOutSlowInEasing)) +
+                            fadeOut(
+                                animationSpec = tween(
+                                    animDuration,
+                                    easing = FastOutSlowInEasing
+                                )
+                            ) +
                                     scaleOut(
                                         targetScale = 0.94f,
                                         animationSpec = tween(
@@ -316,9 +348,18 @@ fun KickApp() {
                             val homeViewModel: HomeViewModel = hiltViewModel()
                             HomeScreen(
                                 viewModel = homeViewModel,
-                                onStreamClick = { channelSlug, source -> openChannel(channelSlug, source) },
+                                onStreamClick = { channelSlug, source ->
+                                    openChannel(
+                                        channelSlug,
+                                        source
+                                    )
+                                },
                                 onSettingsClick = { navController.navigate("settings") },
-                                onFollowingClick = { navController.navigate("following") { launchSingleTop = true } }
+                                onFollowingClick = {
+                                    navController.navigate("following") {
+                                        launchSingleTop = true
+                                    }
+                                }
                             )
                         }
 
@@ -326,14 +367,28 @@ fun KickApp() {
                             val followingViewModel: FollowingViewModel = viewModel()
                             FollowingScreen(
                                 viewModel = followingViewModel,
-                                onStreamClick = { channelSlug, source -> openChannel(channelSlug, source) }
+                                onStreamClick = { channelSlug, source ->
+                                    openChannel(
+                                        channelSlug,
+                                        source
+                                    )
+                                }
                             )
                         }
 
                         composable("browse") {
                             BrowseScreen(
-                                onChannelClick = { channelSlug, source -> openChannel(channelSlug, source) }
+                                onChannelClick = { channelSlug, source ->
+                                    openChannel(
+                                        channelSlug,
+                                        source
+                                    )
+                                }
                             )
+                        }
+
+                        composable("events") {
+                            EventsScreen()
                         }
 
                         composable("settings") {
@@ -349,9 +404,16 @@ fun KickApp() {
                                 type = NavType.StringType
                             })
                         ) { backStackEntry ->
-                            val settingRoute = backStackEntry.arguments?.getString("settingRoute") ?: ""
+                            val settingRoute =
+                                backStackEntry.arguments?.getString("settingRoute") ?: ""
 
                             when (settingRoute) {
+                                "developer" -> com.lechixy.kick.ui.screens.settings.DeveloperToolsScreen(
+                                    onBackClick = { navController.popBackStack() },
+                                    onTriggerLive = { playerHost.triggerLiveAnnouncement(System.nanoTime()) },
+                                    canTriggerLive = playerHost.channel?.livestream != null && playerHost.recording == null && playerHost.mode != PlayerMode.Hidden
+                                )
+
                                 "general" -> {
                                     GeneralSettingsScreen(
                                         onBackClick = { navController.popBackStack() }
@@ -387,7 +449,8 @@ fun KickApp() {
                             }
                         }
                         LaunchedEffect(activeSlug, activeChannelState.liveAnnouncementId) {
-                            val announcementId = activeChannelState.liveAnnouncementId ?: return@LaunchedEffect
+                            val announcementId =
+                                activeChannelState.liveAnnouncementId ?: return@LaunchedEffect
                             playerHost.triggerLiveAnnouncement(announcementId)
                             activeChannelVm.consumeLiveAnnouncement(announcementId)
                         }
@@ -414,6 +477,11 @@ fun KickApp() {
                 }
             }
             if (!isInPipMode) com.lechixy.kick.ui.components.NetworkInfoBar(Modifier.align(Alignment.BottomCenter))
+            com.lechixy.kick.ui.screens.settings.DeveloperToolsOverlay(
+                isInPipMode = isInPipMode,
+                onTriggerLive = { playerHost.triggerLiveAnnouncement(System.nanoTime()) },
+                canTriggerLive = playerHost.channel?.livestream != null && playerHost.recording == null && playerHost.mode != PlayerMode.Hidden
+            )
         }
     }
 }

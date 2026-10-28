@@ -247,6 +247,18 @@ data class GiftedSubscriptionsEvent(
     val chunkDetails: JsonElement? = null
 )
 
+fun GiftedSubscriptionsEvent.toRecipientMessages(): List<ChatMessage> {
+    val eventId = correlationId?.takeIf { it.isNotBlank() } ?: "${gifterUsername}_${System.nanoTime()}"
+    val recipients = giftedUsernames.filter { it.isNotBlank() }.distinct()
+    if (recipients.isEmpty()) return listOf(ChatMessage(
+        id = "gift_$eventId", type = ChatMessageType.GIFTED_SUBSCRIPTIONS, giftedSubscriptions = this
+    ))
+    return recipients.map { recipient -> ChatMessage(
+        id = "gift_${eventId}_$recipient", type = ChatMessageType.GIFTED_SUBSCRIPTIONS,
+        giftedSubscriptions = copy(giftedUsernames = listOf(recipient), giftedTotal = 1)
+    ) }
+}
+
 @Serializable
 data class ChannelSubscriptionEvent(
     @SerialName("user_ids")
@@ -340,7 +352,17 @@ data class StopStreamBroadcastEvent(
     val livestream: StopStreamLivestreamRef? = null
 )
 
+@Serializable
+data class StreamHostedMessage(val id: String, val numberOfViewers: Int)
+
+@Serializable
+data class StreamHostedUser(val id: Long, val username: String)
+
+@Serializable
+data class StreamHostedEvent(val message: StreamHostedMessage, val user: StreamHostedUser)
+
 sealed interface ChatWebSocketEvent {
+    data class StreamHosted(val event: StreamHostedEvent) : ChatWebSocketEvent
     data class MessageReceived(val message: ChatMessage) : ChatWebSocketEvent
     data class Celebration(val event: ChatCelebration) : ChatWebSocketEvent
     data class RewardRedeemed(val event: RewardRedeemedEvent) : ChatWebSocketEvent

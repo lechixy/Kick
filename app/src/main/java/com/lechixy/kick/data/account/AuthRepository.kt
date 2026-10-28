@@ -126,6 +126,24 @@ class AuthRepository(
 
     suspend fun requestElement(url: String): JsonElement = requestJson(url, "GET", null)
 
+    /** Viewer credentials are only sent to the two dedicated Kick viewer endpoints. */
+    internal fun viewerRequest(address: okhttp3.HttpUrl): Request {
+        require(address.scheme == "https" && address.host == "websockets.kick.com" && address.port == 443 &&
+            address.username.isEmpty() && address.password.isEmpty() &&
+            address.encodedPath in setOf("/viewer/v1/token", "/viewer/v1/connect"))
+        val current = synchronized(lock) { stored?.takeIf { session.value.signedIn } }
+        return Request.Builder().url(address).header("Accept", "application/json")
+            .header("Origin", "https://kick.com").header("Referer", "https://kick.com/")
+            .header("User-Agent", current?.userAgent ?: "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+            .apply {
+                // Public website client identifier, shipped in Kick's browser configuration.
+                // The viewer token endpoint requires this independently of account authentication.
+                if (address.encodedPath == "/viewer/v1/token") header("X-CLIENT-TOKEN", VIEWER_CLIENT_TOKEN)
+            }
+            .apply { current?.let { cookie(it.kickCookies, "session_token") }?.let { header("Authorization", "Bearer $it") } }
+            .build()
+    }
+
     private suspend fun requestJson(url: String, method: String, body: JsonObject?): JsonElement {
         val (current, generation) = synchronized(lock) {
             check(session.value.signedIn) { "Sign in required" }
@@ -193,6 +211,7 @@ class AuthRepository(
     }
 
     companion object {
+        private const val VIEWER_CLIENT_TOKEN = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
         private const val PROFILE_URL = "https://kick.com/api/v1/user"
         private val JSON_TYPE = "application/json".toMediaType()
         internal fun cookie(header: String, name: String): String? = header.split(';').map { it.trim().split('=', limit = 2) }

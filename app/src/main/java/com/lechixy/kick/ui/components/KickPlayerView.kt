@@ -486,7 +486,7 @@ fun KickPlayerView(
         }
     }
 
-    LaunchedEffect(player, stableId, playbackUrl, lowLatencyEnabled) {
+    LaunchedEffect(player, stableId, playbackUrl, lowLatencyEnabled, channel?.livestream?.vodId) {
         val p = player ?: return@LaunchedEffect
         if (playbackUrl.isBlank()) return@LaunchedEffect
 
@@ -500,6 +500,15 @@ fun KickPlayerView(
                     lowLatencyEnabled
                 ) == lowLatencyEnabled
         if (alreadyLoaded) {
+            val vodId = channel?.livestream?.vodId
+            if (isLiveStream && currentItem.mediaMetadata.extras?.getString(com.lechixy.kick.service.EXTRA_VIEWER_VOD_ID) != vodId) {
+                val extras = android.os.Bundle(currentItem.mediaMetadata.extras ?: android.os.Bundle()).apply {
+                    putString(com.lechixy.kick.service.EXTRA_VIEWER_VOD_ID, vodId)
+                }
+                p.replaceMediaItem(p.currentMediaItemIndex, currentItem.buildUpon().setMediaMetadata(
+                    currentItem.mediaMetadata.buildUpon().setExtras(extras).build()
+                ).build())
+            }
             loadedMediaId = stableId
             isPlayerReady = p.playbackState == Player.STATE_READY
             hasRenderedFirstFrame = p.isPlaying || isPlayerReady
@@ -537,6 +546,9 @@ fun KickPlayerView(
             startTimeMs = parseUtcStartTimeToMillis(if (recording != null) recording.startTime else channel?.livestream?.startTime),
             vodDurationMs = recording?.durationMs,
             recordingId = recording?.progressId,
+            viewerSession = if (isLive && channel?.livestream != null)
+                com.lechixy.kick.data.remote.ViewerSession(channel.id, channel.livestream.id, channel.livestream.vodId, channel.slug)
+                else null,
             isLowLatency = lowLatencyEnabled
         )
 

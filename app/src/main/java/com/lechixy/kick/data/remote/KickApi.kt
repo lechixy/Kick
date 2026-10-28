@@ -26,6 +26,13 @@ import retrofit2.http.Query
 import retrofit2.http.Url
 
 interface KickApi {
+    @GET("api/v1/analytics/leaderboard")
+    suspend fun getGiftedSubsLeaderboard(
+        @Query("start_time") startTime: String,
+        @Query("type") type: String = "gifted_subs",
+        @Query("limit") limit: Int = 50
+    ): com.lechixy.kick.data.model.GiftedSubsLeaderboardResponse
+
     @GET("https://web.kick.com/api/v1/recommendations/livestreams/list")
     suspend fun getRecommendedLivestreams(
         @Query("limit") limit: Int = 14,

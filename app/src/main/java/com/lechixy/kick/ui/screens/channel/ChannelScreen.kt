@@ -86,7 +86,6 @@ import coil3.compose.AsyncImage
 import com.lechixy.kick.PlayerHostState
 import com.lechixy.kick.PlayerMode
 import com.lechixy.kick.R
-import com.lechixy.kick.ui.components.account.rememberAccountFollowAction
 import com.lechixy.kick.data.model.ChannelClip
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelEvent
@@ -105,6 +104,7 @@ import com.lechixy.kick.ui.components.TagChip
 import com.lechixy.kick.ui.components.VerifiedBadge
 import com.lechixy.kick.ui.components.VideoCard
 import com.lechixy.kick.ui.components.WIDE_BREAKPOINT_DP
+import com.lechixy.kick.ui.components.account.rememberAccountFollowAction
 import com.lechixy.kick.ui.components.chat.ChatView
 import com.lechixy.kick.ui.components.resolveEventChipColors
 import com.lechixy.kick.ui.components.resolveLanguageChipColors
@@ -379,6 +379,7 @@ fun ChannelScreen(
                                     ChannelHeaderInfo(
                                         channel = channel,
                                         event = state.event,
+                                        lastHourGiftedSubsRank = state.lastHourGiftedSubsRank,
                                         recording = playerHost?.recording,
                                         onPlayLive = { playerHost?.playLive() },
                                         onProfilePhotoExpandedChange = { isProfilePhotoExpanded = it },
@@ -634,6 +635,7 @@ internal fun Context.findActivity(): Activity? {
 private fun ChannelHeaderInfo(
     channel: ChannelDetail,
     event: ChannelEvent?,
+    lastHourGiftedSubsRank: Int?,
     isLive: Boolean,
     lastLiveText: String,
     isFollowing: Boolean,
@@ -821,24 +823,14 @@ private fun ChannelHeaderInfo(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = channel.user?.username ?: channel.slug,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (channel.verified) {
-                        VerifiedBadge(
-                            modifier = Modifier.size(16.dp),
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(text = channel.user?.username ?: channel.slug, style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        if (channel.verified) VerifiedBadge(modifier = Modifier.size(16.dp), colors = listOf(
+                            MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimaryContainer))
                     }
+                    lastHourGiftedSubsRank?.let { com.lechixy.kick.ui.components.LastHourGiftedSubsChip(it) }
                 }
 
                 Row(

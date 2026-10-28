@@ -126,4 +126,5 @@
     <string name="account_waiting_login">Kick girişi bekleniyor.</string>
     <string name="account_cancel_login">Girişi iptal et</string>
     <string name="account_login_optional">Hesap bağlamak isteğe bağlıdır. Yayınları giriş yapmadan izleyebilirsin.</string>
+    <string name="events">Etkinlikler</string>
 </resources>

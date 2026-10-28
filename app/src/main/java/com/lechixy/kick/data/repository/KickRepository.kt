@@ -17,6 +17,24 @@ import retrofit2.HttpException
 class KickRepository(
     private val api: KickApi
 ) {
+    suspend fun getLastHourGiftedSubsRank(channelId: Long): Int? =
+        api.getGiftedSubsLeaderboard(com.lechixy.kick.data.model.hourlyLeaderboardStart()).rankFor(channelId)
+
+    suspend fun resolveViewerSession(session: com.lechixy.kick.data.remote.ViewerSession): com.lechixy.kick.data.remote.ViewerSession {
+        if (!session.vodId.isNullOrBlank()) return session
+        val slug = session.channelSlug?.takeIf { it.isNotBlank() } ?: error("Missing viewer channel slug")
+        val video = getChannelVideos(slug).firstOrNull {
+            it.id == session.livestreamId && (it.channelId == null || it.channelId == session.channelId)
+        } ?: error("Live video metadata is not available yet")
+        val directId = video.vodId?.takeIf { it.isNotBlank() }
+        if (directId != null) return session.copy(vodId = directId)
+        val uuid = video.video?.uuid?.takeIf { it.isNotBlank() } ?: video.uuid?.takeIf { it.isNotBlank() }
+            ?: error("Live video UUID is not available yet")
+        val detail = api.getVideoDetail(uuid).livestream ?: error("Missing live video details")
+        check(detail.id == session.livestreamId) { "Live video session changed" }
+        val vodId = detail.vodId?.takeIf { it.isNotBlank() } ?: error("Live VOD ID is not available yet")
+        return session.copy(vodId = vodId)
+    }
 
     suspend fun getRecordedPlayback(id: String, videoUuid: String? = null): PlaybackResponse {
         if (videoUuid != null) {

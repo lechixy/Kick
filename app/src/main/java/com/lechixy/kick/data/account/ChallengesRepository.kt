@@ -88,7 +88,9 @@ fun challengeCountdown(end: Instant?, now: Instant): String? {
 enum class ChallengeLoadFailure { Http, Network, Format, Other }
 data class ChallengesState(val challenges: List<Challenge> = emptyList(), val loading: Boolean = false,
     val loaded: Boolean = false, val failed: Boolean = false,
-    val failure: ChallengeLoadFailure? = null, val httpStatus: Int? = null)
+    val failure: ChallengeLoadFailure? = null, val httpStatus: Int? = null,
+    val claimingId: String? = null, val reward: ChallengeClaim? = null,
+    val claimFailed: Boolean = false, val claimHttpStatus: Int? = null)
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 internal fun decodeChallenges(response: JsonElement, json: Json): List<Challenge> {
@@ -112,10 +114,12 @@ class ChallengesRepository(private val auth: AuthRepository, private val scope: 
     private val mutableState = MutableStateFlow(ChallengesState())
     val state = mutableState.asStateFlow()
     private var job: Job? = null
+    private var claimJob: Job? = null
     init {
         scope.launch {
             auth.session.map { Triple(it.signedIn, it.generation, it.profile?.userId) }.distinctUntilChanged().collect { (signedIn, _, _) ->
                 job?.cancel()
+                claimJob?.cancel()
                 mutableState.value = ChallengesState()
                 if (signedIn) refresh()
             }
@@ -143,15 +147,17 @@ class ChallengesRepository(private val auth: AuthRepository, private val scope: 
                 if (generation == auth.session.value.generation && auth.session.value.signedIn) {
                     mutableState.update { previous ->
                         val old = previous.challenges.associateBy { it.id }
-                        ChallengesState(challenges = challenges.map { challenge ->
+                        previous.copy(challenges = challenges.map { challenge ->
                             val prior = old[challenge.id]
+                            val sameWindow = prior != null && prior.window == challenge.window && prior.activePeriod == challenge.activePeriod
+                            if (sameWindow && prior.claimed) return@map challenge.copy(status = "claimed")
                             // Watch time is monotonic within a window; an in-flight fetch may predate the goal event.
                             if (prior != null && challenge.window != null && prior.window == challenge.window &&
                                 prior.condition.type == challenge.condition.type && challenge.condition.type == "watch_time_minutes" &&
                                 prior.condition.threshold == challenge.condition.threshold) {
                                 challenge.copy(condition = challenge.condition.copy(progress = maxOf(prior.condition.progress, challenge.condition.progress)))
                             } else challenge
-                        }, loaded = true)
+                        }, loaded = true, loading = false, failed = false, failure = null, httpStatus = null)
                     }
                 }
             } catch (error: Exception) {
@@ -169,6 +175,45 @@ class ChallengesRepository(private val auth: AuthRepository, private val scope: 
                 }
             }
         }
+    }
+    /** One POST per user action; polling and reveal acknowledgement never repeat the mutation. */
+    fun claim(challenge: Challenge) {
+        val session = auth.session.value
+        if (!session.signedIn) return
+        while (true) {
+            val current = state.value
+            val eligible = current.challenges.firstOrNull { it.id == challenge.id } ?: return
+            if (current.claimingId != null || current.reward != null || !eligible.canClaim(Instant.now())) return
+            if (mutableState.compareAndSet(current, current.copy(claimingId = eligible.id, claimFailed = false, claimHttpStatus = null))) break
+        }
+        claimJob = scope.launch {
+            var accepted = false
+            try {
+                val id = java.net.URLEncoder.encode(challenge.id, Charsets.UTF_8.name())
+                val response = auth.request("https://web.kick.com/api/v1/gamification/challenges/$id/claim", "POST")
+                accepted = true
+                val reward = decodeChallengeClaim(response, challenge.id, json)
+                if (session.generation == auth.session.value.generation && auth.session.value.signedIn) {
+                    mutableState.update { it.copy(claimingId = null, reward = reward,
+                        challenges = it.challenges.map { entry -> if (entry.id == challenge.id) entry.copy(status = "claimed") else entry }) }
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (session.generation == auth.session.value.generation && auth.session.value.signedIn) {
+                    mutableState.update { it.copy(claimingId = null, claimFailed = true,
+                        claimHttpStatus = (error as? AccountApiException)?.status,
+                        challenges = if (accepted) it.challenges.map { entry ->
+                            if (entry.id == challenge.id) entry.copy(status = "claimed") else entry
+                        } else it.challenges) }
+                    refresh()
+                }
+            }
+        }
+    }
+
+    fun acknowledgeReward() {
+        mutableState.update { it.copy(reward = null) }
+        refresh()
     }
     /** Receives only the current user's private publication; never derives watch time locally. */
     fun onGoalReached(channel: String?, payload: JsonElement) {

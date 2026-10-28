@@ -6,8 +6,26 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.*
 import org.junit.Test
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 class AuthRepositoryTest {
+    @Test fun viewerCredentialsAreScopedToKickViewerEndpointsAndClearedOnLogout() = runBlocking {
+        val auth = AuthRepository(MemorySessionStore()) { objectJson(profile) }
+        val address = "https://websockets.kick.com/viewer/v1/token".toHttpUrl()
+        assertNull(auth.viewerRequest(address).header("Authorization"))
+        assertFalse(auth.viewerRequest(address).header("X-CLIENT-TOKEN").isNullOrBlank())
+        assertNull(auth.viewerRequest("https://websockets.kick.com/viewer/v1/connect?token=viewer-token".toHttpUrl()).header("X-CLIENT-TOKEN"))
+        auth.connect(cookies, cookies, "viewer-agent")
+        assertEquals("Bearer web-token", auth.viewerRequest(address).header("Authorization"))
+        assertEquals("viewer-agent", auth.viewerRequest(address).header("User-Agent"))
+        assertEquals("Bearer web-token", auth.viewerRequest("https://websockets.kick.com/viewer/v1/connect?token=viewer-token".toHttpUrl()).header("Authorization"))
+        for (url in listOf("http://websockets.kick.com/viewer/v1/token", "https://websockets.kick.com.evil.test/viewer/v1/token",
+            "https://websockets.kick.com/other", "https://websockets.kick.com:8443/viewer/v1/token")) {
+            assertTrue(runCatching { auth.viewerRequest(url.toHttpUrl()) }.isFailure)
+        }
+        auth.signOut()
+        assertNull(auth.viewerRequest(address).header("Authorization"))
+    }
     private val cookies = "session_token=web-token; XSRF-TOKEN=a%2Bb"
     private val profile = """{"id":42,"username":"tester","profilepic":"https://files.kick.com/avatar.webp","created_at":"2020-01-01T00:00:00Z"}"""
 
