@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -72,6 +73,7 @@ private fun ComposerContent(
     var tick by remember { mutableLongStateOf(0L) }
     var points by remember { mutableStateOf<Long?>(null) }
     var kicks by remember { mutableStateOf<Long?>(null) }
+    var showPointsDialog by remember { mutableStateOf(false) }
     val currentPointsEvent by rememberUpdatedState(pointsUpdated)
     val currentSettingsPatch by rememberUpdatedState(settingsPatch)
     LaunchedEffect(settingsPatch) {
@@ -97,26 +99,32 @@ private fun ComposerContent(
             accessError = failure.userMessage()
         } finally { loading = false }
     }
+    LaunchedEffect(session.signedIn, refresh, connectionState == ChatConnectionState.CONNECTED) {
+        if (!session.signedIn) return@LaunchedEffect
+        // Reconcile with the server while visible, including after a missed private publication.
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                try {
+                    val before = currentPointsEvent
+                    val fetched = AccountGraph.chat.points(channel)
+                    val latest = currentPointsEvent
+                    if (latest == before || latest == null ||
+                        !ChannelPointsPolicy.accepts(latest, channel.id, AccountGraph.auth.session.value.profile?.userId))
+                        points = fetched
+                } catch (failure: Exception) { if (failure is CancellationException) throw failure }
+                delay(60_000)
+            }
+        }
+    }
     LaunchedEffect(session.signedIn, refresh) {
         if (!session.signedIn) return@LaunchedEffect
-        // Balance failures do not disable messaging or present an invented zero.
-        launch {
-            try {
-                val before = currentPointsEvent
-                val fetched = AccountGraph.chat.points(channel)
-                val latest = currentPointsEvent
-                if (latest == before || latest?.channelId != channel.id ||
-                    latest.userId != AccountGraph.auth.session.value.profile?.userId)
-                    points = fetched
-            } catch (failure: Exception) { if (failure is CancellationException) throw failure }
-        }
         launch {
             try { kicks = AccountGraph.chat.kicksBalance() }
             catch (failure: Exception) { if (failure is CancellationException) throw failure }
         }
     }
     LaunchedEffect(pointsUpdated, session.profile?.userId) {
-        pointsUpdated?.takeIf { it.channelId == channel.id && it.userId == session.profile?.userId }
+        pointsUpdated?.takeIf { session.signedIn && ChannelPointsPolicy.accepts(it, channel.id, session.profile?.userId) }
             ?.let { points = it.balance.toLong() }
     }
     LaunchedEffect(session.signedIn) {
@@ -204,11 +212,17 @@ private fun ComposerContent(
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            AnimatedPoints(points)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Icon(painterResource(R.drawable.kicks_color), stringResource(R.string.chat_kicks_balance),
-                    tint = Color.Unspecified, modifier = Modifier.size(20.dp))
-                Text(kicks?.let { FormatUtils.formatFollowersCount(it.toString()) } ?: "—", style = MaterialTheme.typography.labelMedium)
+            BalanceTooltip(points) {
+                AnimatedPoints(points, Modifier.clip(RoundedCornerShape(8.dp))
+                    .clickable(onClickLabel = stringResource(R.string.channel_points_title)) { showPointsDialog = true }
+                    .padding(vertical = 8.dp, horizontal = 4.dp))
+            }
+            BalanceTooltip(kicks, isKicks = true) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(painterResource(R.drawable.kicks_color), stringResource(R.string.chat_kicks_balance),
+                        tint = Color.Unspecified, modifier = Modifier.size(20.dp))
+                    Text(kicks?.let { FormatUtils.formatFollowersCount(it.toString()) } ?: "—", style = MaterialTheme.typography.labelMedium)
+                }
             }
             Spacer(Modifier.weight(1f))
             Button(enabled = disabledReason == null && inputBlock == null && !sending && content.isNotBlank() && validation == null,
@@ -226,6 +240,9 @@ private fun ComposerContent(
                 }) { Text(stringResource(if (sending) R.string.chat_sending else R.string.chat_send)) }
         }
         if (access == null && !loading) TextButton(onClick = { refresh++ }) { Text(stringResource(R.string.chat_retry)) }
+    }
+    if (showPointsDialog && session.signedIn) {
+        ChannelPointsDialog(channel, points, kicks, onDismiss = { showPointsDialog = false })
     }
 }
 

@@ -82,11 +82,41 @@ class PlayerHostState(
 
     var isFullscreenNavigationVisible by mutableStateOf(false)
         private set
+    var isTheaterNavigationVisible by mutableStateOf(false)
+        private set
+    val isPlayerNavigationVisible: Boolean
+        get() = if (mode == PlayerMode.Fullscreen) isFullscreenNavigationVisible
+        else mode == PlayerMode.Expanded && isTheaterMode && isTheaterNavigationVisible
+
+    val navigationOpenProgress = Animatable(1f, visibilityThreshold = 0.0005f)
+    var isDirectNavigationDrag by mutableStateOf(false)
+    var navigationWidthPx by mutableIntStateOf(0)
+    var navigationReleaseVelocity = 0f
     private var inlineChatVisible = true
     private var inlineTheaterMode = false
 
     fun updateFullscreenNavigationVisibility(visible: Boolean) {
         if (mode == PlayerMode.Fullscreen) isFullscreenNavigationVisible = visible
+    }
+
+    fun updatePlayerNavigationVisibility(visible: Boolean) {
+        when (mode) {
+            PlayerMode.Fullscreen -> isFullscreenNavigationVisible = visible
+            PlayerMode.Expanded -> if (isTheaterMode) isTheaterNavigationVisible = visible
+            else -> Unit
+        }
+    }
+
+    suspend fun snapNavigationOpenProgress(progress: Float) {
+        navigationOpenProgress.snapTo(progress.coerceIn(0f, 1f))
+    }
+
+    suspend fun animateNavigationOpenProgressTo(target: Float, initialVelocity: Float = 0f) {
+        navigationOpenProgress.animateTo(target.coerceIn(0f, 1f), spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+            visibilityThreshold = 0.0005f
+        ), initialVelocity)
     }
 
     var chatWidthFraction by mutableFloatStateOf(initialChatWidthFraction.coerceIn(0.18f, 0.60f))
@@ -160,6 +190,7 @@ class PlayerHostState(
 
     fun toggleTheaterMode() {
         isTheaterMode = !isTheaterMode
+        isTheaterNavigationVisible = false
         if (isTheaterMode) {
             isChatVisible = true
         }
@@ -247,6 +278,8 @@ class PlayerHostState(
 
     fun setFullscreen(enabled: Boolean) {
         pendingAutoFullscreen = false
+        isDirectNavigationDrag = false
+        isTheaterNavigationVisible = false
         if (enabled && mode == PlayerMode.Expanded) {
             inlineChatVisible = isChatVisible
             inlineTheaterMode = isTheaterMode
@@ -274,6 +307,8 @@ class PlayerHostState(
 
     fun minimize() {
         pendingAutoFullscreen = false
+        isDirectNavigationDrag = false
+        isTheaterNavigationVisible = false
         if (slug == null || mode == PlayerMode.Hidden) return
         if (mode == PlayerMode.Fullscreen) setFullscreen(false)
         clearExpansionSource()
@@ -299,6 +334,8 @@ class PlayerHostState(
         pageSlug = null
         isTheaterMode = false
         isFullscreenNavigationVisible = false
+        isTheaterNavigationVisible = false
+        isDirectNavigationDrag = false
         isChatVisible = true
         isDirectChatDrag = false
         expansionSource = null

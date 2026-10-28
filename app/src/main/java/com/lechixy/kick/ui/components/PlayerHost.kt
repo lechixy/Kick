@@ -134,7 +134,8 @@ fun PlayerHost(
     onExpand: () -> Unit,
     onClose: () -> Unit,
     pageContent: @Composable (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    navigationRailAvailable: Boolean = false
 ) {
     if (host.slug == null || host.mode == PlayerMode.Hidden) return
 
@@ -1055,13 +1056,17 @@ fun PlayerHost(
                     // --- Inline (geniş ekran) / Tam ekran: yatay sürükleme ile sohbeti akıcı bir şekilde gizle/aç.
                     // Büyük ekranda sağa: sohbeti kapat, ardından gezinmeyi aç.
                     // Sola: gezinmeyi kapat, ardından sohbeti aç. Telefon akışı yalnızca sohbeti yönetir.
-                    .pointerInput(mode, isInPipMode) {
+                    .pointerInput(mode, isInPipMode, navigationRailAvailable) {
                         if (mode == PlayerMode.Mini || isInPipMode) return@pointerInput
                         var totalDx = 0f
                         var startProgress = 0f
+                        var startNavigationProgress = 0f
+                        var navigationWasVisible = false
+                        var chatWasOpen = false
                         var gestureActive = false
                         var theaterGesture = false
                         var navigationGesture = false
+                        var gestureTargetChosen = false
                         val tracker = VelocityTracker()
                         val minCommitPx = 42.dp.toPx()
 
@@ -1070,6 +1075,10 @@ fun PlayerHost(
                                 gestureActive = mode == PlayerMode.Fullscreen || mode == PlayerMode.Expanded
                                 theaterGesture = mode == PlayerMode.Expanded && !host.isTheaterMode
                                 navigationGesture = false
+                                gestureTargetChosen = false
+                                navigationWasVisible = host.isPlayerNavigationVisible
+                                chatWasOpen = host.isSideChatOpen(metrics.safeArea.width >= wideBreakpointPx)
+                                startNavigationProgress = host.navigationOpenProgress.value
                                 totalDx = 0f
                                 tracker.resetTracking()
                                 if (gestureActive) {
@@ -1081,11 +1090,20 @@ fun PlayerHost(
                                 if (!gestureActive) return@detectHorizontalDragGestures
                                 totalDx += dx
                                 tracker.addPosition(change.uptimeMillis, change.position)
-                                val tablet = configuration.smallestScreenWidthDp >= 600
-                                if (navigationGesture || (tablet && mode == PlayerMode.Fullscreen &&
-                                    (host.isFullscreenNavigationVisible ||
-                                        (!host.isSideChatOpen(isWide = true) && totalDx > 0f)))) {
-                                    navigationGesture = true
+                                val canDragNavigation = navigationRailAvailable &&
+                                    (mode == PlayerMode.Fullscreen || (mode == PlayerMode.Expanded && host.isTheaterMode))
+                                if (!gestureTargetChosen) {
+                                    navigationGesture = canDragNavigation &&
+                                        (navigationWasVisible || (!chatWasOpen && totalDx > 0f))
+                                    gestureTargetChosen = true
+                                }
+                                if (navigationGesture) {
+                                    host.isDirectNavigationDrag = true
+                                    host.isDirectChatDrag = false
+                                    val railWidth = host.navigationWidthPx.coerceAtLeast(1)
+                                    scope.launch {
+                                        host.snapNavigationOpenProgress(startNavigationProgress + totalDx / railWidth)
+                                    }
                                     return@detectHorizontalDragGestures
                                 }
                                 if (theaterGesture && totalDx < 0f) return@detectHorizontalDragGestures
@@ -1100,7 +1118,10 @@ fun PlayerHost(
                                 }
                             },
                             onDragCancel = {
-                                if (gestureActive) {
+                                if (navigationGesture) {
+                                    host.navigationReleaseVelocity = 0f
+                                    host.isDirectNavigationDrag = false
+                                } else if (gestureActive) {
                                     val wide = metrics.safeArea.width >= wideBreakpointPx
                                     val target = if (host.isSideChatOpen(wide)) 1f else 0f
                                     host.isDirectChatDrag = false
@@ -1122,9 +1143,15 @@ fun PlayerHost(
                                 val commitPx = min(minCommitPx, chatMaxPx * 0.25f)
                                 val vx = tracker.calculateVelocity().x
                                 if (navigationGesture) {
-                                    if (kotlin.math.abs(totalDx) >= minCommitPx || kotlin.math.abs(vx) >= 550f) {
-                                        host.updateFullscreenNavigationVisibility(totalDx > 0f)
+                                    val railWidth = host.navigationWidthPx.coerceAtLeast(1)
+                                    val targetOpen = if (navigationWasVisible) {
+                                        !(totalDx < 0f && (-totalDx >= minCommitPx || vx <= -550f) && vx < 350f)
+                                    } else {
+                                        totalDx > 0f && (totalDx >= minCommitPx || vx >= 550f) && vx > -350f
                                     }
+                                    host.navigationReleaseVelocity = (vx / railWidth).coerceIn(-8f, 8f)
+                                    host.updatePlayerNavigationVisibility(targetOpen)
+                                    host.isDirectNavigationDrag = false
                                     host.isDirectChatDrag = false
                                     gestureActive = false
                                     return@detectHorizontalDragGestures

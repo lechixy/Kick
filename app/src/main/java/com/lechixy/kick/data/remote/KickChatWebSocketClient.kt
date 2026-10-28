@@ -184,7 +184,10 @@ class KickChatWebSocketClient(
                     })?.get("data")?.let { it as? JsonObject }?.get("token")
                     ?.let { it as? JsonPrimitive }?.content
             } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-              catch (_: Exception) { null } else null
+              catch (_: Exception) {
+                  Log.w(tag, "Authenticated chat unavailable; private channel points updates unavailable until reconnect")
+                  null
+              } else null
             val token = authenticatedToken ?: api.getRealtimeAuth(authReq).data?.token.orEmpty()
 
             val request = Request.Builder()
@@ -298,7 +301,7 @@ class KickChatWebSocketClient(
                         webSocket.send("{}")
                         return@forEach
                     }
-                    handleFrame(frameText, channelId, chatroomId)
+                    handleFrame(frameText, channelId, chatroomId, clientId.toLongOrNull().takeIf { authenticated })
                 }
         }
 
@@ -321,7 +324,7 @@ class KickChatWebSocketClient(
         }
     }
 
-    private fun handleFrame(frameText: String, channelId: Long, chatroomId: Long) {
+    private fun handleFrame(frameText: String, channelId: Long, chatroomId: Long, authenticatedUserId: Long?) {
         try {
             // Check for Centrifugo disconnect or unsubscribe frames (e.g., token expired)
             if (frameText.contains("\"disconnect\"") || frameText.contains("\"unsubscribe\"")) {
@@ -475,8 +478,11 @@ class KickChatWebSocketClient(
 
                 "PointsUpdated",
                 "App\\Events\\PointsUpdated" -> {
+                    if (!com.lechixy.kick.data.account.ChannelPointsPolicy.acceptsPublication(
+                            pushFrame.push?.channel ?: pushFrame.channel, authenticatedUserId)) return
                     val data = rawData ?: return
                     val event = decodeEventPayload<PointsUpdatedEvent>(data) ?: return
+                    if (!com.lechixy.kick.data.account.ChannelPointsPolicy.accepts(event, channelId, authenticatedUserId)) return
                     _pointsUpdated.value = event
                     _events.tryEmit(ChatWebSocketEvent.PointsUpdated(event))
                 }
@@ -620,6 +626,8 @@ class KickChatWebSocketClient(
         connectionJob?.cancel()
         reconnectJob?.cancel()
         heartbeatJob?.cancel()
+        // Private publications belong to this connection's account, even when keeping public chat history.
+        _pointsUpdated.value = null
         webSocket?.close(1000, "Disconnect requested")
         webSocket = null
         if (clearMessages) {
@@ -628,7 +636,6 @@ class KickChatWebSocketClient(
             _messages.value = emptyList()
             _pinnedMessage.value = null
             _userColors.value = emptyMap()
-            _pointsUpdated.value = null
         }
         _connectionState.value = ChatConnectionState.DISCONNECTED
     }

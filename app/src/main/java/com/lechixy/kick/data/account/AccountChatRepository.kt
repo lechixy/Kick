@@ -62,6 +62,12 @@ class AccountChatRepository(private val auth: AuthRepository) {
     suspend fun kicksBalance(): Long = auth.request("https://web.kick.com/api/v1/kicks/balance")["data"]!!
         .jsonObject["balance"]!!.jsonObject["available"]!!.jsonPrimitive.long
 
+    suspend fun rewards(channel: ChannelDetail): List<ChannelReward> {
+        require(channel.slug.matches(Regex("[A-Za-z0-9_-]+")))
+        return parseChannelRewards(auth.requestElement(
+            "https://kick.com/api/v2/channels/${channel.slug}/rewards?is_enabled=true"))
+    }
+
     data class Cooldown(val remainingMillis: Long, val totalMillis: Long)
 
     fun cooldown(channelId: Long, access: ChatAccess): Cooldown {

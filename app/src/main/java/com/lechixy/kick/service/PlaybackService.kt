@@ -56,7 +56,9 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var progressTracker: PlaybackProgressTracker? = null
     private val viewerTracking = com.lechixy.kick.data.remote.ViewerTrackingClient(
-        CoroutineScope(serviceScope.coroutineContext + Dispatchers.Main.immediate)
+        // Keep metadata decoding and websocket work off the player/UI thread.
+        // A serial dispatcher also keeps the tracking heartbeat state confined.
+        CoroutineScope(serviceScope.coroutineContext + Dispatchers.Default.limitedParallelism(1))
     )
 
     @OptIn(UnstableApi::class)

@@ -574,7 +574,9 @@ fun ChannelScreen(
                 )
 
                 layout(totalW, totalH) {
-                    mainPlaceable?.place(0, 0)
+                    // Keep inline measurements for the return transition, but never draw
+                    // channel details behind the fullscreen player or fading side chat.
+                    if (!isFullScreen) mainPlaceable?.place(0, 0)
                     if (sideChatPlaceable != null && currentChatW > 0) {
                         sideChatPlaceable.place(totalW - currentChatW, 0)
                     }

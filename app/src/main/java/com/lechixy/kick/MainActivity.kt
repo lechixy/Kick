@@ -59,6 +59,10 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
+import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.core.app.PictureInPictureModeChangedInfo
@@ -242,8 +246,17 @@ fun KickApp() {
     val isScaffoldHidden = if (useBottomBar) {
         playerHost.isChannelVisible || playerHost.mode == PlayerMode.Fullscreen || isInPipMode
     } else {
-        (playerHost.mode == PlayerMode.Fullscreen && !playerHost.isFullscreenNavigationVisible) ||
-                (playerHost.mode == PlayerMode.Expanded && playerHost.isTheaterMode) || isInPipMode
+        ((playerHost.mode == PlayerMode.Fullscreen ||
+                (playerHost.mode == PlayerMode.Expanded && playerHost.isTheaterMode)) &&
+                !playerHost.isPlayerNavigationVisible) || isInPipMode
+    }
+
+    LaunchedEffect(isScaffoldHidden, playerHost.isDirectNavigationDrag) {
+        if (!playerHost.isDirectNavigationDrag) {
+            val velocity = playerHost.navigationReleaseVelocity
+            playerHost.navigationReleaseVelocity = 0f
+            playerHost.animateNavigationOpenProgressTo(if (isScaffoldHidden) 0f else 1f, velocity)
+        }
     }
 
     Surface(
@@ -254,6 +267,8 @@ fun KickApp() {
         Box(Modifier.fillMaxSize()) {
             KickNavScaffold(
                 hidden = isScaffoldHidden,
+                navigationProgress = { playerHost.navigationOpenProgress.value },
+                onNavigationWidthChanged = { playerHost.navigationWidthPx = it },
                 currentRoute = currentRoute,
                 onNavigate = { targetRoute ->
                     if (playerHost.isChannelVisible) playerHost.minimize()
@@ -387,9 +402,9 @@ fun KickApp() {
                             )
                         }
 
-                        composable("events") {
-                            EventsScreen()
-                        }
+//                        composable("events") {
+//                            EventsScreen()
+//                        }
 
                         composable("settings") {
                             SettingsScreen(
@@ -458,6 +473,7 @@ fun KickApp() {
 
                     PlayerHost(
                         host = playerHost,
+                        navigationRailAvailable = !useBottomBar,
                         isInPipMode = isInPipMode,
                         onMinimize = playerHost::minimize,
                         onExpand = playerHost::expand,
@@ -491,6 +507,8 @@ internal fun KickNavScaffold(
     hidden: Boolean,
     currentRoute: String?,
     onNavigate: (String) -> Unit,
+    navigationProgress: (() -> Float)? = null,
+    onNavigationWidthChanged: (Int) -> Unit = {},
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -561,26 +579,37 @@ internal fun KickNavScaffold(
             }
         }
     } else {
-        Row(Modifier.fillMaxSize()) {
-            AnimatedVisibility(
-                visible = !hidden,
-                enter = slideInHorizontally { -it } + expandHorizontally(),
-                exit = slideOutHorizontally { -it } + shrinkHorizontally()
-            ) {
-                NavigationRail { RailBarItems() }
-            }
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .let {
-                        if (hidden) it else it.consumeWindowInsets(
-                            WindowInsets.systemBars.only(
-                                WindowInsetsSides.Start
-                            )
-                        )
-                    }
-            ) { sharedContent() }
+        val fallbackProgress = androidx.compose.animation.core.animateFloatAsState(
+            if (hidden) 0f else 1f, label = "navigation rail")
+        KickRailLayout(
+            navigationProgress = { navigationProgress?.invoke() ?: fallbackProgress.value },
+            onNavigationWidthChanged = onNavigationWidthChanged,
+            navigation = { NavigationRail { RailBarItems() } },
+            content = { sharedContent() }
+        )
+    }
+}
+
+@Composable
+internal fun KickRailLayout(
+    navigationProgress: () -> Float,
+    onNavigationWidthChanged: (Int) -> Unit = {},
+    navigation: @Composable () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Layout(contents = listOf(navigation, { Box(Modifier.fillMaxSize()) { content() } }),
+        modifier = Modifier.fillMaxSize().clipToBounds()) { (navigationItems, body), constraints ->
+        val rail = navigationItems.single().measure(constraints.copy(minWidth = 0))
+        onNavigationWidthChanged(rail.width)
+        // Read progress during measurement so each drag event resizes the page without
+        // recomposing or recreating its player, just like the side chat panel.
+        val visibleWidth = (rail.width * navigationProgress().coerceIn(0f, 1f))
+            .roundToInt().coerceIn(0, constraints.maxWidth)
+        val page = body.single().measure(Constraints.fixed(
+            constraints.maxWidth - visibleWidth, constraints.maxHeight))
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            if (visibleWidth > 0) rail.placeRelative(visibleWidth - rail.width, 0)
+            page.placeRelative(visibleWidth, 0)
         }
     }
 }

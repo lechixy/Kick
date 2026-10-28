@@ -486,7 +486,7 @@ fun KickPlayerView(
         }
     }
 
-    LaunchedEffect(player, stableId, playbackUrl, lowLatencyEnabled, channel?.livestream?.vodId) {
+    LaunchedEffect(player, stableId, playbackUrl, lowLatencyEnabled) {
         val p = player ?: return@LaunchedEffect
         if (playbackUrl.isBlank()) return@LaunchedEffect
 
@@ -500,15 +500,8 @@ fun KickPlayerView(
                     lowLatencyEnabled
                 ) == lowLatencyEnabled
         if (alreadyLoaded) {
-            val vodId = channel?.livestream?.vodId
-            if (isLiveStream && currentItem.mediaMetadata.extras?.getString(com.lechixy.kick.service.EXTRA_VIEWER_VOD_ID) != vodId) {
-                val extras = android.os.Bundle(currentItem.mediaMetadata.extras ?: android.os.Bundle()).apply {
-                    putString(com.lechixy.kick.service.EXTRA_VIEWER_VOD_ID, vodId)
-                }
-                p.replaceMediaItem(p.currentMediaItemIndex, currentItem.buildUpon().setMediaMetadata(
-                    currentItem.mediaMetadata.buildUpon().setExtras(extras).build()
-                ).build())
-            }
+            // ViewerTrackingClient resolves missing VOD metadata independently. Updating
+            // tracking metadata must not replace the media item of an active HLS stream.
             loadedMediaId = stableId
             isPlayerReady = p.playbackState == Player.STATE_READY
             hasRenderedFirstFrame = p.isPlaying || isPlayerReady

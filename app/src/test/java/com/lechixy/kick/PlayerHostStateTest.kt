@@ -8,6 +8,31 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PlayerHostStateTest {
+    @Test fun theaterNavigationCanOpenAfterChatClosesAndCloseAgain() {
+        val host = liveHost()
+        host.toggleTheaterMode()
+        host.setSideChatVisible(false, isWide = true)
+        assertTrue(host.isTheaterMode)
+        assertFalse(host.isSideChatOpen(isWide = true))
+        host.updatePlayerNavigationVisibility(true)
+        assertTrue(host.isPlayerNavigationVisible)
+        host.updatePlayerNavigationVisibility(false)
+        assertFalse(host.isPlayerNavigationVisible)
+        assertFalse(host.isSideChatOpen(isWide = true))
+    }
+
+    @Test fun navigationDragIsResetWhenLeavingTheaterOrMinimizing() {
+        val host = liveHost()
+        host.toggleTheaterMode()
+        host.updatePlayerNavigationVisibility(true)
+        host.isDirectNavigationDrag = true
+        host.minimize()
+        assertFalse(host.isDirectNavigationDrag)
+        assertFalse(host.isTheaterNavigationVisible)
+        host.expand()
+        assertFalse(host.isPlayerNavigationVisible)
+    }
+
     private fun liveHost() = PlayerHostState().apply {
         open("one")
         onChannelLoaded("one", ChannelDetail(1, slug = "one", livestream = ChannelLivestream(1)))
