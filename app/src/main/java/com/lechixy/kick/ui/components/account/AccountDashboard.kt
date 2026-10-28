@@ -6,13 +6,44 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,9 +61,12 @@ import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import coil3.gif.AnimatedImageDecoder
 import com.lechixy.kick.R
-import com.lechixy.kick.data.account.*
-import kotlinx.coroutines.launch
+import com.lechixy.kick.data.account.AccountDashboardState
+import com.lechixy.kick.data.account.AccountGraph
+import com.lechixy.kick.data.account.AccountProfile
+import com.lechixy.kick.data.account.AccountStreak
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @Composable
@@ -96,7 +130,7 @@ internal fun AccountDashboard(onChannelClick: (String) -> Unit, onDismiss: () ->
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Icon(painterResource(R.drawable.account_logout), contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(painterResource(R.drawable.logout_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.account_logout), fontWeight = FontWeight.Bold)
                 }
@@ -126,7 +160,7 @@ private fun GamificationCard(state: AccountDashboardState, profile: AccountProfi
                         contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                     FilledIconButton(onClick = onEdit, modifier = Modifier.align(Alignment.TopStart).padding(6.dp).size(32.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))) {
-                        Icon(painterResource(R.drawable.account_edit), contentDescription = stringResource(R.string.account_edit_profile), modifier = Modifier.size(16.dp))
+                        Icon(painterResource(R.drawable.edit_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = stringResource(R.string.account_edit_profile), modifier = Modifier.size(16.dp))
                     }
                     if (level != null) Surface(modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
                         shape = CircleShape, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)) {
@@ -176,7 +210,7 @@ private fun StreakCard(streak: AccountStreak?) {
     Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(painterResource(R.drawable.account_bolt), contentDescription = null, tint = accent)
+            Icon(painterResource(R.drawable.bolt_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = null, tint = accent)
             Column {
                 Text(if (days == null) "—" else stringResource(R.string.account_streak_days, days),
                     fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
@@ -200,7 +234,7 @@ private fun StreakCard(streak: AccountStreak?) {
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
         Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(painterResource(R.drawable.account_info), contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(painterResource(R.drawable.info_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(stringResource(if ((days ?: 0) > 0) R.string.account_streak_keep else R.string.account_streak_activate),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

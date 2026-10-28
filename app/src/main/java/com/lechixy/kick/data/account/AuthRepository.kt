@@ -33,6 +33,8 @@ class AuthRepository(
     private val lock = Any()
     private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
         .retryOnConnectionFailure(false).callTimeout(20, TimeUnit.SECONDS).build()
+    // Recover stale connections for reads without automatically replaying account mutations.
+    private val readClient = client.newBuilder().retryOnConnectionFailure(true).build()
     private var stored = restore()
     private val mutableSession = MutableStateFlow(AccountSession(
         status = if (stored == null) SessionStatus.Guest else SessionStatus.Authenticated,
@@ -122,6 +124,8 @@ class AuthRepository(
 
     suspend fun requestArray(url: String): JsonArray = requestJson(url, "GET", null).jsonArray
 
+    suspend fun requestElement(url: String): JsonElement = requestJson(url, "GET", null)
+
     private suspend fun requestJson(url: String, method: String, body: JsonObject?): JsonElement {
         val (current, generation) = synchronized(lock) {
             check(session.value.signedIn) { "Sign in required" }
@@ -172,10 +176,19 @@ class AuthRepository(
 
     private suspend fun execute(request: Request): JsonElement = withContext(Dispatchers.IO) {
         transport?.let { return@withContext it(request) }
-        client.newCall(request).execute().use { response ->
+        val address = "${request.url.scheme}://${request.url.host}${request.url.encodedPath}"
+        val start = System.nanoTime()
+        accountDiagnostic("KickAccountApi", "--> ${request.method} $address")
+        try { (if (request.method == "GET") readClient else client).newCall(request).execute().use { response ->
+            val elapsedMs = (System.nanoTime() - start) / 1_000_000
+            accountDiagnostic("KickAccountApi", "<-- ${response.code} $address (${elapsedMs}ms, contentType=${response.body.contentType()})")
             if (!response.isSuccessful) throw AccountApiException(response.code, response.header("Retry-After")?.toLongOrNull())
             val text = response.body.string()
             if (text.isBlank()) buildJsonObject {} else json.parseToJsonElement(text)
+        } } catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            accountDiagnostic("KickAccountApi", "Request failed: ${request.method} $address type=${error.javaClass.simpleName} reason=${accountNetworkFailureCode(error)}")
+            throw error
         }
     }
 

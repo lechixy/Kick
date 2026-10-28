@@ -1,14 +1,12 @@
 package com.lechixy.kick.ui.components
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.lechixy.kick.ui.components.account.AccountButton
+import com.lechixy.kick.ui.components.account.ChallengesButton
 
 @Composable
 fun HomeTopBar(
@@ -17,38 +15,14 @@ fun HomeTopBar(
     onChannelClick: (String) -> Unit = {}
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically
     ) {
-        ColoredAppText()
-        com.lechixy.kick.ui.components.account.AccountButton(onChannelClick = onChannelClick)
-//        Image(
-//            painter = painterResource(id = R.drawable.kick_logo),
-//            contentDescription = "KICK",
-//            modifier = Modifier.height(28.dp),
-//            contentScale = ContentScale.Fit
-//        )
-
-//        Row(
-//            verticalAlignment = Alignment.CenterVertically,
-//            horizontalArrangement = Arrangement.spacedBy(4.dp)
-//        ) {
-//            IconButton(onClick = onSearchClick) {
-//                Icon(
-//                    painter = painterResource(id = R.drawable.search_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-//                    contentDescription = "Search"
-//                )
-//            }
-//            IconButton(onClick = onSettingsClick) {
-//                Icon(
-//                    painter = painterResource(id = R.drawable.settings_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-//                    contentDescription = "Settings"
-//                )
-//            }
-//        }
+        Box(Modifier.weight(1f)) { ColoredAppText() }
+        Row(Modifier.widthIn(max = 232.dp), horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            ChallengesButton()
+            AccountButton(onChannelClick = onChannelClick, modifier = Modifier.weight(1f, fill = false))
+        }
     }
 }

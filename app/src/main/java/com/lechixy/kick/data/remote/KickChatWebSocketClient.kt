@@ -342,6 +342,12 @@ class KickChatWebSocketClient(
             val eventType = publication.eventName ?: return
 
             when (eventType) {
+                "GamificationWatchTimeGoalReached", "App\\Events\\GamificationWatchTimeGoalReached" -> {
+                    rawData?.let { payload ->
+                        com.lechixy.kick.data.account.AccountGraph.challenges.onGoalReached(
+                            pushFrame.push?.channel ?: pushFrame.channel, payload)
+                    }
+                }
                 "App\\Events\\ChatroomUpdatedEvent", "ChatroomUpdatedEvent",
                 "App\\Events\\ChatSettingsChanged", "ChatSettingsChanged" -> {
                     val payload = rawData?.let { decodeEventPayload<JsonObject>(it) } ?: return
