@@ -54,6 +54,18 @@ class KickRepository(
             .livestreams
     }
 
+    suspend fun getRecommendedLivestreams(language: String): List<Livestream> {
+        return try {
+            api.getRecommendedLivestreams(language = language).livestreams
+        } catch (error: HttpException) {
+            if (error.code() !in setOf(401, 403)) throw error
+            // Kick can reject anonymous recommendations; retain the working public home feed.
+            api.getLivestreams(limit = 14, language = language).data.livestreams
+        }
+    }
+
+    suspend fun getLiveTotals() = api.getLiveTotals().data
+
     suspend fun getChannel(slug: String): ChannelDetail {
         val fullUrl = "https://kick.com/api/v2/channels/$slug"
         return api.getChannel(fullUrl)

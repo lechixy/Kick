@@ -80,6 +80,15 @@ class PlayerHostState(
 
     var isChatVisible by mutableStateOf(true)
 
+    var isFullscreenNavigationVisible by mutableStateOf(false)
+        private set
+    private var inlineChatVisible = true
+    private var inlineTheaterMode = false
+
+    fun updateFullscreenNavigationVisibility(visible: Boolean) {
+        if (mode == PlayerMode.Fullscreen) isFullscreenNavigationVisible = visible
+    }
+
     var chatWidthFraction by mutableFloatStateOf(initialChatWidthFraction.coerceIn(0.18f, 0.60f))
 
     /**
@@ -191,6 +200,7 @@ class PlayerHostState(
     }
 
     fun open(slug: String, source: com.lechixy.kick.ui.components.ExpansionSource? = null) {
+        if (mode == PlayerMode.Fullscreen) setFullscreen(false)
         if (this.slug != slug) {
             recording = null
             channel = null
@@ -217,12 +227,13 @@ class PlayerHostState(
         if (detail.livestream == null && recording == null) {            // Canlı veya kayıt yoksa player/mini olmasın
             pendingAutoFullscreen = false
             activeLiveAnnouncementId = null
-            isTheaterMode = false
             when (mode) {
-                PlayerMode.Fullscreen -> mode = PlayerMode.Expanded
+                PlayerMode.Fullscreen -> setFullscreen(false)
                 PlayerMode.Mini -> close()
                 else -> Unit
             }
+            isTheaterMode = false
+            isFullscreenNavigationVisible = false
         }
     }
 
@@ -230,14 +241,25 @@ class PlayerHostState(
         if (!pendingAutoFullscreen) return
         pendingAutoFullscreen = false
         if (enterFullscreen && mode == PlayerMode.Expanded && channel?.livestream != null) {
-            mode = PlayerMode.Fullscreen
+            setFullscreen(true)
         }
     }
 
     fun setFullscreen(enabled: Boolean) {
         pendingAutoFullscreen = false
-        if (enabled && mode == PlayerMode.Expanded) mode = PlayerMode.Fullscreen
-        else if (!enabled && mode == PlayerMode.Fullscreen) mode = PlayerMode.Expanded
+        if (enabled && mode == PlayerMode.Expanded) {
+            inlineChatVisible = isChatVisible
+            inlineTheaterMode = isTheaterMode
+            isFullscreenNavigationVisible = false
+            isDirectChatDrag = false
+            mode = PlayerMode.Fullscreen
+        } else if (!enabled && mode == PlayerMode.Fullscreen) {
+            mode = PlayerMode.Expanded
+            isChatVisible = inlineChatVisible
+            isTheaterMode = inlineTheaterMode
+            isFullscreenNavigationVisible = false
+            isDirectChatDrag = false
+        }
     }
 
     fun requestClose() {
@@ -253,11 +275,15 @@ class PlayerHostState(
     fun minimize() {
         pendingAutoFullscreen = false
         if (slug == null || mode == PlayerMode.Hidden) return
+        if (mode == PlayerMode.Fullscreen) setFullscreen(false)
+        clearExpansionSource()
+        isDirectChatDrag = false
         val offline = recording == null && (channel == null || channel?.livestream == null)
         if (offline) requestClose() else mode = PlayerMode.Mini   // Oynatılacak içerik yoksa kapat
     }
 
     fun expand() {
+        clearExpansionSource()
         if (slug != null) mode = PlayerMode.Expanded
         dragOffsetY = 0f
     }
@@ -272,6 +298,7 @@ class PlayerHostState(
         recording = null
         pageSlug = null
         isTheaterMode = false
+        isFullscreenNavigationVisible = false
         isChatVisible = true
         isDirectChatDrag = false
         expansionSource = null

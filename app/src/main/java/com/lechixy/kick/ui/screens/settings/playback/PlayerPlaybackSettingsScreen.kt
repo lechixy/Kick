@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.lechixy.kick.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lechixy.kick.data.settings.SettingsKeys
@@ -24,7 +26,7 @@ fun PlayerPlaybackSettingsScreen(
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        topBar = { SettingsTopBar(title = "Player & Playback", onBackClick = onBackClick) }
+        topBar = { SettingsTopBar(title = stringResource(R.string.player_playback), onBackClick = onBackClick) }
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -39,30 +41,30 @@ fun PlayerPlaybackSettingsScreen(
             ) {
                 item {
                     SettingSection(
-                        title = "Player",
-                        description = "Oynatıcı ve video ayarları"
+                        title = stringResource(R.string.player_section),
+                        description = stringResource(R.string.player_section_description)
                     ) {
                         SettingSwitch(
                             key = SettingsKeys.PIP_ENABLED,
-                            title = "Resim İçinde Resim (PiP)",
-                            description = "Uygulamadan çıkıldığında yayını küçük ekranda oynat"
+                            title = stringResource(R.string.player_pip),
+                            description = stringResource(R.string.player_pip_description)
                         )
                         SettingSwitch(
                             key = SettingsKeys.LOW_LATENCY,
-                            title = "Düşük Gecikme Modu (Low Latency)",
-                            description = "Web sitesi ile anlık senkronize yayın (~2s gecikme). Güçlü internet bağlantısı gerektirir."
+                            title = stringResource(R.string.player_low_latency),
+                            description = stringResource(R.string.player_low_latency_description)
                         )
                         SettingSwitch(
                             key = SettingsKeys.AUTO_FULLSCREEN_LIVE,
-                            title = "Otomatik Tam Ekran (Auto Fullscreen)",
-                            description = "Kanala girildiğinde yayın canlıysa ve oynatıcı yüklendiyse hemen tam ekrana geç"
+                            title = stringResource(R.string.player_auto_fullscreen),
+                            description = stringResource(R.string.player_auto_fullscreen_description)
                         )
                         SettingDropdown(
                             key = SettingsKeys.VIDEO_QUALITY,
-                            title = "Varsayılan Video Kalitesi",
-                            description = "Mobil ve Wi-Fi üzerindeki başlangıç çözünürlüğü",
+                            title = stringResource(R.string.player_default_quality),
+                            description = stringResource(R.string.player_default_quality_description),
                             options = listOf(
-                                -1 to "Auto",
+                                -1 to stringResource(R.string.player_auto),
                                 160 to "160p",
                                 360 to "360p",
                                 480 to "480p",
@@ -72,8 +74,8 @@ fun PlayerPlaybackSettingsScreen(
                         )
                         SettingSlider(
                             key = SettingsKeys.CHAT_FONT_SIZE,
-                            title = "Sohbet Yazı Boyutu",
-                            description = "Yayın içi sohbet mesajlarının yazı tipi boyutu",
+                            title = stringResource(R.string.player_chat_font),
+                            description = stringResource(R.string.player_chat_font_description),
                             valueRange = 10f..24f,
                             steps = 13,
                             valueFormatter = { "${it}sp" }

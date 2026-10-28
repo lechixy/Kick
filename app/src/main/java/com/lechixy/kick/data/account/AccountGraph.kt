@@ -14,11 +14,14 @@ object AccountGraph {
         private set
     lateinit var chat: AccountChatRepository
         private set
+    lateinit var dashboard: AccountDashboardRepository
+        private set
     fun init(context: Context) {
         if (::auth.isInitialized) return
         auth = AuthRepository(SecureSessionStore(context.applicationContext))
         following = FollowingRepository(auth, scope)
         chat = AccountChatRepository(auth)
+        dashboard = AccountDashboardRepository(auth, scope)
         scope.launch {
             auth.session.map { it.signedIn to it.generation }.distinctUntilChanged().collect { (signedIn, _) ->
                 chat.clearSession()

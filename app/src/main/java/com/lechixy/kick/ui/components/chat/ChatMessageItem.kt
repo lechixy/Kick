@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -370,6 +371,7 @@ fun ChatMessageItem(
 
             Text(
                 text = parsedReply.annotatedString,
+                fontStyle = if (originalMessage.messageDeleted != null) FontStyle.Italic else FontStyle.Normal,
                 inlineContent = parsedReply.inlineContent,
                 fontSize = replyFontSizeSp.sp,
                 lineHeight = (replyFontSizeSp + 3).sp,
@@ -382,6 +384,7 @@ fun ChatMessageItem(
 
         Text(
             text = parsedMessage.annotatedString,
+            fontStyle = if (message.isDeleted || message.sender == null) FontStyle.Italic else FontStyle.Normal,
             inlineContent = parsedMessage.inlineContent,
             fontSize = fontSizeSp.sp,
             lineHeight = (fontSizeSp + 5).sp,
@@ -503,6 +506,7 @@ fun ChatEventBaseItem(
     ) {
         Text(
             text = parsedHeader.annotatedString,
+            fontStyle = FontStyle.Italic,
             inlineContent = parsedHeader.inlineContent,
             fontSize = headerFontSizeSp.sp,
             lineHeight = (headerFontSizeSp + 4).sp,

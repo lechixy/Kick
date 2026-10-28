@@ -53,6 +53,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -231,7 +232,8 @@ fun KickApp() {
     val isScaffoldHidden = if (useBottomBar) {
         playerHost.isChannelVisible || playerHost.mode == PlayerMode.Fullscreen || isInPipMode
     } else {
-        playerHost.mode == PlayerMode.Fullscreen || playerHost.isTheaterMode || isInPipMode
+        (playerHost.mode == PlayerMode.Fullscreen && !playerHost.isFullscreenNavigationVisible) ||
+            (playerHost.mode == PlayerMode.Expanded && playerHost.isTheaterMode) || isInPipMode
     }
 
     Surface(
@@ -315,7 +317,8 @@ fun KickApp() {
                             HomeScreen(
                                 viewModel = homeViewModel,
                                 onStreamClick = { channelSlug, source -> openChannel(channelSlug, source) },
-                                onSettingsClick = { navController.navigate("settings") }
+                                onSettingsClick = { navController.navigate("settings") },
+                                onFollowingClick = { navController.navigate("following") { launchSingleTop = true } }
                             )
                         }
 
@@ -416,7 +419,7 @@ fun KickApp() {
 }
 
 @Composable
-private fun KickNavScaffold(
+internal fun KickNavScaffold(
     hidden: Boolean,
     currentRoute: String?,
     onNavigate: (String) -> Unit,
@@ -426,7 +429,8 @@ private fun KickNavScaffold(
     val type =
         NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(currentWindowAdaptiveInfoV2())
     val useBottomBar = type.toString().contains("NavigationBar", ignoreCase = true)
-    val sharedContent = remember(content) { movableContentOf(content) }
+    val latestContent by rememberUpdatedState(content)
+    val sharedContent = remember { movableContentOf { latestContent() } }
 
     @Composable
     fun RowScope.BottomBarItems() {

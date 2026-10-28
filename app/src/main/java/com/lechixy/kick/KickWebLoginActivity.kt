@@ -1,47 +1,76 @@
 package com.lechixy.kick
 
+import android.graphics.Bitmap
+import android.os.Build
 import android.os.Bundle
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lechixy.kick.data.account.AccountGraph
 import com.lechixy.kick.data.account.AuthRepository
 import com.lechixy.kick.data.account.SessionStatus
 import com.lechixy.kick.data.account.userMessage
-import com.lechixy.kick.ui.components.account.createKickLoginWebViewContainer
+import com.lechixy.kick.data.settings.SettingsKeys
+import com.lechixy.kick.data.settings.SettingsRepository
+import com.lechixy.kick.ui.components.account.*
+import com.lechixy.kick.ui.theme.KickTheme
+import com.lechixy.kick.ui.theme.Theme
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
-/** Login directly on Kick; only the verified session is retained in encrypted device storage. */
+/** Login directly on Kick; only the verified Kick session is retained in encrypted storage. */
+@AndroidEntryPoint
 class KickWebLoginActivity : ComponentActivity() {
+    @Inject lateinit var settingsRepository: SettingsRepository
     private var webView: WebView? = null
     private var verifying by mutableStateOf(false)
     private var ready by mutableStateOf(false)
+    private var pageProgress by mutableIntStateOf(0)
+    private var currentUrl by mutableStateOf(KICK_LOGIN_URL)
     private var error by mutableStateOf<String?>(null)
     private var attemptedCookies: String? = null
     private var generation = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= 34) {
+            overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, R.anim.login_enter, R.anim.login_hold)
+            overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, R.anim.login_hold, R.anim.login_exit)
+        } else {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(R.anim.login_enter, R.anim.login_hold)
+        }
         generation = AccountGraph.auth.startLogin()
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
-            removeAllCookies { flush(); ready = true }
+            removeAllCookies { flush(); if (!isDestroyed) ready = true }
         }
         WebStorage.getInstance().deleteAllData()
         lifecycleScope.launch {
@@ -49,8 +78,6 @@ class KickWebLoginActivity : ComponentActivity() {
                 if (it.generation != generation) finish()
             }
         }
-        // Kick can complete login through client-side routing without another
-        // onPageFinished callback. Only inspect this WebView's own cookie jar.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 while (isActive) {
@@ -60,49 +87,139 @@ class KickWebLoginActivity : ComponentActivity() {
             }
         }
         setContent {
-            MaterialTheme {
-                Surface(Modifier.fillMaxSize()) {
-                    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                        Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Kick ile giriş yap", style = MaterialTheme.typography.titleMedium)
-                            TextButton(onClick = { finish() }) { Text("Kapat") }
+            val theme by settingsRepository.get(SettingsKeys.THEME)
+                .collectAsStateWithLifecycle(initialValue = SettingsKeys.THEME.defaultValue)
+            val dynamicColor by settingsRepository.get(SettingsKeys.DYNAMIC_COLOR)
+                .collectAsStateWithLifecycle(initialValue = SettingsKeys.DYNAMIC_COLOR.defaultValue)
+            val selectedTheme = when (theme) {
+                "light" -> Theme.LIGHT
+                "dark" -> Theme.DARK
+                "amoled" -> Theme.AMOLED
+                else -> Theme.SYSTEM
+            }
+            KickTheme(theme = selectedTheme, dynamicColor = dynamicColor) {
+                val surface = MaterialTheme.colorScheme.surface
+                SideEffect {
+                    WindowCompat.getInsetsController(window, window.decorView).apply {
+                        isAppearanceLightStatusBars = surface.luminance() > 0.5f
+                        isAppearanceLightNavigationBars = surface.luminance() > 0.5f
+                    }
+                    window.isNavigationBarContrastEnforced = false
+                }
+                BackHandler {
+                    val view = webView
+                    if (view?.canGoBack() == true) view.goBack() else finish()
+                }
+                Surface(Modifier.fillMaxSize(), color = surface) {
+                    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            Text(stringResource(R.string.web_login_title), style = MaterialTheme.typography.titleMedium)
+                            TextButton(onClick = { finish() }) { Text(stringResource(R.string.web_login_close)) }
                         }
-                        Text("Kick hesabınızla giriş yapın.", Modifier.padding(horizontal = 12.dp))
-                        if (verifying) {
+                        Text(
+                            stringResource(if (verifying) R.string.web_login_verifying else R.string.web_login_info),
+                            Modifier.padding(horizontal = 16.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (isKickLoginUrl(currentUrl)) {
+                            TextButton(onClick = { startGoogleLogin() }, enabled = ready && !verifying && pageProgress == 100,
+                                modifier = Modifier.padding(horizontal = 4.dp)) {
+                                Text(stringResource(R.string.web_login_google))
+                            }
+                        } else {
+                            Text(stringResource(R.string.web_login_google_info), Modifier.padding(16.dp),
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (!ready || verifying) {
                             LinearProgressIndicator(Modifier.fillMaxWidth())
-                            Text("Oturum doğrulanıyor…", Modifier.padding(8.dp))
+                        } else if (pageProgress < 100) {
+                            LinearProgressIndicator(progress = { pageProgress / 100f }, modifier = Modifier.fillMaxWidth())
                         }
                         error?.let {
-                            Text(it, Modifier.padding(8.dp), color = MaterialTheme.colorScheme.error)
+                            Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall)
                             Row {
-                                TextButton(onClick = { attemptedCookies = null; captureSession() }, enabled = !verifying) { Text("Doğrulamayı yeniden dene") }
-                                TextButton(onClick = { restartLogin() }, enabled = !verifying) { Text("Başka hesapla giriş yap") }
+                                TextButton(onClick = {
+                                    error = null
+                                    attemptedCookies = null
+                                    captureSession()
+                                    if (!verifying) webView?.reload()
+                                }, enabled = !verifying) { Text(stringResource(R.string.web_login_retry)) }
+                                TextButton(onClick = { restartLogin() }, enabled = !verifying) {
+                                    Text(stringResource(R.string.web_login_restart))
+                                }
                             }
                         }
                         if (ready) AndroidView(factory = { context ->
                             createKickLoginWebViewContainer(context,
                                 onCreated = { view ->
                                     webView = view
+                                    view.setBackgroundColor(surface.toArgb())
+                                    view.webChromeClient = object : WebChromeClient() {
+                                        override fun onProgressChanged(view: WebView, newProgress: Int) {
+                                            pageProgress = newProgress
+                                        }
+                                    }
                                     view.webViewClient = object : WebViewClient() {
                                         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                                             if (!request.isForMainFrame) return false
-                                            val uri = request.url
-                                            val host = uri.host.orEmpty()
-                                            val allowed = uri.scheme == "https" && (host == "kick.com" || host.endsWith(".kick.com"))
-                                            if (!allowed) error = "Bu giriş ekranında Kick e-posta girişini kullanın; dış site yönlendirmesi açılmadı."
+                                            val allowed = isAllowedLoginUrl(request.url.toString())
+                                            if (!allowed) {
+                                                // A Kick session may already exist when a final redirect arrives.
+                                                // Verify it immediately instead of reporting a navigation failure.
+                                                captureSession()
+                                                if (!verifying) error = getString(R.string.web_login_blocked)
+                                            }
                                             return !allowed
                                         }
+                                        override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                                            currentUrl = url.orEmpty()
+                                            pageProgress = 0
+                                            error = null
+                                        }
                                         override fun onPageFinished(view: WebView, url: String?) {
-                                            if (url?.startsWith("https://kick.com/") == true) captureSession()
+                                            currentUrl = url.orEmpty()
+                                            if (isKickLoginUrl(currentUrl)) {
+                                                view.evaluateJavascript(kickLoginPageScript, null)
+                                                captureSession()
+                                            }
+                                        }
+                                        override fun onReceivedError(view: WebView, request: WebResourceRequest, failure: WebResourceError) {
+                                            if (request.isForMainFrame) {
+                                                pageProgress = 100
+                                                error = getString(R.string.web_login_load_error)
+                                            }
                                         }
                                     }
                                 },
-                                onSized = { it.loadUrl("https://kick.com/login") }
+                                onSized = { it.loadUrl(KICK_LOGIN_URL) }
                             )
-                        }, modifier = Modifier.weight(1f).fillMaxWidth())
+                        }, modifier = Modifier.weight(1f).fillMaxWidth(),
+                            update = { container -> container.getChildAt(0).setBackgroundColor(surface.toArgb()) })
                     }
                 }
             }
+        }
+    }
+
+    private fun startGoogleLogin() {
+        val view = webView ?: return
+        if (!isKickLoginUrl(view.url.orEmpty())) return
+        // Use Kick's own button: Kick generates and validates its OAuth state and callback.
+        view.evaluateJavascript("""
+            (() => {
+              const button = document.querySelector('[data-testid="oauth-google"]');
+              if (!button || button.disabled) return false;
+              button.click();
+              return true;
+            })()
+        """.trimIndent()) { clicked ->
+            if (clicked != "true" && !isFinishing) error = getString(R.string.web_login_google_unavailable)
         }
     }
 
@@ -123,18 +240,27 @@ class KickWebLoginActivity : ComponentActivity() {
             } catch (failure: Exception) {
                 if (failure is CancellationException) throw failure
                 error = if (failure is com.lechixy.kick.data.account.AccountApiException)
-                    "Kick oturumunu doğrulayamadı (HTTP ${failure.status}). Yeniden deneyin."
+                    getString(R.string.web_login_verify_error, failure.status)
                     else failure.userMessage()
             } finally { verifying = false }
         }
     }
 
     private fun restartLogin() {
-        attemptedCookies = null; error = null
+        attemptedCookies = null; error = null; pageProgress = 0
+        webView?.stopLoading()
         WebStorage.getInstance().deleteAllData()
         CookieManager.getInstance().removeAllCookies {
             CookieManager.getInstance().flush()
-            if (!isFinishing) webView?.loadUrl("https://kick.com/login")
+            if (!isFinishing) webView?.apply { clearHistory(); loadUrl(KICK_LOGIN_URL) }
+        }
+    }
+
+    override fun finish() {
+        super.finish()
+        if (Build.VERSION.SDK_INT < 34) {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(R.anim.login_hold, R.anim.login_exit)
         }
     }
 

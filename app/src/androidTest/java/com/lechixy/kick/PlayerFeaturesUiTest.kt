@@ -4,6 +4,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import java.util.concurrent.atomic.AtomicInteger
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
@@ -31,6 +37,25 @@ import org.junit.Assert.*
 class PlayerFeaturesUiTest {
     @get:Rule val compose = createComposeRule()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+
+    @Test fun scaffoldUpdatesKeepPlayerContentAlive() {
+        var hidden by mutableStateOf(false)
+        var revision by mutableStateOf(0)
+        val disposals = AtomicInteger()
+        compose.setContent {
+            MaterialTheme {
+                KickNavScaffold(hidden = hidden, currentRoute = "home", onNavigate = {}) {
+                    DisposableEffect(Unit) { onDispose { disposals.incrementAndGet() } }
+                    Text("Player revision $revision")
+                }
+            }
+        }
+        repeat(3) { index ->
+            compose.runOnIdle { hidden = !hidden; revision++ }
+            compose.onNodeWithText("Player revision ${index + 1}").assertIsDisplayed()
+            compose.runOnIdle { assertEquals(0, disposals.get()) }
+        }
+    }
 
     @Test fun avatarLongPressOpensAndClosesConnectedPreview() {
         compose.setContent {

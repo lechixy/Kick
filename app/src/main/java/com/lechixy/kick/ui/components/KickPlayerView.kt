@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Rational
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -318,7 +319,7 @@ fun KickPlayerView(
     }
 
     LaunchedEffect(player, isMuted, volume) {
-        player?.volume = if (isMuted) 0f else volume
+        player?.volume = if (isMuted) 0f else PlayerUtils.perceivedVolumeToGain(volume)
     }
 
     LaunchedEffect(showControls, isAdjustingVolume, isSeeking) {
@@ -378,7 +379,7 @@ fun KickPlayerView(
     /**
      * Player listener
      */
-    DisposableEffect(player, stableId) {
+    DisposableEffect(player, stableId, playbackUrl) {
         val p = player
         if (p == null) {
             onDispose { }
@@ -391,6 +392,7 @@ fun KickPlayerView(
             var previousPlayWhenReady = p.playWhenReady
             val listener = object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (p.currentMediaItem?.mediaId != stableId) return
                     val live = latestIsLiveStream
                     isBuffering = playbackState == Player.STATE_BUFFERING ||
                             (live && (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE))
@@ -405,6 +407,7 @@ fun KickPlayerView(
                 }
 
                 override fun onRenderedFirstFrame() {
+                    if (p.currentMediaItem?.mediaId != stableId) return
                     hasRenderedFirstFrame = true
                     isPlayerReady = true
                     playbackError = null
@@ -412,6 +415,7 @@ fun KickPlayerView(
                 }
 
                 override fun onIsPlayingChanged(playing: Boolean) {
+                    if (p.currentMediaItem?.mediaId != stableId) return
                     isPlaying = playing
                     if (playing) {
                         hasRenderedFirstFrame = true
@@ -498,6 +502,7 @@ fun KickPlayerView(
         if (alreadyLoaded) {
             loadedMediaId = stableId
             isPlayerReady = p.playbackState == Player.STATE_READY
+            hasRenderedFirstFrame = p.isPlaying || isPlayerReady
             if (p.playbackState == Player.STATE_IDLE || p.playbackState == Player.STATE_ENDED) {
                 p.seekToDefaultPosition()
                 p.prepare()
@@ -592,8 +597,9 @@ fun KickPlayerView(
     ) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
+                // Keep video in Compose's rendering layer while PlayerHost animates/clips it.
+                // surface_type must be supplied at inflation time; PlayerView has no setter.
+                (LayoutInflater.from(ctx).inflate(R.layout.kick_player_view, null) as PlayerView).apply {
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
@@ -601,7 +607,9 @@ fun KickPlayerView(
                 }
             },
             update = { playerView ->
-                playerView.player = player
+                if (playerView.player !== player) {
+                    playerView.player = player
+                }
                 playerView.keepScreenOn = isPlaying
             },
             onRelease = { it.player = null },
@@ -639,11 +647,12 @@ fun KickPlayerView(
             )
         }
 
-        val qualityLabel = remember(selectedQualityHeight, currentVideoHeight) {
+        val autoQualityLabel = stringResource(R.string.player_auto)
+        val qualityLabel = remember(selectedQualityHeight, currentVideoHeight, autoQualityLabel) {
             when {
                 selectedQualityHeight > 0 -> "${selectedQualityHeight}p"
-                currentVideoHeight > 0 -> "${currentVideoHeight}p (Auto)"
-                else -> "Auto"
+                currentVideoHeight > 0 -> "${currentVideoHeight}p ($autoQualityLabel)"
+                else -> autoQualityLabel
             }
         }
         val viewersText = remember(channel?.livestream?.viewerCount) {
@@ -799,7 +808,7 @@ fun KickPlayerView(
 //                            ) {
 //                                Icon(
 //                                    painter = painterResource(id = R.drawable.arrow_back_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-//                                    contentDescription = "Back"
+//                                    contentDescription = stringResource(R.string.player_back)
 //                                )
 //                            }
 //                            Spacer(modifier = Modifier.width(16.dp))
@@ -807,9 +816,9 @@ fun KickPlayerView(
 //                        Text(
 //                            text = when (settingsPage) {
 //                                PlayerSettingsPage.MAIN -> stringResource(R.string.settings)
-//                                PlayerSettingsPage.QUALITY -> "Quality"
-//                                PlayerSettingsPage.SLEEP_TIMER -> "Sleep Timer"
-//                                PlayerSettingsPage.MORE -> "More"
+//                                PlayerSettingsPage.QUALITY -> stringResource(R.string.player_quality)
+//                                PlayerSettingsPage.SLEEP_TIMER -> stringResource(R.string.player_sleep_timer)
+//                                PlayerSettingsPage.MORE -> stringResource(R.string.player_more)
 //                            },
 //                            style = MaterialTheme.typography.titleLarge,
 //                            fontWeight = FontWeight.Bold,
@@ -821,7 +830,7 @@ fun KickPlayerView(
 //                        ) {
 //                            Icon(
 //                                painter = painterResource(id = R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-//                                contentDescription = "Close"
+//                                contentDescription = stringResource(R.string.player_close)
 //                            )
 //                        }
 //                    }
@@ -845,16 +854,16 @@ fun KickPlayerView(
                             ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.arrow_back_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                                    contentDescription = "Back"
+                                    contentDescription = stringResource(R.string.player_back)
                                 )
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = when (settingsPage) {
                                     PlayerSettingsPage.MAIN -> stringResource(R.string.settings)
-                                    PlayerSettingsPage.QUALITY -> "Quality"
-                                    PlayerSettingsPage.SLEEP_TIMER -> "Sleep Timer"
-                                    PlayerSettingsPage.MORE -> "More"
+                                    PlayerSettingsPage.QUALITY -> stringResource(R.string.player_quality)
+                                    PlayerSettingsPage.SLEEP_TIMER -> stringResource(R.string.player_sleep_timer)
+                                    PlayerSettingsPage.MORE -> stringResource(R.string.player_more)
                                 },
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
@@ -885,19 +894,19 @@ fun KickPlayerView(
                                 ) {
                                     PlayerSettingsCategoryRow(
                                         icon = R.drawable.hd_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
-                                        title = "Quality",
+                                        title = stringResource(R.string.player_quality),
                                         value = qualityLabel,
                                         onClick = { settingsPage = PlayerSettingsPage.QUALITY }
                                     )
                                     PlayerSettingsCategoryRow(
                                         icon = R.drawable.timer_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
-                                        title = "Sleep Timer",
-                                        value = if (sleepTimerMinutes > 0) "${(remainingTimerSeconds + 59) / 60}m" else "Off",
+                                        title = stringResource(R.string.player_sleep_timer),
+                                        value = if (sleepTimerMinutes > 0) stringResource(R.string.player_minutes, (remainingTimerSeconds + 59) / 60) else stringResource(R.string.player_off),
                                         onClick = { settingsPage = PlayerSettingsPage.SLEEP_TIMER }
                                     )
                                     PlayerSettingsCategoryRow(
                                         icon = R.drawable.tune_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
-                                        title = "More",
+                                        title = stringResource(R.string.player_more),
                                         value = null,
                                         onClick = { settingsPage = PlayerSettingsPage.MORE }
                                     )
@@ -913,8 +922,8 @@ fun KickPlayerView(
                                     verticalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
                                     PlayerSettingsOptionRow(
-                                        title = "Auto",
-                                        subtitle = "According to network speed",
+                                        title = stringResource(R.string.player_auto),
+                                        subtitle = stringResource(R.string.player_auto_network),
                                         selected = selectedQualityHeight == -1,
                                         onClick = {
                                             selectedQualityHeight = -1
@@ -929,7 +938,7 @@ fun KickPlayerView(
                                     availableQualities.forEach { quality ->
                                         PlayerSettingsOptionRow(
                                             title = quality.label,
-                                            subtitle = quality.dataPerHourText,
+                                            subtitle = quality.dataPerHourText.replace("/saat", stringResource(R.string.player_per_hour)),
                                             selected = selectedQualityHeight == quality.height,
                                             onClick = {
                                                 selectedQualityHeight = quality.height
@@ -961,9 +970,9 @@ fun KickPlayerView(
                                 ) {
                                     listOf(0, 15, 30, 45, 60).forEach { mins ->
                                         PlayerSettingsOptionRow(
-                                            title = if (mins == 0) "Off" else "$mins minutes",
+                                            title = if (mins == 0) stringResource(R.string.player_off) else stringResource(R.string.player_minutes, mins),
                                             subtitle = if (mins != 0 && sleepTimerMinutes == mins)
-                                                "${(remainingTimerSeconds + 59) / 60}m left" else null,
+                                                stringResource(R.string.player_minutes_left, (remainingTimerSeconds + 59) / 60) else null,
                                             selected = sleepTimerMinutes == mins,
                                             onClick = { selectSleepTimer(mins) }
                                         )
@@ -980,21 +989,26 @@ fun KickPlayerView(
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     SettingSwitch(
+                                        key = SettingsKeys.SYNC_PLAYER_VOLUME_WITH_DEVICE,
+                                        title = stringResource(R.string.player_sync_volume)
+                                    )
+
+                                    SettingSwitch(
                                         key = SettingsKeys.PIP_ENABLED,
-                                        title = "Resim İçinde Resim (PiP)",
-                                        description = "Uygulamadan çıkıldığında yayını küçük ekranda oynat"
+                                        title = stringResource(R.string.player_pip),
+                                        description = stringResource(R.string.player_pip_description)
                                     )
 
                                     SettingSwitch(
                                         key = SettingsKeys.LOW_LATENCY,
-                                        title = "Düşük Gecikme Modu (Low Latency)",
-                                        description = "Web sitesi ile anlık canlı yayın (~2s gecikme)"
+                                        title = stringResource(R.string.player_low_latency),
+                                        description = stringResource(R.string.player_low_latency_description)
                                     )
 
                                     SettingSwitch(
                                         key = SettingsKeys.AUTO_FULLSCREEN_LIVE,
-                                        title = "Otomatik Tam Ekran (Auto Fullscreen)",
-                                        description = "Kanala girildiğinde yayın canlıysa ve oynatıcı yüklendiyse hemen tam ekrana geç"
+                                        title = stringResource(R.string.player_auto_fullscreen),
+                                        description = stringResource(R.string.player_auto_fullscreen_description)
                                     )
                                 }
                             }
@@ -1011,7 +1025,7 @@ fun KickPlayerView(
                 onDismissRequest = { showCastDialog = false },
                 modifier = Modifier.fillMaxWidth(0.95f),
                 title = {
-                    Text("Cast")
+                    Text(stringResource(R.string.player_cast))
                 },
                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                 text = {
@@ -1025,7 +1039,7 @@ fun KickPlayerView(
                         item {
                             SettingCard(
                                 title = "Google Cast / Chromecast",
-                                description = "Android TV, Google TV veya Chromecast cihazlarına doğrudan kablosuz yansıtma yapmak için kullanılır.",
+                                description = stringResource(R.string.player_cast_google_description),
                                 icon = R.drawable.cast_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
                                 onClick = {
                                     showCastDialog = false
@@ -1046,7 +1060,7 @@ fun KickPlayerView(
                         item {
                             SettingCard(
                                 title = "Web Video Caster",
-                                description = "Samsung (Tizen), LG (webOS), Roku, Fire TV, Apple TV ve DLNA destekli televizyonlara yayın göndermek için en mükemmel yöntemdir.",
+                                description = stringResource(R.string.player_cast_web_description),
                                 image = R.drawable.webvideocasterlogo,
                                 onClick = {
                                     showCastDialog = false
@@ -1066,7 +1080,7 @@ fun KickPlayerView(
                 },
                 confirmButton = {
                     TextButton(onClick = { showCastDialog = false }) {
-                        Text("Kapat")
+                        Text(stringResource(R.string.player_close))
                     }
                 }
             )
@@ -1374,7 +1388,7 @@ internal fun PlayerControlsOverlay(
                                 modifier = Modifier.size(14.dp)
                             )
                             Text(
-                                text = "Sleep: ${(sleepRemainingSeconds + 59) / 60}m",
+                                text = stringResource(R.string.player_sleep_badge, (sleepRemainingSeconds + 59) / 60),
                                 color = Color.White,
                                 style = labelStyle,
                                 fontWeight = FontWeight.SemiBold,
@@ -1388,8 +1402,9 @@ internal fun PlayerControlsOverlay(
             /**
              * Top End/Right
              */
-            Column(
-                horizontalAlignment = Alignment.End,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (isCompact) 4.dp else 8.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1401,7 +1416,7 @@ internal fun PlayerControlsOverlay(
                     ) {
                         Icon(
                             painter = painterResource(id = if (isCastDialogVisible) R.drawable.cast_24dp_e3e3e3_fill1_wght400_grad0_opsz24 else R.drawable.cast_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                            contentDescription = "Cast",
+                            contentDescription = stringResource(R.string.player_cast),
                             tint = Color.White
                         )
                     }
@@ -1432,7 +1447,7 @@ internal fun PlayerControlsOverlay(
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.chat_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                                contentDescription = if (isChatVisible) "Sohbeti Gizle" else "Sohbeti Göster",
+                                contentDescription = if (isChatVisible) stringResource(R.string.player_hide_chat) else stringResource(R.string.player_show_chat),
                                 tint = if (isChatVisible) MaterialTheme.colorScheme.primary else Color.White,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -1708,7 +1723,7 @@ internal fun MiniControlsOverlay(
         ) {
             PlayerChromeButton(
                 painter = painterResource(R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                contentDescription = "Close",
+                contentDescription = stringResource(R.string.player_close),
                 size = 30.dp,
                 onClick = onClose
             )
@@ -1737,7 +1752,7 @@ internal fun ShellChrome(mode: PlayerMode, onMinimize: () -> Unit, onClose: () -
         if (mode == PlayerMode.Mini) {
             PlayerChromeButton(
                 painter = painterResource(R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                contentDescription = "Close",
+                contentDescription = stringResource(R.string.player_close),
                 size = 30.dp,
                 modifier = Modifier
                     .align(Alignment.TopEnd)

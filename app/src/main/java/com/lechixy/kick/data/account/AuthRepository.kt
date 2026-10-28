@@ -27,7 +27,7 @@ data class StoredWebSession(
 /** One device-local website session. Credentials only travel directly to Kick over HTTPS. */
 class AuthRepository(
     private val store: SessionStore,
-    private val transport: (suspend (Request) -> JsonObject)? = null
+    private val transport: (suspend (Request) -> JsonElement)? = null
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val lock = Any()
@@ -83,7 +83,7 @@ class AuthRepository(
                         expectedGeneration: Long = session.value.generation) {
         val candidate = StoredWebSession(0, kickCookies, webCookies, userAgent)
         require(cookie(kickCookies, "session_token") != null) { "Web session cookie missing" }
-        val profile = profileFrom(execute(buildRequest(PROFILE_URL, "GET", null, candidate)))
+        val profile = profileFrom(execute(buildRequest(PROFILE_URL, "GET", null, candidate)).jsonObject)
         synchronized(lock) {
             check(expectedGeneration == session.value.generation) { "Session changed" }
             val verified = candidate.copy(userId = profile.userId, createdAt = profile.createdAt, profile = profile)
@@ -117,7 +117,12 @@ class AuthRepository(
         }
     }
 
-    suspend fun request(url: String, method: String = "GET", body: JsonObject? = null): JsonObject {
+    suspend fun request(url: String, method: String = "GET", body: JsonObject? = null): JsonObject =
+        requestJson(url, method, body).jsonObject
+
+    suspend fun requestArray(url: String): JsonArray = requestJson(url, "GET", null).jsonArray
+
+    private suspend fun requestJson(url: String, method: String, body: JsonObject?): JsonElement {
         val (current, generation) = synchronized(lock) {
             check(session.value.signedIn) { "Sign in required" }
             (stored ?: error("Sign in required")) to session.value.generation
@@ -165,12 +170,12 @@ class AuthRepository(
         return builder.build()
     }
 
-    private suspend fun execute(request: Request): JsonObject = withContext(Dispatchers.IO) {
+    private suspend fun execute(request: Request): JsonElement = withContext(Dispatchers.IO) {
         transport?.let { return@withContext it(request) }
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw AccountApiException(response.code, response.header("Retry-After")?.toLongOrNull())
             val text = response.body.string()
-            if (text.isBlank()) buildJsonObject {} else json.parseToJsonElement(text).jsonObject
+            if (text.isBlank()) buildJsonObject {} else json.parseToJsonElement(text)
         }
     }
 

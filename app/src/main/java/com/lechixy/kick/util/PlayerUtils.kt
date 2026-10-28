@@ -10,6 +10,11 @@ data class VideoQualityOption(
 )
 
 object PlayerUtils {
+    /** Approximate perceived loudness: half the slider gives -20 dB, zero is silence. */
+    fun perceivedVolumeToGain(fraction: Float): Float {
+        val value = fraction.coerceIn(0f, 1f)
+        return Math.pow(value.toDouble(), kotlin.math.ln(10.0) / kotlin.math.ln(2.0)).toFloat()
+    }
     // Çözünürlük ve bitrate'e göre saatlik yaklaşık veri hesabı: (bitrate bps * 3600s) / (8 * 1024 * 1024)
     fun estimateDataUsagePerHour(bitrate: Int, height: Int): String {
         val effectiveBitrate = if (bitrate > 0) {

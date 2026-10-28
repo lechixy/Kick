@@ -62,6 +62,7 @@ fun AnimatedCounterText(
     }
 
     val tracker = remember { CountTracker() }
+    val initialEntrance = remember(count) { !tracker.hasRendered }
     val isIncreasing = remember(count) {
         if (!tracker.hasRendered) true else count >= tracker.last
     }
@@ -89,7 +90,7 @@ fun AnimatedCounterText(
 
     Row(
         modifier = modifier
-            .animateContentSize(animationSpec = tween(ANIMATION_DURATION_MS / 2, easing = OdometerEasing))
+            .animateContentSize(animationSpec = tween(if (initialEntrance) ANIMATION_DURATION_MS / 2 else 400, easing = OdometerEasing))
             .clearAndSetSemantics { contentDescription = formatted },
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -103,7 +104,8 @@ fun AnimatedCounterText(
                         digit = char - '0',
                         spinGeneration = spinGeneration,
                         isIncreasing = isIncreasing,
-                        startDelayMs = index * DIGIT_STAGGER_MS,
+                        initialEntrance = initialEntrance,
+                        startDelayMs = if (initialEntrance) index * DIGIT_STAGGER_MS else 0L,
                         style = textStyle
                     )
                 } else {
@@ -119,6 +121,7 @@ private fun OdometerDigit(
     digit: Int,
     spinGeneration: Int,
     isIncreasing: Boolean,
+    initialEntrance: Boolean,
     startDelayMs: Long,
     style: TextStyle
 ) {
@@ -126,22 +129,22 @@ private fun OdometerDigit(
     val position = remember { Animatable(0f) }
 
     LaunchedEffect(digit, spinGeneration) {
-        val from = position.targetValue
+        val from = position.value
         val fromDigit = from.roundToInt().mod(10)
         var steps = digit - fromDigit
         if (isIncreasing) {
             if (steps < 0) steps += 10      // artışta hep yukarı dön (7 → 8 → 9 → 0 → 1 → 2)
-            steps += 10 * EXTRA_SPINS
+            if (initialEntrance) steps += 10 * EXTRA_SPINS
         } else {
             if (steps > 0) steps -= 10      // azalışta hep aşağı dön
-            steps -= 10 * EXTRA_SPINS
+            if (initialEntrance) steps -= 10 * EXTRA_SPINS
         }
 
         if (startDelayMs > 0) delay(startDelayMs.milliseconds)
         position.animateTo(
-            targetValue = from + steps,
+            targetValue = from.roundToInt().toFloat() + steps,
             animationSpec = tween(
-                durationMillis = ANIMATION_DURATION_MS,
+                durationMillis = if (initialEntrance) ANIMATION_DURATION_MS else 400,
                 easing = OdometerEasing
             )
         )

@@ -7,6 +7,8 @@ import com.lechixy.kick.data.model.ChannelVideo
 import com.lechixy.kick.data.model.ClipResponse
 import com.lechixy.kick.data.model.CurrentViewersResponse
 import com.lechixy.kick.data.model.LivestreamResponse
+import com.lechixy.kick.data.model.RecommendedLivestreamResponse
+import com.lechixy.kick.data.model.LiveTotalsResponse
 import com.lechixy.kick.data.model.PlaybackRequest
 import com.lechixy.kick.data.model.PlaybackResponse
 import com.lechixy.kick.data.model.SearchResponse
@@ -24,6 +26,15 @@ import retrofit2.http.Query
 import retrofit2.http.Url
 
 interface KickApi {
+    @GET("https://web.kick.com/api/v1/recommendations/livestreams/list")
+    suspend fun getRecommendedLivestreams(
+        @Query("limit") limit: Int = 14,
+        @Query("language") language: String
+    ): RecommendedLivestreamResponse
+
+    @GET("https://web.kick.com/api/v1/livestreams/live-totals")
+    suspend fun getLiveTotals(): LiveTotalsResponse
+
     @GET("https://kick.com/api/v1/video/{uuid}")
     suspend fun getVideoDetail(@Path("uuid") uuid: String): VideoDetailResponse
 

@@ -15,7 +15,6 @@ data class AccountFollowAction(val following: Boolean, val label: String, val en
 @Composable
 fun rememberAccountFollowAction(slug: String): AccountFollowAction {
     val session by AccountGraph.auth.session.collectAsStateWithLifecycle()
-    val followingState by AccountGraph.following.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
     var following by remember(slug, session.generation) { mutableStateOf<Boolean?>(null) }
@@ -24,7 +23,7 @@ fun rememberAccountFollowAction(slug: String): AccountFollowAction {
     var unsupported by remember(slug, session.generation) { mutableStateOf(false) }
     var dialog by remember(slug, session.generation) { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
-    LaunchedEffect(slug, session.signedIn, session.generation, followingState.channels, refresh) {
+    LaunchedEffect(slug, session.signedIn, session.generation, refresh) {
         if (!session.signedIn) { following = null; return@LaunchedEffect }
         busy = true
         try {

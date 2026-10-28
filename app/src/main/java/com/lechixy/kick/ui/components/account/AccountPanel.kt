@@ -6,31 +6,31 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.stringResource
+import com.lechixy.kick.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
 import com.lechixy.kick.data.account.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
-fun AccountPanel() {
+fun AccountPanel(showTitle: Boolean = true) {
     val auth = AccountGraph.auth
     val session by auth.session.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var profileError by remember(session.generation) { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Kick hesabı", style = MaterialTheme.typography.titleLarge)
+        if (showTitle) Text(stringResource(R.string.account_title), style = MaterialTheme.typography.titleLarge)
         session.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         when (session.status) {
             SessionStatus.Authenticated -> {
                 session.profile?.let { profile ->
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        AsyncImage(model = profile.avatar, contentDescription = "Profil fotoğrafı", modifier = Modifier.size(48.dp))
+                        AccountAvatar(profile.avatar, profile.name, Modifier.size(48.dp))
                         Text(profile.name, style = MaterialTheme.typography.titleMedium)
                     }
-                } ?: Text("Profil bilgisi henüz alınamadı.")
+                } ?: Text(stringResource(R.string.account_profile_missing))
                 profileError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 if (session.profile == null) TextButton(onClick = {
                     scope.launch {
@@ -38,28 +38,17 @@ fun AccountPanel() {
                         try { auth.loadProfile() }
                         catch (error: Exception) { if (error is CancellationException) throw error; profileError = error.userMessage() }
                     }
-                }) { Text("Profili yeniden yükle") }
-                Button(onClick = { scope.launch { auth.signOut() } }) { Text("Çıkış yap") }
+                }) { Text(stringResource(R.string.account_reload_profile)) }
+                Button(onClick = { scope.launch { auth.signOut() } }) { Text(stringResource(R.string.account_logout)) }
             }
             SessionStatus.Connecting -> {
-                Text("Kick girişi bekleniyor.")
-                TextButton(onClick = { auth.cancelLogin() }) { Text("Girişi iptal et") }
+                Text(stringResource(R.string.account_waiting_login))
+                TextButton(onClick = { auth.cancelLogin() }) { Text(stringResource(R.string.account_cancel_login)) }
             }
             else -> {
-                Text("Hesap bağlamak isteğe bağlıdır. Yayınları giriş yapmadan izleyebilirsiniz.")
-                Button(onClick = { auth.beginLogin(context) }) { Text("Kick ile giriş yap") }
+                Text(stringResource(R.string.account_login_optional))
+                Button(onClick = { auth.beginLogin(context) }) { Text(stringResource(R.string.account_login)) }
             }
         }
     }
-}
-
-@Composable
-fun AccountButton() {
-    val session by AccountGraph.auth.session.collectAsStateWithLifecycle()
-    var open by remember { mutableStateOf(false) }
-    TextButton(onClick = { open = true }, modifier = Modifier.widthIn(max = 180.dp)) {
-        Text(if (session.signedIn) session.profile?.name ?: "Hesabım" else "Giriş yap", maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-    if (open) AlertDialog(onDismissRequest = { open = false },
-        text = { AccountPanel() }, confirmButton = { TextButton(onClick = { open = false }) { Text("Kapat") } })
 }

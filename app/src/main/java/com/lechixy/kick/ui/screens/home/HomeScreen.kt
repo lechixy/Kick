@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
@@ -18,6 +19,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -31,22 +34,61 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import com.lechixy.kick.data.account.AccountGraph
-import com.lechixy.kick.ui.components.account.AccountFollowingSection
+import androidx.compose.ui.res.stringResource
+import com.lechixy.kick.R
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.fillMaxWidth
 import com.lechixy.kick.ui.components.ExpansionSource
 import com.lechixy.kick.ui.components.HomeTopBar
 import com.lechixy.kick.ui.components.StreamCard
+import com.lechixy.kick.ui.components.LiveTotalsButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
     onStreamClick: (channelSlug: String, source: ExpansionSource?) -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    onFollowingClick: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
     val pullState = rememberPullToRefreshState()
+    val gridState = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
+    var totalsVisible by remember { mutableStateOf(true) }
+    val atTop by remember { derivedStateOf { !gridState.canScrollBackward } }
+    val scrollThreshold = with(LocalDensity.current) { 24.dp.toPx() }
+    val totalsScrollConnection = remember(scrollThreshold) {
+        object : NestedScrollConnection {
+            private var distance = 0f
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput || consumed.y == 0f) return Offset.Zero
+                if (distance * consumed.y < 0f) distance = 0f
+                distance += consumed.y
+                if (distance <= -scrollThreshold) totalsVisible = false
+                if (distance >= scrollThreshold) totalsVisible = true
+                return Offset.Zero
+            }
+        }
+    }
 
     val isDataSaverActive = false
 
@@ -54,13 +96,14 @@ fun HomeScreen(
         topBar = {
             HomeTopBar(
                 onSearchClick = {},
-                onSettingsClick = onSettingsClick
+                onSettingsClick = onSettingsClick,
+                onChannelClick = { onStreamClick(it, null) }
             )
         }
     ) { paddingValues ->
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
-            onRefresh = { viewModel.refresh(); AccountGraph.following.refresh() },
+            onRefresh = viewModel::refresh,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
@@ -82,15 +125,39 @@ fun HomeScreen(
                     .take(10)
             }
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Adaptive(minSize = 280.dp),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
+                modifier = Modifier.fillMaxSize().nestedScroll(totalsScrollConnection),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp,
+                    bottom = if (state.liveTotals != null) 100.dp else 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Account loading/failure is independent from anonymous recommendations.
-                item(key = "account_following", span = { GridItemSpan(maxLineSpan) }) {
-                    AccountFollowingSection { slug -> onStreamClick(slug, null) }
+                if (state.following.signedIn) {
+                    item(key = "following_header", span = { GridItemSpan(maxLineSpan) }) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(stringResource(R.string.home_following_live), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                                TextButton(onClick = onFollowingClick) { Text(stringResource(R.string.home_more)) }
+                            }
+                            if (state.following.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                            state.following.error?.let {
+                                Text(it, color = MaterialTheme.colorScheme.error)
+                                TextButton(onClick = viewModel::loadFollowing) { Text(stringResource(R.string.chat_retry)) }
+                            }
+                            if (state.following.loaded && state.following.streams.isEmpty()) {
+                                Text(stringResource(R.string.home_no_following_live), style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                    items(state.following.streams, key = { "following_${it.id}" }) { stream ->
+                        StreamCard(
+                            stream = stream,
+                            isDataSaverActive = isDataSaverActive,
+                            onClick = { stream.channel?.slug?.let { onStreamClick(it, null) } },
+                            onClickWithSource = { source -> stream.channel?.slug?.let { onStreamClick(it, source) } }
+                        )
+                    }
                 }
                 if (state.isLoading) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -107,7 +174,7 @@ fun HomeScreen(
                 if (categories.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("POPULAR CATEGORIES", style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.home_popular_categories), style = MaterialTheme.typography.titleSmall)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 items(categories, key = { it.id }) { category ->
                                     AssistChip(onClick = {}, label = { Text(category.name) })
@@ -117,15 +184,34 @@ fun HomeScreen(
                     }
                 }
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    Text("LIVE NOW", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.home_recommended_live), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
-                items(streams, key = { it.id }) { stream ->
+                items(streams, key = { "recommended_${it.id}" }) { stream ->
                     StreamCard(
                         stream = stream,
                         isDataSaverActive = isDataSaverActive,
                         onClick = { stream.channel?.slug?.let { onStreamClick(it, null) } },
                         onClickWithSource = { source -> stream.channel?.slug?.let { onStreamClick(it, source) } }
                     )
+                }
+            }
+            AnimatedVisibility(
+                visible = state.liveTotals != null && (totalsVisible || atTop),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp, vertical = 12.dp),
+                enter = scaleIn(
+                    animationSpec = spring(dampingRatio = 0.72f, stiffness = 380f),
+                    transformOrigin = TransformOrigin(0.5f, 1f)
+                ) + fadeIn(),
+                exit = scaleOut(
+                    animationSpec = spring(dampingRatio = 1f, stiffness = 650f),
+                    transformOrigin = TransformOrigin(0.5f, 1f)
+                ) + fadeOut()
+            ) {
+                state.liveTotals?.let { totals ->
+                    LiveTotalsButton(totals = totals, onClick = {
+                        totalsVisible = true
+                        scope.launch { gridState.animateScrollToItem(0) }
+                    })
                 }
             }
         }

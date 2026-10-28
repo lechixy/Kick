@@ -1,17 +1,21 @@
 package com.lechixy.kick.ui.screens.home
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lechixy.kick.data.account.AccountGraph
+import com.lechixy.kick.data.account.userMessage
+import com.lechixy.kick.data.model.FollowedLivestream
 import com.lechixy.kick.data.repository.KickRepository
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.data.settings.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromJsonElement
 import javax.inject.Inject
 
 @HiltViewModel
@@ -19,63 +23,78 @@ class HomeViewModel @Inject constructor(
     private val kickRepository: KickRepository,
     private val settingsRepository: SettingsRepository
 ) : ViewModel() {
-
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+    private val auth = AccountGraph.auth
+    private val json = Json { ignoreUnknownKeys = true }
+    private var homeJob: Job? = null
+    private var followingJob: Job? = null
 
     init {
         loadStreams()
-    }
-
-    private suspend fun getCurrentLanguage(): String {
-        return settingsRepository.get(SettingsKeys.RECOMMENDED_LIVESTREAM_LANGUAGE).first()
-    }
-
-    fun loadStreams() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                isLoading = true,
-                error = null
-            )
-
-            try {
-                val language = getCurrentLanguage()
-                val streams = kickRepository.getLivestreams(language = language)
-
-                _uiState.value = HomeUiState(
-                    streams = streams
-                )
-            } catch (e: Exception) {
-                _uiState.value = HomeUiState(
-                    error = e.message ?: "Unknown error"
-                )
+            auth.session.map { it.signedIn to it.generation }.distinctUntilChanged().collect {
+                followingJob?.cancel()
+                _uiState.update { state -> state.copy(following = FollowingLiveState(signedIn = it.first)) }
+                if (it.first) loadFollowing()
             }
         }
     }
 
+    fun loadStreams() = loadHome(refreshing = false)
+
     fun refresh() {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                isRefreshing = true,
-                error = null
-            )
+        loadHome(refreshing = true)
+        loadFollowing()
+    }
 
-            Log.e("HomeViewModel", "Refreshing streams...")
+    private fun loadHome(refreshing: Boolean) {
+        homeJob?.cancel()
+        homeJob = viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = !refreshing, isRefreshing = refreshing, error = null) }
+            supervisorScope {
+                launch {
+                    try {
+                        val language = settingsRepository.get(SettingsKeys.RECOMMENDED_LIVESTREAM_LANGUAGE).first()
+                        val streams = kickRepository.getRecommendedLivestreams(language)
+                        _uiState.update { it.copy(streams = streams) }
+                    } catch (error: Exception) {
+                        if (error is CancellationException) throw error
+                        _uiState.update { it.copy(error = error.userMessage()) }
+                    }
+                }
+                launch {
+                    try {
+                        val totals = kickRepository.getLiveTotals()
+                        _uiState.update { it.copy(liveTotals = totals) }
+                    } catch (error: Exception) {
+                        if (error is CancellationException) throw error
+                        // Optional totals must not prevent recommendations from loading.
+                    }
+                }
+            }
+            _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
+        }
+    }
 
+    fun loadFollowing() {
+        followingJob?.cancel()
+        if (!auth.session.value.signedIn) return
+        followingJob = viewModelScope.launch {
+            val generation = auth.session.value.generation
+            _uiState.update { it.copy(following = it.following.copy(loading = true, error = null)) }
             try {
-                val language = getCurrentLanguage()
-                val streams = kickRepository.getLivestreams(language = language)
-
-                _uiState.value = _uiState.value.copy(
-                    streams = streams,
-                    isRefreshing = false
-                )
-            } catch (e: Exception) {
-                Log.e("HomeViewModel", "Error refreshing streams", e)
-                _uiState.value = _uiState.value.copy(
-                    isRefreshing = false,
-                    error = e.message ?: "Unknown error"
-                )
+                val response = auth.requestArray("https://kick.com/api/v1/user/livestreams")
+                val streams = json.decodeFromJsonElement<List<FollowedLivestream>>(response)
+                    .filter { it.isLive }.map { it.toLivestream() }.distinctBy { it.channel?.slug }
+                if (generation == auth.session.value.generation && auth.session.value.signedIn) {
+                    _uiState.update { it.copy(following = FollowingLiveState(signedIn = true, streams = streams, loaded = true)) }
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (generation == auth.session.value.generation && auth.session.value.signedIn) {
+                    _uiState.update { it.copy(following = it.following.copy(loading = false, error = error.userMessage())) }
+                }
             }
         }
     }

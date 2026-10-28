@@ -4,6 +4,7 @@ import com.lechixy.kick.data.account.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonElement
 import okhttp3.Request
 
 class MemorySessionStore : SessionStore {
@@ -14,7 +15,7 @@ class MemorySessionStore : SessionStore {
 
 fun objectJson(value: String): JsonObject = Json.parseToJsonElement(value) as JsonObject
 
-fun signedInAuth(transport: suspend (Request) -> JsonObject): AuthRepository {
+fun signedInAuth(transport: suspend (Request) -> JsonElement): AuthRepository {
     val store = MemorySessionStore()
     store.write("website_account", Json.encodeToString(StoredWebSession(42, "session_token=access", "session_token=access", "test-agent",
         "2020-01-01T00:00:00Z", AccountProfile(42, "tester", createdAt = "2020-01-01T00:00:00Z"))))

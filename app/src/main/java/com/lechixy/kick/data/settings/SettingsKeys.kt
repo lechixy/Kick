@@ -60,6 +60,12 @@ object SettingsKeys {
         defaultValue = true,
         type = SettingType.BooleanType
     )
+    // Reserved preference: deliberately does not control AudioManager or player volume yet.
+    val SYNC_PLAYER_VOLUME_WITH_DEVICE = SettingKey(
+        key = booleanPreferencesKey("sync_player_volume_with_device"),
+        defaultValue = false,
+        type = SettingType.BooleanType
+    )
     val AUTO_FULLSCREEN_LIVE = SettingKey(
         key = booleanPreferencesKey("auto_fullscreen_live"),
         defaultValue = false,
@@ -115,6 +121,7 @@ object SettingsKeys {
             DYNAMIC_COLOR,
             AUTOPLAY,
             PIP_ENABLED,
+            SYNC_PLAYER_VOLUME_WITH_DEVICE,
             LOW_LATENCY,
             AUTO_FULLSCREEN_LIVE,
             VIDEO_QUALITY,

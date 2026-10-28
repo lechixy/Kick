@@ -13,7 +13,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun HomeTopBar(
     onSearchClick: () -> Unit = {},
-    onSettingsClick: () -> Unit = {}
+    onSettingsClick: () -> Unit = {},
+    onChannelClick: (String) -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -24,7 +25,7 @@ fun HomeTopBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         ColoredAppText()
-        com.lechixy.kick.ui.components.account.AccountButton()
+        com.lechixy.kick.ui.components.account.AccountButton(onChannelClick = onChannelClick)
 //        Image(
 //            painter = painterResource(id = R.drawable.kick_logo),
 //            contentDescription = "KICK",

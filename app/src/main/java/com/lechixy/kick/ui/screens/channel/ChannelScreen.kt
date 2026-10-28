@@ -237,13 +237,7 @@ fun ChannelScreen(
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
-                .let {
-                    if (playerHost?.mode == PlayerMode.Fullscreen) {
-                        it.windowInsetsPadding(WindowInsets.displayCutout)
-                    } else {
-                        it.windowInsetsPadding(inlineInsets)
-                    }
-                }
+                .windowInsetsPadding(inlineInsets)
         ) {
             val screenWidthDp = maxWidth
             val isWide = screenWidthDp >= WIDE_BREAKPOINT_DP.dp

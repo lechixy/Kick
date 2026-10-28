@@ -148,7 +148,7 @@ fun PlayerHost(
     val expansion = host.expansionSource
     val expandProgress = remember { Animatable(0f, visibilityThreshold = NORM_THRESHOLD) }
     var isExpanding by remember { mutableStateOf(false) }
-    var previewThumbnailUrl by remember { mutableStateOf<String?>(null) }
+    var previewThumbnailUrl by remember(host.slug) { mutableStateOf<String?>(null) }
 
     val exitAlpha = remember { Animatable(1f, visibilityThreshold = NORM_THRESHOLD) }
     val exitScale = remember { Animatable(1f, visibilityThreshold = NORM_THRESHOLD) }
@@ -257,16 +257,19 @@ fun PlayerHost(
             previewThumbnailUrl = expansion.thumbnailUrl
             isExpanding = true
             pageAlpha = 1f
-            expandProgress.snapTo(0f)
-            expandProgress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = 360,
-                    easing = CubicBezierEasing(0.16f, 1.0f, 0.30f, 1.0f)
+            try {
+                expandProgress.snapTo(0f)
+                expandProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(
+                        durationMillis = 360,
+                        easing = CubicBezierEasing(0.16f, 1.0f, 0.30f, 1.0f)
+                    )
                 )
-            )
-            isExpanding = false
-            host.clearExpansionSource()
+            } finally {
+                isExpanding = false
+                if (host.expansionSource === expansion) host.clearExpansionSource()
+            }
         } else {
             isExpanding = false
         }
@@ -1050,14 +1053,15 @@ fun PlayerHost(
                         )
                     }
                     // --- Inline (geniş ekran) / Tam ekran: yatay sürükleme ile sohbeti akıcı bir şekilde gizle/aç.
-                    // Sağa kaydırınca sohbet gizlenir (zaten gizliyse 2. kez sağa kaydırmak bir şey yapmaz).
-                    // Sola kaydırınca sohbet açılır (zaten açıksa 2. kez sola kaydırmak bir şey yapmaz).
+                    // Büyük ekranda sağa: sohbeti kapat, ardından gezinmeyi aç.
+                    // Sola: gezinmeyi kapat, ardından sohbeti aç. Telefon akışı yalnızca sohbeti yönetir.
                     .pointerInput(mode, isInPipMode) {
                         if (mode == PlayerMode.Mini || isInPipMode) return@pointerInput
                         var totalDx = 0f
                         var startProgress = 0f
                         var gestureActive = false
                         var theaterGesture = false
+                        var navigationGesture = false
                         val tracker = VelocityTracker()
                         val minCommitPx = 42.dp.toPx()
 
@@ -1065,6 +1069,7 @@ fun PlayerHost(
                             onDragStart = {
                                 gestureActive = mode == PlayerMode.Fullscreen || mode == PlayerMode.Expanded
                                 theaterGesture = mode == PlayerMode.Expanded && !host.isTheaterMode
+                                navigationGesture = false
                                 totalDx = 0f
                                 tracker.resetTracking()
                                 if (gestureActive) {
@@ -1076,6 +1081,13 @@ fun PlayerHost(
                                 if (!gestureActive) return@detectHorizontalDragGestures
                                 totalDx += dx
                                 tracker.addPosition(change.uptimeMillis, change.position)
+                                val tablet = configuration.smallestScreenWidthDp >= 600
+                                if (navigationGesture || (tablet && mode == PlayerMode.Fullscreen &&
+                                    (host.isFullscreenNavigationVisible ||
+                                        (!host.isSideChatOpen(isWide = true) && totalDx > 0f)))) {
+                                    navigationGesture = true
+                                    return@detectHorizontalDragGestures
+                                }
                                 if (theaterGesture && totalDx < 0f) return@detectHorizontalDragGestures
                                 host.isDirectChatDrag = true
                                 val baseWidth = metrics.safeArea.width.coerceAtLeast(1)
@@ -1109,6 +1121,14 @@ fun PlayerHost(
                                     (baseWidth * host.chatWidthFraction).coerceAtLeast(1f)
                                 val commitPx = min(minCommitPx, chatMaxPx * 0.25f)
                                 val vx = tracker.calculateVelocity().x
+                                if (navigationGesture) {
+                                    if (kotlin.math.abs(totalDx) >= minCommitPx || kotlin.math.abs(vx) >= 550f) {
+                                        host.updateFullscreenNavigationVisibility(totalDx > 0f)
+                                    }
+                                    host.isDirectChatDrag = false
+                                    gestureActive = false
+                                    return@detectHorizontalDragGestures
+                                }
                                 val progressVel = (-vx / chatMaxPx).coerceIn(-8f, 8f)
                                 val startedOpen = startProgress >= 0.5f
 
