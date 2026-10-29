@@ -65,6 +65,7 @@ import com.lechixy.kick.data.account.AccountDashboardState
 import com.lechixy.kick.data.account.AccountGraph
 import com.lechixy.kick.data.account.AccountProfile
 import com.lechixy.kick.data.account.AccountStreak
+import com.lechixy.kick.ui.components.StreakBatteryAnimation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -106,7 +107,7 @@ internal fun AccountDashboard(onChannelClick: (String) -> Unit, onDismiss: () ->
             GamificationCard(state, session.profile, badgeLoader, onEdit = {
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://kick.com/settings/profile")))
             })
-            StreakCard(state.streak)
+            StreakCard(state.streak, badgeLoader)
             if (state.failures.isNotEmpty()) {
                 Text(stringResource(R.string.account_details_failed), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -202,7 +203,7 @@ private fun GamificationCard(state: AccountDashboardState, profile: AccountProfi
 }
 
 @Composable
-private fun StreakCard(streak: AccountStreak?) {
+private fun StreakCard(streak: AccountStreak?, imageLoader: ImageLoader? = null) {
     val days = streak?.days?.coerceAtLeast(0)
     val active = (days ?: 0).coerceIn(0, 6)
     val accent = MaterialTheme.colorScheme.secondary
@@ -210,7 +211,7 @@ private fun StreakCard(streak: AccountStreak?) {
     Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(painterResource(R.drawable.bolt_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = null, tint = accent)
+            StreakBatteryAnimation(Modifier.size(28.dp), imageLoader = imageLoader)
             Column {
                 Text(if (days == null) "—" else stringResource(R.string.account_streak_days, days),
                     fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)

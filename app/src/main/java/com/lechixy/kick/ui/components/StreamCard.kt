@@ -150,7 +150,7 @@ fun StreamCard(
                             shape = RoundedCornerShape(4.dp)
                         ) {
                             Text(
-                                text = stringResource(R.string.views_count, FormatUtils.formatViewersCount(stream.viewerCount)),
+                                text = stringResource(R.string.viewers_count, FormatUtils.formatViewersCount(stream.viewerCount)),
                                 color = Color.White,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)

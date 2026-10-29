@@ -2,12 +2,16 @@
 <resources>
     <string name="badge_broadcaster">Yayıncı</string>
     <string name="badge_moderator">Moderatör</string>
-    <string name="badge_verified">Doğrulanmış kullanıcı</string>
-    <string name="badge_founder">Kurucu abone</string>
+    <string name="badge_verified">Doğrulanmış</string>
+    <string name="badge_founder">Kurucu</string>
     <string name="badge_gifter">Abonelik hediye eden</string>
     <string name="badge_subscriber">Abone</string>
     <string name="badge_vip">VIP</string>
-    <string name="badge_og">Topluluğun ilk üyelerinden</string>
+    <string name="badge_og">OG</string>
+    <string name="badge_subscriber_months">%1$d Aylık Abone</string>
+    <string name="badge_subscriber_month">%1$d Aylık Abone</string>
+    <string name="badge_gifter_count">%1$d abone hediye etti</string>
+    <string name="badge_gifter_count_single">%1$d abone hediye etti</string>
     <string name="identity_preview">Önizleme:</string>
     <string name="identity_badges">Rozetler</string>
     <string name="identity_badges_limit">En fazla 4 rozet gösterilebilir</string>

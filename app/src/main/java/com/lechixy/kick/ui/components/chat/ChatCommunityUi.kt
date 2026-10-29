@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -74,6 +75,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.lechixy.kick.R
+import com.lechixy.kick.ui.components.StreakBatteryAnimation
 import com.lechixy.kick.data.model.chat.ActiveChatter
 import com.lechixy.kick.data.model.chat.ActiveChatters
 
@@ -177,17 +179,21 @@ internal fun LevelAvatarAnimation(level: Int?, modifier: Modifier = Modifier) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun KickUserProfileDialog(state: UserProfileCardUiState, onClose: () -> Unit, onFollow: () -> Unit, onMute: () -> Unit) {
+internal fun KickUserProfileDialog(state: UserProfileCardUiState, onClose: () -> Unit, onFollow: () -> Unit, onMute: () -> Unit, onChannelClick: () -> Unit = {}) {
     ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         sheetMaxWidth = 440.dp, containerColor = Color(0xFF131517), dragHandle = null) {
-        KickUserProfileCard(state, onClose, onFollow, onMute, Modifier.navigationBarsPadding())
+        KickUserProfileCard(state, onClose, onFollow, onMute, Modifier.navigationBarsPadding(), onChannelClick)
     }
 }
 
 @Composable
 fun KickUserProfileCard(
-    uiState: UserProfileCardUiState, onFavoriteClick: () -> Unit,
-    onWhisperClick: () -> Unit, modifier: Modifier = Modifier
+    uiState: UserProfileCardUiState,
+    onClose: () -> Unit = {},
+    onFollowClick: () -> Unit = {},
+    onMuteClick: () -> Unit = {},
+    modifier: Modifier = Modifier,
+    onChannelClick: () -> Unit = {}
 ) {
     val tier = KickLevelTier.fromLevel(uiState.level ?: 20)
     val accent = tier.accentColor
@@ -202,7 +208,14 @@ fun KickUserProfileCard(
                     if (uiState.bannerPicUrl != null) AsyncImage(profileImageRequest(uiState.bannerPicUrl), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     uiState.streakDays?.takeIf { it > 0 }?.let { days ->
                         Surface(Modifier.align(Alignment.TopStart).padding(8.dp), color = Color(0xCC131517), shape = RoundedCornerShape(20.dp)) {
-                            Text("ϟ x$days", Modifier.padding(horizontal = 10.dp, vertical = 5.dp), color = Color(0xFF53FC18))
+                            Row(
+                            Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            StreakBatteryAnimation(Modifier.size(18.dp))
+                            Text("x$days", color = Color(0xFF53FC18), fontWeight = FontWeight.Bold)
+                        }
                         }
                     }
                 }
@@ -222,11 +235,15 @@ fun KickUserProfileCard(
                 }
                 uiState.error?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    FilledTonalIconButton(onFavoriteClick, enabled = uiState.isFollowing != null && !uiState.actionLoading, shape = RoundedCornerShape(8.dp)) {
+                    FilledTonalIconButton(onFollowClick, enabled = uiState.isFollowing != null && !uiState.actionLoading, shape = RoundedCornerShape(8.dp)) {
                         Icon(painterResource(if (uiState.isFollowing == true) R.drawable.favorite_24dp_e3e3e3_fill1_wght400_grad0_opsz24
                             else R.drawable.favorite_24dp_e3e3e3_fill0_wght400_grad0_opsz24), stringResource(if (uiState.isFollowing == true) R.string.chatter_unfollow else R.string.follow))
                     }
-                    FilledTonalIconButton(onWhisperClick, shape = RoundedCornerShape(8.dp)) {
+                    com.lechixy.kick.ui.components.FavoriteUserButton(uiState.userId, uiState.username, uiState.slug)
+                    FilledTonalButton(onClick = onChannelClick, enabled = uiState.slug.isNotBlank(), shape = RoundedCornerShape(8.dp)) {
+                        Text(stringResource(R.string.chatter_channel))
+                    }
+                    FilledTonalIconButton(onMuteClick, shape = RoundedCornerShape(8.dp)) {
                         Icon(painterResource(if (uiState.isMuted) R.drawable.volume_off_24dp_e3e3e3_fill0_wght400_grad0_opsz24
                             else R.drawable.volume_up_24dp_e3e3e3_fill0_wght400_grad0_opsz24), stringResource(if (uiState.isMuted) R.string.chatter_unmute else R.string.chatter_mute))
                     }

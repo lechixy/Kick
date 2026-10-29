@@ -46,11 +46,14 @@ fun AccountChatComposer(
     settingsPatch: JsonObject = JsonObject(emptyMap()),
     pointsUpdated: PointsUpdatedEvent? = null,
     rulesSeen: (Long) -> Boolean = { false },
-    markRulesSeen: (Long) -> Unit = {}
+    markRulesSeen: (Long) -> Unit = {},
+    emotes: com.lechixy.kick.data.model.chat.EmotePickerUiState = com.lechixy.kick.data.model.chat.EmotePickerUiState(),
+    onRetryEmotes: () -> Unit = {},
+    onIdentityPreviewClick: ((com.lechixy.kick.data.model.chat.ChatIdentity) -> Unit)? = null
 ) {
     val session by AccountGraph.auth.session.collectAsStateWithLifecycle()
     key(session.generation, channel.slug) {
-        ComposerContent(channel, connectionState, session, settingsPatch, pointsUpdated, rulesSeen, markRulesSeen)
+        ComposerContent(channel, connectionState, session, settingsPatch, pointsUpdated, rulesSeen, markRulesSeen, emotes, onRetryEmotes, onIdentityPreviewClick)
     }
 }
 
@@ -58,7 +61,9 @@ fun AccountChatComposer(
 private fun ComposerContent(
     channel: ChannelDetail, connectionState: ChatConnectionState, session: AccountSession,
     settingsPatch: JsonObject, pointsUpdated: PointsUpdatedEvent?,
-    rulesSeen: (Long) -> Boolean, markRulesSeen: (Long) -> Unit
+    rulesSeen: (Long) -> Boolean, markRulesSeen: (Long) -> Unit,
+    emotes: com.lechixy.kick.data.model.chat.EmotePickerUiState, onRetryEmotes: () -> Unit,
+    onIdentityPreviewClick: ((com.lechixy.kick.data.model.chat.ChatIdentity) -> Unit)?
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -74,8 +79,23 @@ private fun ComposerContent(
     var points by remember { mutableStateOf<Long?>(null) }
     var kicks by remember { mutableStateOf<Long?>(null) }
     var showPointsDialog by remember { mutableStateOf(false) }
-    var identityDraft by remember { mutableStateOf<com.lechixy.kick.data.model.chat.ChatIdentity?>(null) }
-    var identityLoading by remember { mutableStateOf(false) }
+    var showIdentityDialog by remember { mutableStateOf(false) }
+    var showEmotes by rememberSaveable { mutableStateOf(false) }
+    var emoteQuery by rememberSaveable { mutableStateOf("") }
+    var emoteCategory by remember { mutableIntStateOf(0) }
+    var selection by remember { mutableStateOf(androidx.compose.ui.text.TextRange.Zero) }
+    val usagePreferences = remember(context) { context.getSharedPreferences("chat_emote_usage", android.content.Context.MODE_PRIVATE) }
+    var usage by remember { mutableStateOf<Map<Long, Int>>(emptyMap()) }
+    LaunchedEffect(Unit) {
+        usage = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            usagePreferences.all.mapNotNull { (key, value) -> key.toLongOrNull()?.let { it to (value as? Int ?: 0) } }.toMap()
+        }
+    }
+    val pickerCategories = remember(emotes.categories, usage) {
+        val available = emotes.categories.flatMap { it.emotes }.associateBy { it.id }
+        val frequent = usage.entries.sortedByDescending { it.value }.mapNotNull { available[it.key] }.take(40)
+        listOf(com.lechixy.kick.data.model.chat.EmoteCategory("frequently_used", "", com.lechixy.kick.data.model.chat.EmoteCategoryKind.FREQUENT, frequent)) + emotes.categories
+    }
     var identitySaving by remember { mutableStateOf(false) }
     var lastPointUpdate by remember { mutableStateOf<Instant?>(null) }
     var lastEarnedAt by remember { mutableStateOf<Instant?>(null) }
@@ -207,7 +227,6 @@ private fun ComposerContent(
                 if (presentation?.accountAge == true) ChatMode(R.drawable.timer_24dp_e3e3e3_fill0_wght400_grad0_opsz24, stringResource(R.string.chat_account_age))
             }
         }
-        if (identityLoading || identitySaving) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         val disabledReason = when {
             connectionState != ChatConnectionState.CONNECTED -> stringResource(R.string.chat_connect_to_send)
@@ -222,26 +241,37 @@ private fun ComposerContent(
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         val validation = if (inputBlock == null && content.isNotEmpty()) ChatPolicy.messageIssue(content)?.let {
             ChatRestriction(it).localized(context) } else null
+        if (showEmotes) {
+            com.lechixy.kick.ui.components.chat.EmotePickerSheet(
+                uiState = emotes.copy(searchQuery = emoteQuery, selectedCategoryIndex = emoteCategory, categories = pickerCategories),
+                onSearchQueryChange = { emoteQuery = it }, onCategorySelected = { emoteCategory = it },
+                onCloseClick = { showEmotes = false }, onRetry = onRetryEmotes,
+                canUseSubscriberEmotes = effectiveAccess?.member?.let { it.subscriber || it.privileged } == true,
+                onEmoteSelected = { emote ->
+                    val updated = com.lechixy.kick.data.model.chat.insertEmote(content, selection.start, selection.end, emote)
+                    if (ChatPolicy.messageIssue(updated.text) == null) {
+                        content = updated.text
+                        selection = androidx.compose.ui.text.TextRange(updated.cursor)
+                        val count = (usage[emote.id] ?: 0) + 1
+                        usage = usage + (emote.id to count)
+                        usagePreferences.edit().putInt(emote.id.toString(), count).apply()
+                    }
+                })
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            IconButton(enabled = !identityLoading && !identitySaving && session.profile != null, onClick = {
-                identityLoading = true
-                error = null
-                scope.launch {
-                    try { identityDraft = AccountGraph.chat.identity(channel.id) }
-                    catch (failure: Exception) {
-                        if (failure is CancellationException) throw failure
-                        error = context.getString(R.string.identity_load_failed)
-                    } finally { identityLoading = false }
-                }
-            }) {
-                Icon(painterResource(R.drawable.person_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+            IconButton(enabled = !identitySaving && session.profile != null, onClick = { showIdentityDialog = true }) {
+                Icon(painterResource(if (showIdentityDialog) R.drawable.person_24dp_e3e3e3_fill1_wght400_grad0_opsz24 else R.drawable.person_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                     contentDescription = stringResource(R.string.chat_identity))
             }
             ChatComposerTextField(value = if (inputBlock == null) content else "", onValueChange = { content = it },
                 blockedText = inputBlockText,
                 modifier = Modifier.weight(1f),
                 enabled = !sending && !loading && effectiveAccess != null && inputBlock == null,
-                validation = validation)
+                validation = validation, selection = selection, onSelectionChange = { selection = it })
+            IconButton(enabled = !sending && !loading && effectiveAccess != null && inputBlock == null,
+                onClick = { showEmotes = !showEmotes }) {
+                Icon(painterResource(if (showEmotes) R.drawable.mood_24dp_e3e3e3_fill1_wght400_grad0_opsz24 else R.drawable.mood_24dp_e3e3e3_fill0_wght400_grad0_opsz24), stringResource(R.string.emote_picker))
+            }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -276,17 +306,28 @@ private fun ComposerContent(
         }
         if (access == null && !loading) TextButton(onClick = { refresh++ }) { Text(stringResource(R.string.chat_retry)) }
     }
-    identityDraft?.let { initial ->
-        ChatIdentityDialog(initial, session.profile?.name.orEmpty(), channel.subscriberBadges) { updated ->
-            identityDraft = null
+    if (showIdentityDialog) {
+        LoadingChatIdentityDialog(channel.id, session.profile?.name.orEmpty(), channel.subscriberBadges,
+            onPreviewClick = onIdentityPreviewClick) { initial, updated ->
+            showIdentityDialog = false
             if (updated != null) {
-                access = access?.copy(identity = updated)
                 identitySaving = true
                 scope.launch {
-                    try { AccountGraph.chat.updateIdentity(channel.id, session.generation, updated) }
+                    var previous = initial
+                    try {
+                        // Closing before load completes can only change color. Fetch the badge baseline
+                        // before saving so that an early color choice cannot clear existing badges.
+                        val toSave = if (initial == null) {
+                            val loaded = AccountGraph.chat.identity(channel.id)
+                            previous = loaded
+                            loaded.copy(color = updated.color)
+                        } else updated
+                        access = access?.copy(identity = toSave)
+                        AccountGraph.chat.updateIdentity(channel.id, session.generation, toSave)
+                    }
                     catch (failure: Exception) {
                         if (failure is CancellationException) throw failure
-                        access = access?.copy(identity = initial)
+                        if (previous != null) access = access?.copy(identity = previous)
                         error = context.getString(R.string.identity_save_failed)
                     } finally { identitySaving = false }
                 }
@@ -372,9 +413,19 @@ internal fun ChatComposerTextField(
     enabled: Boolean,
     blockedText: String? = null,
     validation: String? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selection: androidx.compose.ui.text.TextRange = androidx.compose.ui.text.TextRange(value.length),
+    onSelectionChange: (androidx.compose.ui.text.TextRange) -> Unit = {}
 ) {
-    OutlinedTextField(value = value, onValueChange = onValueChange, enabled = enabled,
+    // Keep the IME composition while emote insertion can move the selection externally.
+    var fieldValue by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(value, selection)) }
+    val displayed = if (fieldValue.text == value && fieldValue.selection == selection) fieldValue
+        else fieldValue.copy(text = value, selection = selection, composition = null)
+    OutlinedTextField(value = displayed, onValueChange = {
+        fieldValue = it
+        onValueChange(it.text)
+        onSelectionChange(it.selection)
+    }, enabled = enabled,
         placeholder = { Text(blockedText ?: stringResource(R.string.chat_message_placeholder)) },
         modifier = modifier, maxLines = 4, isError = validation != null,
         supportingText = validation?.let { { Text(it) } })

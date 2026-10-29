@@ -29,9 +29,9 @@
     <string name="search_placeholder">Search...</string>
     <string name="hide">Hide</string>
     <string name="replying_to">Replying to</string>
-    <string name="message_deleted_by_ai_moderator">Message deleted by AI moderator</string>
-    <string name="message_deleted_rule_violation">Message deleted because user violated rule</string>
-    <string name="message_deleted_by_moderator">Message deleted by moderator</string>
+    <string name="message_deleted_by_ai_moderator">Message deleted by AI moderator.</string>
+    <string name="message_deleted_rule_violation">Message deleted because user violated rule.</string>
+    <string name="message_deleted_by_moderator">Message deleted by moderator.</string>
     <string name="streamer_is_live">%1$s IS LIVE!</string>
     <string name="channel_offline">CHANNEL OFFLINE</string>
     <string name="play_live">Play live</string>
@@ -131,4 +131,5 @@
     <string name="more">More</string>
     <string name="no_recent_broadcasts">No recent broadcasts yet</string>
     <string name="views_count">%1$s views</string>
+    <string name="viewers_count">%1$s viewers</string>
 </resources>

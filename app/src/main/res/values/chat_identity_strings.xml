@@ -2,12 +2,16 @@
 <resources>
     <string name="badge_broadcaster">Broadcaster</string>
     <string name="badge_moderator">Moderator</string>
-    <string name="badge_verified">Verified user</string>
-    <string name="badge_founder">Founding subscriber</string>
-    <string name="badge_gifter">Subscription gifter</string>
+    <string name="badge_verified">Verified</string>
+    <string name="badge_founder">Founder</string>
+    <string name="badge_gifter">Sub Gifter</string>
     <string name="badge_subscriber">Subscriber</string>
     <string name="badge_vip">VIP</string>
-    <string name="badge_og">Original community member</string>
+    <string name="badge_og">OG</string>
+    <string name="badge_subscriber_months">%1$d-Months Subscriber</string>
+    <string name="badge_subscriber_month">%1$d-Month Subscriber</string>
+    <string name="badge_gifter_count">Gifted %1$d sub</string>
+    <string name="badge_gifter_count_single">Gifted 1 sub</string>
     <string name="identity_preview">Preview:</string>
     <string name="identity_badges">Badges</string>
     <string name="identity_badges_limit">A maximum of 4 badges can be displayed</string>

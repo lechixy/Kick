@@ -17,6 +17,7 @@ import retrofit2.HttpException
 class KickRepository(
     private val api: KickApi
 ) {
+    suspend fun getEmotes(slug: String) = com.lechixy.kick.data.model.chat.parseEmoteCategories(api.getEmotes(slug))
     suspend fun getChannelLinks(slug: String) = com.lechixy.kick.data.model.parseChannelLinks(api.getChannelLinks(slug))
     suspend fun getChannelGoals(slug: String) = com.lechixy.kick.data.model.parseChannelGoals(api.getChannelGoals(slug))
 

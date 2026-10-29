@@ -26,6 +26,9 @@ import retrofit2.http.Query
 import retrofit2.http.Url
 
 interface KickApi {
+    @GET("https://kick.com/emotes/{slug}")
+    suspend fun getEmotes(@Path("slug") slug: String): kotlinx.serialization.json.JsonElement
+
     @GET("https://web.kick.com/api/v1/channels/{channelId}/chat/active-chatters")
     suspend fun getActiveChatters(@Path("channelId") channelId: Long): kotlinx.serialization.json.JsonObject
 

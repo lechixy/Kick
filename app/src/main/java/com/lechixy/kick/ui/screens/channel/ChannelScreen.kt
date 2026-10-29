@@ -242,7 +242,8 @@ fun ChannelScreen(
                     viewModel = viewModel,
                     channel = ch,
                     onHideChat = onHide,
-                    modifier = chatMod
+                    modifier = chatMod,
+                    onOpenChannel = { slug -> playerHost?.open(slug) }
                 )
             }
         }
@@ -610,14 +611,18 @@ private fun ChannelChatSection(
     viewModel: ChannelViewModel,
     channel: ChannelDetail,
     onHideChat: (() -> Unit)?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenChannel: (String) -> Unit = {}
 ) {
+    val community: com.lechixy.kick.ui.components.chat.ChatCommunityViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel(key = "community-${channel.slug}")
     val chatMessages by viewModel.chatMessages.collectAsState()
     val chatConnectionState by viewModel.chatConnectionState.collectAsState()
     val pinnedMessage by viewModel.pinnedMessage.collectAsState()
     val userColors by viewModel.userColors.collectAsState()
     val chatSettings by viewModel.chatSettings.collectAsState()
     val pointsUpdated by viewModel.pointsUpdated.collectAsState()
+    val emotes by viewModel.emotes.collectAsState()
 
     ChatView(
         messages = chatMessages,
@@ -632,10 +637,18 @@ private fun ChannelChatSection(
         onConnectClick = viewModel::connectChat,
         onDisconnectClick = viewModel::disconnectChat,
         onHideChat = onHideChat,
+        onOpenChannel = onOpenChannel,
         composer = { com.lechixy.kick.ui.components.account.AccountChatComposer(
             channel, chatConnectionState, chatSettings, pointsUpdated,
             rulesSeen = { generation -> viewModel.rulesSeen(generation, channel.id) },
-            markRulesSeen = { generation -> viewModel.markRulesSeen(generation, channel.id) }) },
+            markRulesSeen = { generation -> viewModel.markRulesSeen(generation, channel.id) },
+            emotes = emotes, onRetryEmotes = { viewModel.loadEmotes(retry = true) },
+            onIdentityPreviewClick = { identity ->
+                val account = com.lechixy.kick.data.account.AccountGraph.auth.session.value.profile
+                if (account != null) community.openProfile(channel.slug,
+                    com.lechixy.kick.data.model.chat.ActiveChatter(username = account.name, profilePicture = account.avatar),
+                    com.lechixy.kick.data.model.chat.ChatSender(id = account.userId, username = account.name, identity = identity))
+            }) },
         modifier = modifier
     )
 }
@@ -922,6 +935,9 @@ private fun ChannelHeaderInfo(
                     fontWeight = FontWeight.Bold
                 )
             }
+            com.lechixy.kick.ui.components.FavoriteUserButton(
+                channel.userId ?: channel.user?.id, channel.user?.username ?: channel.slug, channel.slug)
+
         }
     }
 }

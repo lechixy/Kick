@@ -1,5 +1,7 @@
 package com.lechixy.kick.ui.components.chat
 
+import android.content.Context
+import android.content.res.Configuration
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
@@ -35,6 +37,7 @@ import com.lechixy.kick.R
 import com.lechixy.kick.data.model.SubscriberBadge
 import com.lechixy.kick.data.model.chat.ChatIdentity
 import com.lechixy.kick.data.model.chat.ChatBadge
+import java.util.Locale
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
@@ -50,7 +53,9 @@ data class ResolvedChatBadge(
     val imageUrl: String? = null,
     @DrawableRes val drawableRes: Int? = null,
     val sortOrder: Int,
-    val level: Int? = null
+    val level: Int? = null,
+    val count: Int? = null,
+    val months: Int? = null
 )
 
 internal fun ChatBadge.levelNumber(): Int? {
@@ -74,22 +79,46 @@ object ChatTextParser {
 
     fun resolveBadges(
         identity: ChatIdentity?,
-        subscriberBadges: List<SubscriberBadge>
+        subscriberBadges: List<SubscriberBadge>,
+        context: Context? = null,
+        locale: Locale? = null
     ): List<ResolvedChatBadge> {
         if (identity == null) return emptyList()
+        val resContext = if (context != null && locale != null) {
+            val config = Configuration(context.resources.configuration)
+            config.setLocale(locale)
+            context.createConfigurationContext(config)
+        } else context
+
+        val isTurkish = locale?.language?.equals("tr", ignoreCase = true)
+            ?: resContext?.resources?.configuration?.locales?.get(0)?.language?.equals("tr", ignoreCase = true)
+            ?: Locale.getDefault().language.equals("tr", ignoreCase = true)
+
         val result = mutableListOf<ResolvedChatBadge>()
 
         identity.badgesV2.forEachIndexed { index, badge ->
             if (!badge.selected) return@forEachIndexed
             val url = badge.imageUrl
             if (!url.isNullOrBlank()) {
+                val level = badge.levelNumber()
+                val badgeName = if (level != null) {
+                    resContext?.getString(R.string.badge_level, level.toString())
+                        ?: if (isTurkish) "Seviye $level" else "Level $level"
+                } else {
+                    val standardType = badge.name.lowercase()
+                    if (standardType in listOf("broadcaster", "verified", "moderator", "og", "vip", "founder", "subscriber", "sub_gifter", "subgifter", "gifter")) {
+                        resolveBadgeName(standardType, count = null, isTurkish = isTurkish, context = resContext)
+                    } else {
+                        badge.name.ifBlank { "badge" }
+                    }
+                }
                 result.add(
                     ResolvedChatBadge(
                         key = "badge_v2_${index}_${badge.name}",
-                        name = badge.name.ifBlank { "badge" },
+                        name = badgeName,
                         imageUrl = url,
                         sortOrder = badge.sortOrder ?: (index + 1),
-                        level = badge.levelNumber()
+                        level = level
                     )
                 )
             }
@@ -110,7 +139,7 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_broadcaster",
-                            name = badgeInfo.text ?: "Broadcaster",
+                            name = resolveBadgeName("broadcaster", null, isTurkish, resContext),
                             drawableRes = R.drawable.broadcaster_badge,
                             sortOrder = badgeInfo.sortOrder ?: 1
                         )
@@ -121,7 +150,7 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_verified",
-                            name = badgeInfo.text ?: "Verified",
+                            name = resolveBadgeName("verified", null, isTurkish, resContext),
                             drawableRes = R.drawable.verified_badge,
                             sortOrder = badgeInfo.sortOrder ?: 2
                         )
@@ -132,7 +161,7 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_moderator",
-                            name = badgeInfo.text ?: "Moderator",
+                            name = resolveBadgeName("moderator", null, isTurkish, resContext),
                             drawableRes = R.drawable.moderator_badge,
                             sortOrder = badgeInfo.sortOrder ?: 3
                         )
@@ -143,7 +172,7 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_og",
-                            name = badgeInfo.text ?: "OG",
+                            name = resolveBadgeName("og", null, isTurkish, resContext),
                             drawableRes = R.drawable.og_badge,
                             sortOrder = badgeInfo.sortOrder ?: 4
                         )
@@ -154,7 +183,7 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_vip",
-                            name = badgeInfo.text ?: "VIP",
+                            name = resolveBadgeName("vip", null, isTurkish, resContext),
                             drawableRes = R.drawable.vip_badge,
                             sortOrder = badgeInfo.sortOrder ?: 5
                         )
@@ -165,7 +194,7 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_founder",
-                            name = badgeInfo.text ?: "Founder",
+                            name = resolveBadgeName("founder", null, isTurkish, resContext),
                             drawableRes = R.drawable.founder_badge,
                             sortOrder = badgeInfo.sortOrder ?: 6
                         )
@@ -185,40 +214,93 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_gifter_$count",
-                            name = badgeInfo.text ?: "Sub Gifter",
+                            name = resolveBadgeName("sub_gifter", badgeInfo.count, isTurkish, resContext),
                             drawableRes = drawableRes,
-                            sortOrder = badgeInfo.sortOrder ?: 8
+                            sortOrder = badgeInfo.sortOrder ?: 8,
+                            count = count
                         )
                     )
                 }
 
                 "subscriber" -> {
-                    if (subscriberBadges.isNotEmpty()) {
-                        val months = badgeInfo.count ?: 1
-                        val matchedChannelBadge = subscriberBadges
+                    val months = badgeInfo.count ?: 1
+                    val matchedChannelBadge = if (subscriberBadges.isNotEmpty()) {
+                        subscriberBadges
                             .filter { it.months <= months && !it.badgeImage?.src.isNullOrBlank() }
                             .maxByOrNull { it.months }
                             ?: subscriberBadges
                                 .filter { !it.badgeImage?.src.isNullOrBlank() }
                                 .minByOrNull { it.months }
+                    } else null
 
-                        val subImageUrl = matchedChannelBadge?.badgeImage?.src
-                        if (!subImageUrl.isNullOrBlank()) {
-                            result.add(
-                                ResolvedChatBadge(
-                                    key = "badge_sub_${matchedChannelBadge.id}_$months",
-                                    name = badgeInfo.text ?: "Subscriber",
-                                    imageUrl = subImageUrl,
-                                    sortOrder = badgeInfo.sortOrder ?: 9
-                                )
+                    val subImageUrl = matchedChannelBadge?.badgeImage?.src
+                    if (!subImageUrl.isNullOrBlank() || subscriberBadges.isEmpty()) {
+                        result.add(
+                            ResolvedChatBadge(
+                                key = if (matchedChannelBadge != null) "badge_sub_${matchedChannelBadge.id}_$months" else "badge_sub_$months",
+                                name = resolveBadgeName("subscriber", badgeInfo.count, isTurkish, resContext),
+                                imageUrl = subImageUrl,
+                                sortOrder = badgeInfo.sortOrder ?: 9,
+                                months = months
                             )
-                        }
+                        )
                     }
                 }
             }
         }
 
         return result.sortedBy { it.sortOrder }
+    }
+
+    fun resolveBadgeName(
+        type: String,
+        count: Int?,
+        isTurkish: Boolean,
+        context: Context? = null
+    ): String {
+        return when (type.lowercase()) {
+            "broadcaster" -> context?.getString(R.string.badge_broadcaster)
+                ?: if (isTurkish) "Yayıncı" else "Broadcaster"
+            "verified" -> context?.getString(R.string.badge_verified)
+                ?: if (isTurkish) "Doğrulanmış" else "Verified"
+            "moderator" -> context?.getString(R.string.badge_moderator)
+                ?: if (isTurkish) "Moderatör" else "Moderator"
+            "og" -> context?.getString(R.string.badge_og)
+                ?: "OG"
+            "vip" -> context?.getString(R.string.badge_vip)
+                ?: "VIP"
+            "founder" -> context?.getString(R.string.badge_founder)
+                ?: if (isTurkish) "Kurucu" else "Founder"
+            "subscriber" -> {
+                if (count != null && count > 0) {
+                    if (count == 1) {
+                        context?.getString(R.string.badge_subscriber_month, count)
+                            ?: if (isTurkish) "1 Aylık Abone" else "1-Month Subscriber"
+                    } else {
+                        context?.getString(R.string.badge_subscriber_months, count)
+                            ?: if (isTurkish) "$count Aylık Abone" else "$count-Months Subscriber"
+                    }
+                } else {
+                    context?.getString(R.string.badge_subscriber)
+                        ?: if (isTurkish) "Abone" else "Subscriber"
+                }
+            }
+            "sub_gifter", "subgifter", "gifter" -> {
+                if (count != null && count > 0) {
+                    if (count == 1) {
+                        context?.getString(R.string.badge_gifter_count_single, count)
+                            ?: if (isTurkish) "1 abone hediye etti" else "Gifted 1 sub"
+                    } else {
+                        context?.getString(R.string.badge_gifter_count, count)
+                            ?: if (isTurkish) "$count abone hediye etti" else "Gifted $count sub"
+                    }
+                } else {
+                    context?.getString(R.string.badge_gifter)
+                        ?: if (isTurkish) "Abonelik hediye eden" else "Sub Gifter"
+                }
+            }
+            else -> type
+        }
     }
 
     fun containsStreamerMention(
@@ -290,6 +372,7 @@ object ChatTextParser {
                     val badgeHeightSp = (safeFontSizeSp + 2).sp
                     val badgeWidthSp = (safeFontSizeSp + 5).sp
                     for (badge in badges) {
+                        if (badge.drawableRes == null && badge.imageUrl.isNullOrBlank()) continue
                         val inlineId = badge.key
                         if (!inlineContentMap.containsKey(inlineId)) {
                             inlineContentMap[inlineId] = InlineTextContent(
@@ -537,6 +620,7 @@ object ChatTextParser {
 
                 val appendUserBlock: AnnotatedString.Builder.() -> Unit = {
                     for (badge in badges) {
+                        if (badge.drawableRes == null && badge.imageUrl.isNullOrBlank()) continue
                         val inlineId = badge.key
                         if (!inlineContentMap.containsKey(inlineId)) {
                             inlineContentMap[inlineId] = InlineTextContent(

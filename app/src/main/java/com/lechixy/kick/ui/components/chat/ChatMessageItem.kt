@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -59,6 +60,10 @@ fun ChatMessageItem(
     streamerUsername: String? = null,
     streamerSlug: String? = null,
     onUserClick: ((com.lechixy.kick.data.model.chat.ChatSender) -> Unit)? = null,
+    isFavorite: Boolean = false,
+    isOwnMessage: Boolean = false,
+    replyHighlight: Int = 0,
+    onReplyClick: ((String) -> Unit)? = null,
 ) {
     val onEventUserClick: ((String) -> Unit)? = onUserClick?.let { callback -> { username ->
         callback(message.sender?.takeIf { it.username.equals(username, ignoreCase = true) }
@@ -293,14 +298,28 @@ fun ChatMessageItem(
         hasBroadcasterBadge || matchesUsername || matchesSlug
     }
 
-    val broadcasterPalette = remember(isBroadcaster, usernameColor) {
-        if (isBroadcaster) resolveBroadcasterMessagePalette(usernameColor) else null
+    val broadcasterPalette = remember(isBroadcaster, isFavorite, isOwnMessage, usernameColor) {
+        if (isBroadcaster || isFavorite || isOwnMessage) resolveBroadcasterMessagePalette(usernameColor) else null
+    }
+    val replyPulse = remember { androidx.compose.animation.core.Animatable(0f) }
+    androidx.compose.runtime.LaunchedEffect(replyHighlight) {
+        replyPulse.snapTo(0f)
+        if (replyHighlight == 0) return@LaunchedEffect
+        repeat(2) {
+            replyPulse.animateTo(0.26f, tween(180))
+            replyPulse.animateTo(0f, tween(480))
+        }
+    }
+    val pulseColor = MaterialTheme.colorScheme.primary
+    val pulseModifier = Modifier.drawBehind {
+        drawRoundRect(pulseColor.copy(alpha = replyPulse.value), cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx()))
     }
     val effectiveSenderColor = broadcasterPalette?.senderColor ?: usernameColor
     val effectiveBodyTextColor = broadcasterPalette?.contentColor ?: MaterialTheme.colorScheme.onSurface
 
-    val badges = remember(message.sender?.identity, subscriberBadges) {
-        ChatTextParser.resolveBadges(message.sender?.identity, subscriberBadges)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val badges = remember(message.sender?.identity, subscriberBadges, context) {
+        ChatTextParser.resolveBadges(message.sender?.identity, subscriberBadges, context = context)
     }
 
     val messageContent = message.messageDeleted?.let { resolveDeletedMessageText(it) } ?: message.content
@@ -334,11 +353,13 @@ fun ChatMessageItem(
             .padding(horizontal = 6.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(broadcasterPalette.backgroundColor)
+            .then(pulseModifier)
             .padding(horizontal = 4.dp, vertical = 4.dp)
     } else {
         modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp)
+            .then(pulseModifier)
     }
 
     Column(
@@ -346,6 +367,9 @@ fun ChatMessageItem(
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         val originalMessage = message.metadata?.originalMessage
+        val replyTargetId = originalMessage?.id?.takeIf { it.isNotBlank() }
+            ?: message.threadParentId?.takeIf { it.isNotBlank() }
+            ?: message.metadata?.messageRef?.takeIf { it.isNotBlank() }
         if (message.isReply && originalMessage != null && originalMessage.content.isNotBlank()) {
             val originalSenderName = message.metadata.originalSender?.username
                 ?.takeIf { it.isNotBlank() }
@@ -402,7 +426,10 @@ fun ChatMessageItem(
                 color = replyMutedColor,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().then(
+                    if (onReplyClick != null && replyTargetId != null) Modifier.clickable(
+                        onClickLabel = stringResource(R.string.chat_go_to_reply)
+                    ) { onReplyClick(replyTargetId) } else Modifier)
             )
         }
 

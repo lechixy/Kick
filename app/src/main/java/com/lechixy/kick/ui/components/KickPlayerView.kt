@@ -31,6 +31,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -121,6 +123,8 @@ import com.lechixy.kick.service.EXTRA_LOW_LATENCY
 import com.lechixy.kick.data.local.PlaybackProgressStore
 import com.lechixy.kick.service.PlaybackService
 import com.lechixy.kick.service.buildPlaybackMediaItem
+import com.lechixy.kick.service.distanceBehindLiveTargetMs
+import com.lechixy.kick.service.isNearLiveTarget
 import com.lechixy.kick.ui.screens.channel.findActivity
 import com.lechixy.kick.ui.settings.SettingCard
 import com.lechixy.kick.ui.settings.SettingSwitch
@@ -194,8 +198,9 @@ fun KickPlayerView(
 
     var showSettingsDialog by remember { mutableStateOf(false) }
     var settingsPage by remember { mutableStateOf(PlayerSettingsPage.MAIN) }
-    var sleepTimerMinutes by remember { mutableIntStateOf(0) }
-    var remainingTimerSeconds by remember { mutableIntStateOf(0) }
+    val sleepTimer by com.lechixy.kick.service.SleepTimer.state.collectAsStateWithLifecycle()
+    val sleepTimerMinutes = sleepTimer.selectedMinutes
+    val remainingTimerSeconds = sleepTimer.remainingSeconds
 
     val settingsRepository = LocalSettingsRepository.current
     val coroutineScope = rememberCoroutineScope()
@@ -224,34 +229,8 @@ fun KickPlayerView(
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        if (isGranted && sleepTimerMinutes > 0) {
-            NotificationUtils.updateTimerNotification(context, sleepTimerMinutes * 60)
-        }
-    }
-
-    /**
-     * Sleep timer
-     */
-    LaunchedEffect(sleepTimerMinutes) {
-        if (sleepTimerMinutes > 0) {
-            remainingTimerSeconds = sleepTimerMinutes * 60
-            NotificationUtils.updateTimerNotification(context, remainingTimerSeconds)
-
-            while (remainingTimerSeconds > 0 && isPlaying) {
-                delay(1000.milliseconds)
-                remainingTimerSeconds--
-                if (remainingTimerSeconds > 0 && remainingTimerSeconds % 60 == 0) {
-                    NotificationUtils.updateTimerNotification(context, remainingTimerSeconds)
-                }
-            }
-
-            if (remainingTimerSeconds <= 0) {
-                player?.pause()
-                sleepTimerMinutes = 0
-                NotificationUtils.showTimerEndedNotification(context)
-            }
-        } else {
-            NotificationUtils.cancelTimerNotification(context)
+        if (isGranted && com.lechixy.kick.service.SleepTimer.state.value.remainingSeconds > 0) {
+            NotificationUtils.updateTimerNotification(context, com.lechixy.kick.service.SleepTimer.state.value.remainingSeconds)
         }
     }
 
@@ -335,8 +314,8 @@ fun KickPlayerView(
 
     LaunchedEffect(isMini) { if (isMini) showControls = false }
 
-    var liveOffsetMs by remember { mutableLongStateOf(0L) }
-    var isAtLiveEdge by remember { mutableStateOf(true) }
+    var liveOffsetMs by remember(stableId) { mutableLongStateOf(C.TIME_UNSET) }
+    var isAtLiveEdge by remember(stableId) { mutableStateOf(false) }
     val isLiveStream = recording == null && (channel?.livestream != null || player?.isCurrentMediaItemLive == true)
     val latestIsLiveStream by rememberUpdatedState(isLiveStream)
     var positionMs by remember(stableId) { mutableLongStateOf(0L) }
@@ -352,7 +331,7 @@ fun KickPlayerView(
         }
     }
 
-    LaunchedEffect(player, isLiveStream, lowLatencyEnabled) {
+    LaunchedEffect(player, stableId, isLiveStream, lowLatencyEnabled) {
         val p = player ?: return@LaunchedEffect
         if (!isLiveStream) {
             isAtLiveEdge = true
@@ -361,16 +340,13 @@ fun KickPlayerView(
         }
 
         while (isActive) {
-            val currentOffset = p.distanceToLiveEdgeMs()
+            val currentOffset = if (p.currentMediaItem?.mediaId == stableId) {
+                p.distanceBehindLiveTargetMs()
+            } else C.TIME_UNSET
 
             liveOffsetMs = currentOffset
-            val fallBehindThreshold = if (lowLatencyEnabled) 10500L else 14500L
-            val catchUpThreshold = if (lowLatencyEnabled) 9000L else 12500L
-            isAtLiveEdge = if (isAtLiveEdge) {
-                currentOffset <= fallBehindThreshold
-            } else {
-                currentOffset <= catchUpThreshold
-            }
+            isAtLiveEdge = p.playWhenReady && p.playbackState == Player.STATE_READY &&
+                isNearLiveTarget(currentOffset, isAtLiveEdge)
 
             delay(250.milliseconds)
         }
@@ -389,7 +365,6 @@ fun KickPlayerView(
                 availableQualities.addAll(tracks.toQualityOptions())
             }
 
-            var previousPlayWhenReady = p.playWhenReady
             val listener = object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (p.currentMediaItem?.mediaId != stableId) return
@@ -421,18 +396,6 @@ fun KickPlayerView(
                     if (playing) {
                         playbackError = null
                     }
-                }
-
-                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                    if (playWhenReady && !previousPlayWhenReady) {
-                        val live = latestIsLiveStream
-                        if (live) {
-                            if (p.distanceToLiveEdgeMs() > 15000L) {
-                                p.seekToDefaultPosition()
-                            }
-                        }
-                    }
-                    previousPlayWhenReady = playWhenReady
                 }
 
                 override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -672,11 +635,12 @@ fun KickPlayerView(
         val handleTogglePlay = {
             val p = player
             if (p != null) {
-                if (isPlaying) {
+                if (p.playWhenReady) {
                     p.pause()
                 } else {
-                    val live = isLiveStream
-                    if (live || p.playbackState == Player.STATE_ENDED) {
+                    // Live resumes are handled once in the playback service, including
+                    // notification/PiP/headset commands while this UI is unmounted.
+                    if (!isLiveStream && p.playbackState == Player.STATE_ENDED) {
                         p.seekToDefaultPosition()
                     }
                     p.play()
@@ -687,8 +651,8 @@ fun KickPlayerView(
         val handleGoToLive = {
             val p = player
             if (p != null) {
-                isAtLiveEdge = true
-                p.seekToDefaultPosition()
+                // A paused player's play transition already seeks in LiveResumeListener.
+                if (p.playWhenReady) p.seekToDefaultPosition()
                 p.play()
             }
         }
@@ -722,7 +686,7 @@ fun KickPlayerView(
                 onSeekForward = { player?.let { it.seekTo((it.currentPosition + 10_000).coerceIn(0, durationMs.coerceAtLeast(0))) } },
                 isLive = isLiveStream,
                 isAtLiveEdge = isAtLiveEdge,
-                behindLiveText = formatLiveOffset(liveOffsetMs),
+                behindLiveText = if (liveOffsetMs == C.TIME_UNSET) "" else formatLiveOffset(liveOffsetMs),
                 onGoToLive = handleGoToLive,
                 onTogglePlay = handleTogglePlay,
                 onToggleMute = {
@@ -763,30 +727,12 @@ fun KickPlayerView(
             }
 
             val selectSleepTimer: (Int) -> Unit = { mins ->
-                sleepTimerMinutes = mins
+                // Start before asking permission. Playback expiry never depends on the answer.
+                com.lechixy.kick.service.SleepTimer.start(mins)
                 closeSettings()
-
-                if (mins == 0) {
-                    remainingTimerSeconds = 0
-                    NotificationUtils.cancelTimerNotification(context)
-                } else {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        val hasPermission =
-                            ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.POST_NOTIFICATIONS
-                            ) == PackageManager.PERMISSION_GRANTED
-
-                        if (hasPermission) {
-                            NotificationUtils.updateTimerNotification(context, mins * 60)
-                        } else {
-                            notificationPermissionLauncher.launch(
-                                Manifest.permission.POST_NOTIFICATIONS
-                            )
-                        }
-                    } else {
-                        NotificationUtils.updateTimerNotification(context, mins * 60)
-                    }
+                if (mins > 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
 
@@ -1319,7 +1265,7 @@ internal fun PlayerControlsOverlay(
 ) {
     val labelStyle = MaterialTheme.typography.labelSmall
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.5f))
@@ -1328,6 +1274,15 @@ internal fun PlayerControlsOverlay(
                 else it
             }
     ) {
+        if (sleepRemainingSeconds > 0) {
+            Row(Modifier.align(Alignment.TopCenter).offset(y = maxHeight / 4).offset(y = (-12).dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(painterResource(R.drawable.bedtime_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                    stringResource(R.string.player_sleep_timer), Modifier.size(18.dp), tint = Color.White)
+                Text(com.lechixy.kick.util.sleepTimerRemainingText(LocalContext.current, sleepRemainingSeconds, compact = true),
+                    color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+            }
+        }
         val isCompact = !isFullScreen
         val configuration = LocalConfiguration.current
         val isWide = configuration.screenWidthDp >= WIDE_BREAKPOINT_DP
@@ -1378,37 +1333,7 @@ internal fun PlayerControlsOverlay(
                     )
                 }
 
-                if (sleepRemainingSeconds > 0) {
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.75f),
-                        shape = RoundedCornerShape(6.dp),
-                        border = BorderStroke(
-                            1.dp,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.timer_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                                contentDescription = "Timer",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = stringResource(R.string.player_sleep_badge, (sleepRemainingSeconds + 59) / 60),
-                                color = Color.White,
-                                style = labelStyle,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-                    }
-                }
+
             }
             /**
              * Top End/Right
@@ -1594,7 +1519,7 @@ internal fun PlayerControlsOverlay(
                     if (isLive) {
                         Separator()
                         Surface(
-                            onClick = { if (!isAtLiveEdge) onGoToLive() },
+                            onClick = onGoToLive,
                             shape = RoundedCornerShape(4.dp),
                             modifier = Modifier.padding(start = 2.dp)
                         ) {
@@ -1795,27 +1720,5 @@ internal fun Separator() {
         maxLines = 1,
         softWrap = false
     )
-}
-
-/**
- * Yayın verisindeki canlı konuma göre mesafeyi hesaplar.
- * Aktif HLS penceresi içindeyken (currentPosition > 1000L), cihaz saat farkından (clock skew)
- * etkilenmemek için doğrudan pencere sonuna olan mesafeyi (duration - currentPosition) kullanır;
- * yayın uzun süre duraklatılıp pencere gerisine düştüğünde ise currentLiveOffset değerini baz alır.
- */
-private fun Player.distanceToLiveEdgeMs(): Long {
-    val d = duration
-    val pos = currentPosition
-    val windowDistance =
-        if (d != C.TIME_UNSET && d > 0) (d - pos).coerceAtLeast(0L) else C.TIME_UNSET
-    if (windowDistance != C.TIME_UNSET && pos > 1000L) {
-        return windowDistance
-    }
-    val live = currentLiveOffset
-    if (live != C.TIME_UNSET && windowDistance != C.TIME_UNSET) {
-        return maxOf(live, windowDistance).coerceAtLeast(0L)
-    }
-    if (live != C.TIME_UNSET) return live.coerceAtLeast(0L)
-    return if (windowDistance != C.TIME_UNSET) windowDistance else 0L
 }
 

@@ -71,6 +71,32 @@ class ChannelViewModel(
 
     private val _chatSettings = MutableStateFlow(kotlinx.serialization.json.JsonObject(emptyMap()))
     val chatSettings = _chatSettings.asStateFlow()
+    private val _emotes = MutableStateFlow(com.lechixy.kick.data.model.chat.EmotePickerUiState(isLoading = true))
+    val emotes = _emotes.asStateFlow()
+    private var emotesJob: Job? = null
+    private val emoteCache = mutableMapOf<String, List<com.lechixy.kick.data.model.chat.EmoteCategory>>()
+
+    fun loadEmotes(retry: Boolean = false) {
+        val slug = loadedSlug ?: return
+        val cached = emoteCache[slug]
+        if (cached != null) {
+            _emotes.value = com.lechixy.kick.data.model.chat.EmotePickerUiState(categories = cached)
+            return
+        }
+        if (emotesJob?.isActive == true && !retry) return
+        emotesJob?.cancel()
+        _emotes.value = com.lechixy.kick.data.model.chat.EmotePickerUiState(isLoading = true)
+        emotesJob = viewModelScope.launch {
+            try {
+                val categories = repository.getEmotes(slug)
+                emoteCache[slug] = categories
+                if (loadedSlug == slug) _emotes.value = com.lechixy.kick.data.model.chat.EmotePickerUiState(categories = categories)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                if (loadedSlug == slug) _emotes.value = com.lechixy.kick.data.model.chat.EmotePickerUiState(error = "load_failed")
+            }
+        }
+    }
     private val seenRules = mutableSetOf<Pair<Long, Long>>()
     fun rulesSeen(generation: Long, channelId: Long) = (generation to channelId) in seenRules
     fun markRulesSeen(generation: Long, channelId: Long) { seenRules.add(generation to channelId) }
@@ -248,6 +274,8 @@ class ChannelViewModel(
             }
             aboutJob?.cancel()
             loadedSlug = slug
+            emotesJob?.cancel()
+            loadEmotes()
             liveRefreshJob?.cancel()
             viewersPollingJob?.cancel()
             leaderboardJob?.cancel()

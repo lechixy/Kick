@@ -1,12 +1,15 @@
 package com.lechixy.kick.ui.components.chat
 
 import com.lechixy.kick.R
+import com.lechixy.kick.data.model.SubscriberBadge
+import com.lechixy.kick.data.model.SubscriberBadgeImage
 import com.lechixy.kick.data.model.chat.ChatBadge
 import com.lechixy.kick.data.model.chat.ChatIdentity
 import com.lechixy.kick.data.model.chat.ChatSenderBadge
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Locale
 
 class ChatBadgeTest {
 
@@ -105,5 +108,137 @@ class ChatBadgeTest {
         assertEquals("Founder", founderBadge.name)
         assertEquals(R.drawable.founder_badge, founderBadge.drawableRes)
         assertEquals(6, founderBadge.sortOrder)
+    }
+
+    @Test
+    fun resolveBadges_subscriberMonths_localizedEnglish() {
+        val identity16 = ChatIdentity(
+            badges = listOf(ChatSenderBadge(type = "subscriber", count = 16))
+        )
+        val resolved16 = ChatTextParser.resolveBadges(identity16, emptyList(), locale = Locale.ENGLISH)
+        assertEquals(1, resolved16.size)
+        assertEquals("16-Months Subscriber", resolved16.first().name)
+        assertEquals(16, resolved16.first().months)
+
+        val identity1 = ChatIdentity(
+            badges = listOf(ChatSenderBadge(type = "subscriber", count = 1))
+        )
+        val resolved1 = ChatTextParser.resolveBadges(identity1, emptyList(), locale = Locale.ENGLISH)
+        assertEquals("1-Month Subscriber", resolved1.first().name)
+
+        val identityNoCount = ChatIdentity(
+            badges = listOf(ChatSenderBadge(type = "subscriber"))
+        )
+        val resolvedNoCount = ChatTextParser.resolveBadges(identityNoCount, emptyList(), locale = Locale.ENGLISH)
+        assertEquals("Subscriber", resolvedNoCount.first().name)
+    }
+
+    @Test
+    fun resolveBadges_subscriberMonths_localizedTurkish() {
+        val identity16 = ChatIdentity(
+            badges = listOf(ChatSenderBadge(type = "subscriber", count = 16))
+        )
+        val resolved16 = ChatTextParser.resolveBadges(identity16, emptyList(), locale = Locale.forLanguageTag("tr"))
+        assertEquals(1, resolved16.size)
+        assertEquals("16 Aylık Abone", resolved16.first().name)
+        assertEquals(16, resolved16.first().months)
+
+        val identity1 = ChatIdentity(
+            badges = listOf(ChatSenderBadge(type = "subscriber", count = 1))
+        )
+        val resolved1 = ChatTextParser.resolveBadges(identity1, emptyList(), locale = Locale.forLanguageTag("tr"))
+        assertEquals("1 Aylık Abone", resolved1.first().name)
+
+        val identityNoCount = ChatIdentity(
+            badges = listOf(ChatSenderBadge(type = "subscriber"))
+        )
+        val resolvedNoCount = ChatTextParser.resolveBadges(identityNoCount, emptyList(), locale = Locale.forLanguageTag("tr"))
+        assertEquals("Abone", resolvedNoCount.first().name)
+    }
+
+    @Test
+    fun resolveBadges_gifterCount_localizedEnglish() {
+        val identity5 = ChatIdentity(
+            badges = listOf(ChatSenderBadge(type = "sub_gifter", count = 5))
+        )
+        val resolved5 = ChatTextParser.resolveBadges(identity5, emptyList(), locale = Locale.ENGLISH)
+        assertEquals(1, resolved5.size)
+        assertEquals("Gifted 5 sub", resolved5.first().name)
+        assertEquals(5, resolved5.first().count)
+
+        val identity1 = ChatIdentity(
+            badges = listOf(ChatSenderBadge(type = "gifter", count = 1))
+        )
+        val resolved1 = ChatTextParser.resolveBadges(identity1, emptyList(), locale = Locale.ENGLISH)
+        assertEquals("Gifted 1 sub", resolved1.first().name)
+
+        val identityNoCount = ChatIdentity(
+            badges = listOf(ChatSenderBadge(type = "subgifter"))
+        )
+        val resolvedNoCount = ChatTextParser.resolveBadges(identityNoCount, emptyList(), locale = Locale.ENGLISH)
+        assertEquals("Sub Gifter", resolvedNoCount.first().name)
+    }
+
+    @Test
+    fun resolveBadges_gifterCount_localizedTurkish() {
+        val identity5 = ChatIdentity(
+            badges = listOf(ChatSenderBadge(type = "sub_gifter", count = 5))
+        )
+        val resolved5 = ChatTextParser.resolveBadges(identity5, emptyList(), locale = Locale.forLanguageTag("tr"))
+        assertEquals(1, resolved5.size)
+        assertEquals("5 abone hediye etti", resolved5.first().name)
+        assertEquals(5, resolved5.first().count)
+
+        val identity1 = ChatIdentity(
+            badges = listOf(ChatSenderBadge(type = "gifter", count = 1))
+        )
+        val resolved1 = ChatTextParser.resolveBadges(identity1, emptyList(), locale = Locale.forLanguageTag("tr"))
+        assertEquals("1 abone hediye etti", resolved1.first().name)
+
+        val identityNoCount = ChatIdentity(
+            badges = listOf(ChatSenderBadge(type = "subgifter"))
+        )
+        val resolvedNoCount = ChatTextParser.resolveBadges(identityNoCount, emptyList(), locale = Locale.forLanguageTag("tr"))
+        assertEquals("Abonelik hediye eden", resolvedNoCount.first().name)
+    }
+
+    @Test
+    fun resolveBadges_localizesAllBadgesToTurkish() {
+        val identity = ChatIdentity(
+            badges = listOf(
+                ChatSenderBadge(type = "broadcaster"),
+                ChatSenderBadge(type = "moderator"),
+                ChatSenderBadge(type = "verified"),
+                ChatSenderBadge(type = "founder"),
+                ChatSenderBadge(type = "vip"),
+                ChatSenderBadge(type = "og")
+            )
+        )
+        val resolved = ChatTextParser.resolveBadges(identity, emptyList(), locale = Locale.forLanguageTag("tr"))
+        assertEquals(6, resolved.size)
+        assertEquals("Yayıncı", resolved[0].name)
+        assertEquals("Doğrulanmış", resolved[1].name)
+        assertEquals("Moderatör", resolved[2].name)
+        assertEquals("OG", resolved[3].name)
+        assertEquals("VIP", resolved[4].name)
+        assertEquals("Kurucu", resolved[5].name)
+    }
+
+    @Test
+    fun resolveBadges_subscriberMatchesChannelBadgesWithMonths() {
+        val channelBadges = listOf(
+            SubscriberBadge(id = 10, months = 1, badgeImage = SubscriberBadgeImage(src = "https://example.com/sub1.png")),
+            SubscriberBadge(id = 20, months = 3, badgeImage = SubscriberBadgeImage(src = "https://example.com/sub3.png")),
+            SubscriberBadge(id = 30, months = 12, badgeImage = SubscriberBadgeImage(src = "https://example.com/sub12.png"))
+        )
+
+        val identity = ChatIdentity(
+            badges = listOf(ChatSenderBadge(type = "subscriber", count = 16))
+        )
+        val resolved = ChatTextParser.resolveBadges(identity, channelBadges, locale = Locale.ENGLISH)
+        assertEquals(1, resolved.size)
+        assertEquals("16-Months Subscriber", resolved.first().name)
+        assertEquals("https://example.com/sub12.png", resolved.first().imageUrl)
+        assertEquals("badge_sub_30_16", resolved.first().key)
     }
 }

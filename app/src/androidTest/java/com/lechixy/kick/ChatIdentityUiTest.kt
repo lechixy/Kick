@@ -1,6 +1,9 @@
 package com.lechixy.kick
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.graphics.Color
@@ -28,6 +31,61 @@ import org.junit.runner.RunWith
 class ChatIdentityUiTest {
     @get:Rule val compose = createComposeRule()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+
+    @Test fun identityLoadRetainsDialogAndEarlyColorSelection() {
+        val loaded = androidx.compose.runtime.mutableStateOf<ChatIdentity?>(null)
+        var saved: ChatIdentity? = null
+        compose.setContent { MaterialTheme {
+            ChatIdentityDialog(loaded.value, "MyAccount", emptyList(), onPreviewClick = {},
+                isLoading = loaded.value == null) { saved = it }
+        } }
+        val dialogNodeId = compose.onNode(isDialog()).fetchSemanticsNode().id
+        compose.onNodeWithContentDescription("#00F1FF").performScrollTo().performClick().assertIsSelected()
+        compose.runOnIdle {
+            loaded.value = ChatIdentity(color = "#FFFFFF", badges = listOf(ChatSenderBadge(type = "moderator")))
+        }
+        assertEquals(dialogNodeId, compose.onNode(isDialog()).fetchSemanticsNode().id)
+        compose.onNodeWithContentDescription("#00F1FF").performScrollTo().assertIsSelected()
+        compose.onNodeWithText("MyAccount").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals("#00F1FF", saved?.color)
+            assertEquals("moderator", saved?.badges?.single()?.type)
+        }
+    }
+
+    @Test fun previewOpensOwnProfileWithPendingIdentityAndDismissesEditor() {
+        var dismissed = false
+        var opened: ChatIdentity? = null
+        compose.setContent { MaterialTheme {
+            ChatIdentityDialog(ChatIdentity(color = "#FFFFFF"), "MyAccount", emptyList(),
+                onPreviewClick = { opened = it }) { dismissed = true }
+        } }
+        compose.onNodeWithText("MyAccount").performClick()
+        compose.runOnIdle {
+            assertTrue(dismissed)
+            assertEquals("#FFFFFF", opened?.color)
+        }
+    }
+
+    @Test fun replyHeaderPassesOriginalMessageIdToNavigation() {
+        var target: String? = null
+        val message = com.lechixy.kick.data.model.chat.ChatMessage(id = "reply", content = "response",
+            metadata = com.lechixy.kick.data.model.chat.ChatMessageMetadata(
+                originalMessage = com.lechixy.kick.data.model.chat.ChatOriginalMessage(id = "cached-original", content = "original body")))
+        compose.setContent { MaterialTheme {
+            com.lechixy.kick.ui.components.chat.ChatMessageItem(message, onReplyClick = { target = it })
+        } }
+        compose.onNode(hasText("original body", substring = true) and hasClickAction()).performClick()
+        compose.runOnIdle { assertEquals("cached-original", target) }
+    }
+
+    @Test fun emoteTooltipShowsColonWrappedName() {
+        compose.setContent { MaterialTheme {
+            com.lechixy.kick.ui.components.chat.SynchronizedEmote("https://files.kick.com/emotes/1/fullsize", "trFlag", Modifier.size(32.dp))
+        } }
+        compose.onNodeWithContentDescription("trFlag").performClick()
+        compose.onNodeWithText(":trFlag:").assertIsDisplayed()
+    }
 
     @Test fun levelTooltipUsesTheUsersMetadataLevel() {
         val identity = ChatIdentity(badgesV2 = listOf(ChatBadge(name = "level", selected = true,

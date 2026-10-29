@@ -60,6 +60,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import coil3.gif.AnimatedImageDecoder
+import com.lechixy.kick.ui.components.StreakBatteryAnimation
 import com.lechixy.kick.R
 import com.lechixy.kick.data.account.AccountGraph
 import com.lechixy.kick.data.account.Challenge
@@ -213,7 +214,7 @@ fun ChallengeCardItem(challenge: Challenge, streakDays: Int?, now: Instant, imag
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
                     }
                 } else if (challenge.recurrence == "daily") {
-                    Box(Modifier.testTag("challenge-metadata-${challenge.id}")) { ChallengeStreakRow(streakDays) }
+                    Box(Modifier.testTag("challenge-metadata-${challenge.id}")) { ChallengeStreakRow(streakDays, imageLoader) }
                 }
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     Box(Modifier.fillMaxWidth().height(minOf(maxWidth / 1.8f, 200.dp)).testTag("challenge-preview-${challenge.id}")
@@ -258,10 +259,9 @@ fun ChallengeCardItem(challenge: Challenge, streakDays: Int?, now: Instant, imag
 }
 
 @Composable
-private fun ChallengeStreakRow(days: Int?) {
+private fun ChallengeStreakRow(days: Int?, imageLoader: ImageLoader? = null) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Icon(painterResource(R.drawable.bolt_24dp_e3e3e3_fill0_wght400_grad0_opsz24), contentDescription = null,
-            tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(18.dp))
+        StreakBatteryAnimation(Modifier.size(18.dp), imageLoader = imageLoader)
         Text(if (days != null) stringResource(R.string.challenges_streak, days) else stringResource(R.string.account_streak),
             style = MaterialTheme.typography.labelSmall)
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(3.dp)) {

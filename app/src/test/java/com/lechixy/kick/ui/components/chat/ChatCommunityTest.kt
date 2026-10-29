@@ -1,6 +1,7 @@
 package com.lechixy.kick.ui.components.chat
 
 import com.lechixy.kick.data.model.chat.ActiveChatters
+import com.lechixy.kick.ui.components.streakAnimationAsset
 import com.lechixy.kick.data.model.chat.parseActiveChatters
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -31,6 +32,7 @@ class ChatCommunityTest {
             assertTrue(levelAnimationAsset(tier + 9)!!.endsWith("level-$tier.webp"))
         }
         assertTrue(levelAnimationAsset(100)!!.endsWith("level-90.webp"))
+        assertEquals("file:///android_asset/rewards/streaks-battery.webp", streakAnimationAsset())
         val raw = "2024-03-04T09:46:10Z"
         assertNotEquals(profileDate(raw, java.util.Locale.ENGLISH), profileDate(raw, java.util.Locale.forLanguageTag("tr")))
     }

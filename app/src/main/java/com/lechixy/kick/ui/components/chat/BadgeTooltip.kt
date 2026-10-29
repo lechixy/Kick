@@ -19,13 +19,32 @@ import kotlinx.coroutines.launch
 internal fun badgeLabel(badge: ResolvedChatBadge): String {
     val level = badge.level?.toString() ?: Regex("level[_ -]?(\\d+)", RegexOption.IGNORE_CASE).find(badge.name)?.groupValues?.get(1)
     if (level != null) return stringResource(R.string.badge_level, level)
+
+    val months = badge.months
+    if (months != null && months > 0) {
+        return if (months == 1) {
+            stringResource(R.string.badge_subscriber_month, months)
+        } else {
+            stringResource(R.string.badge_subscriber_months, months)
+        }
+    }
+
+    val count = badge.count
+    if (count != null && count > 0 && (badge.key.contains("gifter") || badge.name.contains("gifter", true) || badge.name.contains("hediye", true) || badge.name.contains("gifted", true))) {
+        return if (count == 1) {
+            stringResource(R.string.badge_gifter_count_single, count)
+        } else {
+            stringResource(R.string.badge_gifter_count, count)
+        }
+    }
+
     val id = when {
-        badge.key.contains("broadcaster") || badge.name.equals("broadcaster", true) -> R.string.badge_broadcaster
-        badge.key.contains("moderator") || badge.name.equals("moderator", true) -> R.string.badge_moderator
-        badge.key.contains("verified") || badge.name.equals("verified", true) -> R.string.badge_verified
-        badge.key.contains("founder") || badge.name.equals("founder", true) -> R.string.badge_founder
-        badge.key.contains("gifter") || badge.name.equals("sub gifter", true) -> R.string.badge_gifter
-        badge.key.startsWith("badge_sub_") || badge.name.equals("subscriber", true) -> R.string.badge_subscriber
+        badge.key.contains("broadcaster") || badge.name.equals("broadcaster", true) || badge.name.equals("yayıncı", true) -> R.string.badge_broadcaster
+        badge.key.contains("moderator") || badge.name.equals("moderator", true) || badge.name.equals("moderatör", true) -> R.string.badge_moderator
+        badge.key.contains("verified") || badge.name.equals("verified", true) || badge.name.equals("doğrulanmış", true) -> R.string.badge_verified
+        badge.key.contains("founder") || badge.name.equals("founder", true) || badge.name.equals("kurucu", true) -> R.string.badge_founder
+        badge.key.contains("gifter") || badge.name.equals("sub gifter", true) || badge.name.equals("abonelik hediye eden", true) -> R.string.badge_gifter
+        badge.key.startsWith("badge_sub_") || badge.name.equals("subscriber", true) || badge.name.equals("abone", true) -> R.string.badge_subscriber
         (badge.key.contains("local_vip") || badge.name.equals("vip", true)) -> R.string.badge_vip
         (badge.key.contains("local_og") || badge.name.equals("og", true)) -> R.string.badge_og
         else -> null
@@ -36,10 +55,15 @@ internal fun badgeLabel(badge: ResolvedChatBadge): String {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BadgeTooltip(badge: ResolvedChatBadge, content: @Composable () -> Unit) {
-    // Material's shared tooltip mutator allows only one visible tooltip across chat rows.
+    ChatTooltip(badgeLabel(badge), content)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun ChatTooltip(label: String, content: @Composable () -> Unit) {
+    // Badges and emotes share Material's mutator: only one tooltip is visible at a time.
     val state = rememberTooltipState()
     val scope = rememberCoroutineScope()
-    val label = badgeLabel(badge)
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val position = remember { arrayOfNulls<Offset>(1) }

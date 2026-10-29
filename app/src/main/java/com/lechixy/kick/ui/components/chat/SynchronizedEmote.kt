@@ -39,30 +39,34 @@ internal fun SynchronizedEmote(url: String, name: String, modifier: Modifier = M
         }
     }
     val entry = shared
-    Box(modifier.semantics { contentDescription = name }) {
-        if (entry?.failed == true) {
-            Text(":$name:", maxLines = 1, overflow = TextOverflow.Ellipsis)
-        } else {
-            Canvas(Modifier.matchParentSize()) {
-                // Read in the draw phase: all copies invalidate together without recomposing chat rows.
-                entry?.frame
-                val drawable = entry?.drawable ?: return@Canvas
-                val sourceWidth = drawable.intrinsicWidth.coerceAtLeast(1)
-                val sourceHeight = drawable.intrinsicHeight.coerceAtLeast(1)
-                val scale = minOf(size.width / sourceWidth, size.height / sourceHeight)
-                drawIntoCanvas { canvas ->
-                    val native = canvas.nativeCanvas
-                    val saved = native.save()
-                    native.translate((size.width - sourceWidth * scale) / 2, (size.height - sourceHeight * scale) / 2)
-                    // Transform each canvas, not the shared drawable: replies can use a different size.
-                    native.scale(scale, scale)
-                    drawable.draw(native)
-                    native.restoreToCount(saved)
+    ChatTooltip(emoteTooltipLabel(name)) {
+        Box(modifier.semantics { contentDescription = name }) {
+            if (entry?.failed == true) {
+                Text(":$name:", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            } else {
+                Canvas(Modifier.matchParentSize()) {
+                    // Read in the draw phase: all copies invalidate together without recomposing chat rows.
+                    entry?.frame
+                    val drawable = entry?.drawable ?: return@Canvas
+                    val sourceWidth = drawable.intrinsicWidth.coerceAtLeast(1)
+                    val sourceHeight = drawable.intrinsicHeight.coerceAtLeast(1)
+                    val scale = minOf(size.width / sourceWidth, size.height / sourceHeight)
+                    drawIntoCanvas { canvas ->
+                        val native = canvas.nativeCanvas
+                        val saved = native.save()
+                        native.translate((size.width - sourceWidth * scale) / 2, (size.height - sourceHeight * scale) / 2)
+                        // Transform each canvas, not the shared drawable: replies can use a different size.
+                        native.scale(scale, scale)
+                        drawable.draw(native)
+                        native.restoreToCount(saved)
+                    }
                 }
             }
         }
     }
 }
+
+internal fun emoteTooltipLabel(name: String): String = ":${name.trim().trim(':').ifBlank { "emote" }}:"
 
 /** Accessed on the main thread; entries and their jobs disappear with the last visible copy. */
 internal object VisibleEmotes {

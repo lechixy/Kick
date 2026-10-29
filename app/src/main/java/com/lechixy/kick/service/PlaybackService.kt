@@ -3,6 +3,7 @@ package com.lechixy.kick.service
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
@@ -11,6 +12,7 @@ import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLivePlaybackSpeedControl
@@ -29,12 +31,12 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.ParsingLoadable
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.lechixy.kick.BuildConfig
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.data.settings.SettingsRepository
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.ByteArrayInputStream
 import java.io.InputStream
-import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -86,8 +88,7 @@ class PlaybackService : MediaSessionService() {
                 mapOf("Origin" to "https://kick.com", "Referer" to "https://kick.com/")
             )
 
-        // 2sn'lik HLS segmentlerinde tek segmentle bile takılmadan oynatmaya devam edebilmesi için
-        // bufferForPlaybackAfterRebufferMs değeri 2000ms altında (1200ms) tutulmalıdır.
+        // Keep recovery below one typical 2s segment; shrinking this further risks stalls.
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 /* minBufferMs = */ 2500,
@@ -99,9 +100,11 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         val liveSpeedControl = DefaultLivePlaybackSpeedControl.Builder()
-            .setFallbackMinPlaybackSpeed(0.97f)
-            .setFallbackMaxPlaybackSpeed(1.03f)
-            .setTargetLiveOffsetIncrementOnRebufferMs(200L)
+            .setFallbackMinPlaybackSpeed(0.95f)
+            .setFallbackMaxPlaybackSpeed(1.10f)
+            // The controller still estimates a safe offset from available buffer. Avoid
+            // adding a permanent 200ms penalty for every stall in the same broadcast.
+            .setTargetLiveOffsetIncrementOnRebufferMs(0L)
             .build()
 
         val hlsParserFactory = KickHlsPlaylistParserFactory {
@@ -159,8 +162,26 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
+        player.addListener(LiveResumeListener(player))
         player.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
+                if (BuildConfig.DEBUG && player.isCurrentMediaItemLive &&
+                    events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED,
+                        Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_POSITION_DISCONTINUITY,
+                        Player.EVENT_PLAYBACK_PARAMETERS_CHANGED)
+                ) {
+                    val timeline = player.currentTimeline
+                    if (player.currentMediaItemIndex in 0 until timeline.windowCount) {
+                        val window = timeline.getWindow(player.currentMediaItemIndex, Timeline.Window())
+                        // No signed stream URLs, media metadata, or account details in diagnostics.
+                        Log.d("KickLive", "state=${player.playbackState} play=${player.playWhenReady} " +
+                            "positionMs=${player.currentPosition} defaultMs=${window.defaultPositionMs} " +
+                            "behindTargetMs=${player.distanceBehindLiveTargetMs()} " +
+                            "liveOffsetMs=${player.currentLiveOffset} targetOffsetMs=${window.liveConfiguration?.targetOffsetMs} " +
+                            "adaptiveTargetUs=${liveSpeedControl.targetLiveOffsetUs} " +
+                            "bufferMs=${player.totalBufferedDuration} requestedSpeed=${player.playbackParameters.speed}")
+                    }
+                }
                 val extras = player.currentMediaItem?.mediaMetadata?.extras
                 val channelId = extras?.getLong(EXTRA_VIEWER_CHANNEL_ID) ?: 0L
                 val livestreamId = extras?.getLong(EXTRA_VIEWER_LIVESTREAM_ID) ?: 0L
@@ -177,6 +198,7 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         })
+        SleepTimer.attach(this, player, serviceScope)
         progressTracker = PlaybackProgressTracker(player)
         mediaSession = MediaSession.Builder(this, LiveAwarePlayer(player)).build()
     }
@@ -184,6 +206,7 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = mediaSession
 
     override fun onDestroy() {
+        SleepTimer.detach(this)
         viewerTracking.close()
         com.lechixy.kick.data.remote.NetworkMonitor.reportPlaybackBuffering(false)
         progressTracker?.close()
@@ -205,8 +228,8 @@ class PlaybackService : MediaSessionService() {
 
 /**
  * Kick (Amazon IVS) canlı yayınlarında düşük gecikme (#EXT-X-PREFETCH / LHLS) etiketlerini
- * ExoPlayer'ın anlayacağı standart #EXTINF segmentine dönüştürür ve #EXT-X-TARGETDURATION:6
- * kaynaklı 6 saniyelik manifest yenileme gecikmesini 2-3 saniyeye indirir.
+ * ExoPlayer'ın anlayacağı #EXTINF segmentine dönüştürür. Yenileme süresi listedeki
+ * en uzun segmente göre belirlenir; hassas başlangıç hedefin segment başına yuvarlanmasını önler.
  */
 @UnstableApi
 private class KickHlsPlaylistParserFactory(
@@ -238,95 +261,11 @@ private class KickHlsPlaylistParser(
         val rawBytes = inputStream.readBytes()
         val text = rawBytes.toString(Charsets.UTF_8)
 
-        val isLiveMediaPlaylist = text.contains("#EXTINF:") &&
-            !text.contains("#EXT-X-ENDLIST") &&
-            !text.contains("#EXT-X-PLAYLIST-TYPE:VOD")
-
-        if (!isLiveMediaPlaylist) {
-            return delegate.parse(uri, ByteArrayInputStream(rawBytes))
-        }
-
-        val transformedText = transformLiveMediaPlaylist(text, isLowLatencyEnabled())
+        val transformedText = transformKickLivePlaylist(text, isLowLatencyEnabled())
         return delegate.parse(
             uri,
             ByteArrayInputStream(transformedText.toByteArray(Charsets.UTF_8))
         )
-    }
-
-    private fun transformLiveMediaPlaylist(text: String, lowLatency: Boolean): String {
-        val lines = text.lineSequence().toList()
-
-        // Yayındaki gerçek segment süresini bul (Kick yayınlarında genellikle 2.000sn veya 4.167sn).
-        var lastDurationRaw = "2.000"
-        var lastDurationSec = 2.0
-        for (line in lines) {
-            if (line.startsWith("#EXTINF:")) {
-                val durPart = line.substringAfter("#EXTINF:").substringBefore(",").trim()
-                val parsed = durPart.toDoubleOrNull()
-                if (parsed != null && parsed > 0.0) {
-                    lastDurationRaw = durPart
-                    lastDurationSec = parsed
-                }
-            }
-        }
-
-        // Kick her zaman #EXT-X-TARGETDURATION:6 gönderdiği için ExoPlayer manifesti 6 saniyede bir
-        // yeniliyor. Bunu segment süresine göre 2 veya 3 saniyeye çekerek takılmayı önlüyoruz.
-        val targetDurationInt = if (lastDurationSec <= 2.5) 2 else 3
-
-        // Başlangıç konumunu (#EXT-X-START:TIME-OFFSET) segment süresine göre belirle:
-        // Low latency açıkken 1.5 segment geriden başlar (son tamamlanmış CDN segmentinin tam
-        // keyframe başından başlar, bu sırada aktif #EXT-X-PREFETCH segmenti arkadan akmaya devam eder).
-        val startOffsetMultiplier = if (lowLatency) 1.5 else 2.5
-        val startOffsetSec = lastDurationSec * startOffsetMultiplier
-        val hasStartTag = lines.any { it.startsWith("#EXT-X-START:") }
-
-        val sb = StringBuilder(text.length + 256)
-        var prefetchConverted = false
-        var startTagInjected = hasStartTag
-
-        for (rawLine in lines) {
-            val line = rawLine.trimEnd('\r')
-            when {
-                line == "#EXTM3U" -> {
-                    sb.append(line).append('\n')
-                    if (!startTagInjected) {
-                        sb.append(
-                            String.format(
-                                Locale.US,
-                                "#EXT-X-START:TIME-OFFSET=-%.3f\n",
-                                startOffsetSec
-                            )
-                        )
-                        startTagInjected = true
-                    }
-                }
-
-                line.startsWith("#EXT-X-TARGETDURATION:") -> {
-                    sb.append("#EXT-X-TARGETDURATION:").append(targetDurationInt).append('\n')
-                }
-
-                line.startsWith("#EXT-X-PREFETCH:") -> {
-                    // İlk #EXT-X-PREFETCH satırı o an sunucuda kodlanmakta olan canlı (chunked)
-                    // segmenttir. Low latency açıkken bunu aktif segment olarak ekliyoruz;
-                    // henüz başlamamış olan ikinci prefetch satırını ise atlıyoruz.
-                    if (lowLatency && !prefetchConverted) {
-                        val prefetchUrl = line.substringAfter("#EXT-X-PREFETCH:").trim()
-                        if (prefetchUrl.isNotEmpty()) {
-                            sb.append("#EXTINF:").append(lastDurationRaw).append(",live\n")
-                            sb.append(prefetchUrl).append('\n')
-                            prefetchConverted = true
-                        }
-                    }
-                }
-
-                else -> {
-                    sb.append(line).append('\n')
-                }
-            }
-        }
-
-        return sb.toString()
     }
 }
 
@@ -399,8 +338,8 @@ fun buildPlaybackMediaItem(
         // Target offset doğrudan manifest içine enjekte edilen #EXT-X-START:TIME-OFFSET
         // üzerinden yayıncının segment süresine (2sn veya 4.167sn) göre dinamik hesaplanır.
         val liveConfig = MediaItem.LiveConfiguration.Builder()
-            .setMinPlaybackSpeed(0.97f)
-            .setMaxPlaybackSpeed(if (isLowLatency) 1.03f else 1.02f)
+            .setMinPlaybackSpeed(0.95f)
+            .setMaxPlaybackSpeed(if (isLowLatency) 1.10f else 1.03f)
             .build()
         builder.setLiveConfiguration(liveConfig)
     }

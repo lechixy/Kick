@@ -18,6 +18,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.rememberScrollableState
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -70,10 +71,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -120,7 +126,8 @@ fun ChatView(
     onConnectClick: () -> Unit = {},
     onDisconnectClick: () -> Unit = {},
     onHideChat: (() -> Unit)? = null,
-    composer: @Composable () -> Unit = {}
+    composer: @Composable () -> Unit = {},
+    onOpenChannel: (String) -> Unit = {}
 ) {
     val repository = LocalSettingsRepository.current
     val fontSize by repository
@@ -148,7 +155,8 @@ fun ChatView(
         if (showChatters && channelId != null) community.loadChatters(channelId)
     }
     selectedProfile?.let { profile ->
-        KickUserProfileDialog(profile, community::closeProfile, community::toggleFollow, community::toggleMute)
+        KickUserProfileDialog(profile, community::closeProfile, community::toggleFollow, community::toggleMute,
+            onChannelClick = { community.closeProfile(); onOpenChannel(profile.slug) })
     }
 
     val listState = rememberLazyListState(
@@ -156,9 +164,24 @@ fun ChatView(
     )
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     val scope = rememberCoroutineScope()
+    val chatBackdrop = rememberGraphicsLayer()
+    var chatBackdropPosition by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
 
+    val favorites by com.lechixy.kick.data.local.FavoriteUsersStore.favorites.collectAsStateWithLifecycle()
+    val accountSession by com.lechixy.kick.data.account.AccountGraph.auth.session.collectAsStateWithLifecycle()
+    var highlightedReply by remember(streamerSlug) { mutableStateOf<String?>(null) }
+    var highlightSequence by remember(streamerSlug) { androidx.compose.runtime.mutableIntStateOf(0) }
+    var replyNavigationJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var navigatingReply by remember { mutableStateOf(false) }
+    val currentVisibleMessages by rememberUpdatedState(visibleMessages)
     var autoScrollEnabled by remember { mutableStateOf(true) }
     var unreadCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(highlightSequence) {
+        if (highlightedReply != null) {
+            kotlinx.coroutines.delay(1400)
+            highlightedReply = null
+        }
+    }
 
     val isAtBottom by remember {
         derivedStateOf {
@@ -171,8 +194,8 @@ fun ChatView(
         }
     }
 
-    LaunchedEffect(isAtBottom, isUserDragging) {
-        if (isAtBottom && !isUserDragging) {
+    LaunchedEffect(isAtBottom, isUserDragging, navigatingReply) {
+        if (isAtBottom && !isUserDragging && !navigatingReply) {
             autoScrollEnabled = true
             unreadCount = 0
         } else if (isUserDragging && !isAtBottom) {
@@ -357,7 +380,14 @@ fun ChatView(
             } else {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize()
+                        .onGloballyPositioned { chatBackdropPosition = it.positionInRoot() }
+                        .drawWithContent {
+                            if (!isAtBottom) {
+                                chatBackdrop.record { this@drawWithContent.drawContent() }
+                                drawLayer(chatBackdrop)
+                            } else drawContent()
+                        },
                     verticalArrangement = Arrangement.spacedBy(messageSpacing.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
                 ) {
@@ -372,6 +402,36 @@ fun ChatView(
                             userColors = userColors,
                             streamerUsername = streamerUsername,
                             streamerSlug = streamerSlug,
+                            isOwnMessage = accountSession.signedIn && isOwnChatMessage(message,
+                                accountSession.profile?.userId, accountSession.profile?.name),
+                            isFavorite = favorites.contains(message.sender?.id ?: message.userId, message.sender?.username, message.sender?.slug),
+                            replyHighlight = if (message.id == highlightedReply) highlightSequence else 0,
+                            onReplyClick = { originalId ->
+                                if (currentVisibleMessages.any { it.id == originalId }) {
+                                    replyNavigationJob?.cancel()
+                                    autoScrollEnabled = false
+                                    navigatingReply = true
+                                    replyNavigationJob = scope.launch {
+                                        try {
+                                            val index = currentVisibleMessages.indexOfFirst { it.id == originalId }
+                                            if (index >= 0) {
+                                                listState.scrollToItem(index)
+                                                // Measure the actual row (replies and emotes can change height)
+                                                // before aligning its center with the chat viewport center.
+                                                withFrameNanos { }
+                                                val layout = listState.layoutInfo
+                                                val target = layout.visibleItemsInfo.firstOrNull { it.key == originalId }
+                                                if (target != null) {
+                                                    val viewportCenter = (layout.viewportStartOffset + layout.viewportEndOffset) / 2f
+                                                    listState.scrollBy(target.offset + target.size / 2f - viewportCenter)
+                                                }
+                                                highlightedReply = originalId
+                                                highlightSequence++
+                                            }
+                                        } finally { navigatingReply = false }
+                                    }
+                                }
+                            },
                             onUserClick = { sender -> streamerSlug?.let { slug ->
                                 community.openProfile(slug, com.lechixy.kick.data.model.chat.ActiveChatter(
                                     username = sender.username, slug = sender.slug.orEmpty()), sender)
@@ -518,41 +578,14 @@ fun ChatView(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 12.dp)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    shadowElevation = 6.dp,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .clickable {
-                            autoScrollEnabled = true
-                            unreadCount = 0
-                            scope.launch {
-                                val lastIdx = visibleMessages.lastIndex
-                                if (lastIdx >= 0) {
-                                    listState.scrollToItem(lastIdx)
-                                }
-                            }
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.keyboard_arrow_down_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                            contentDescription = stringResource(R.string.chat_scroll_bottom),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        val buttonText =
-                            if (unreadCount > 0) stringResource(R.string.chat_scroll_unread, unreadCount) else stringResource(R.string.chat_scroll_bottom)
-                        Text(
-                            text = buttonText,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
+                FrostedChatScrollButton(unreadCount, chatBackdrop, chatBackdropPosition) {
+                    replyNavigationJob?.cancel()
+                    highlightedReply = null
+                    autoScrollEnabled = true
+                    unreadCount = 0
+                    scope.launch {
+                        val lastIdx = visibleMessages.lastIndex
+                        if (lastIdx >= 0) listState.scrollToItem(lastIdx)
                     }
                 }
             }
@@ -635,8 +668,9 @@ private fun PinnedMessageOverlay(
             val senderColor = remember(sender?.identity?.color, primaryColor) {
                 ChatTextParser.parseHexColor(sender?.identity?.color, primaryColor)
             }
-            val senderBadges = remember(sender?.identity, subscriberBadges) {
-                ChatTextParser.resolveBadges(sender?.identity, subscriberBadges)
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val senderBadges = remember(sender?.identity, subscriberBadges, context) {
+                ChatTextParser.resolveBadges(sender?.identity, subscriberBadges, context = context)
             }
             val sentByHeader = ChatTextParser.parseUserHeaderWithBadges(
                 text = stringResource(R.string.sent_by),
@@ -773,8 +807,8 @@ private fun PinnedMessageOverlay(
                             val pinnedByColor = remember(pinnedBy.identity?.color, primaryColor) {
                                 ChatTextParser.parseHexColor(pinnedBy.identity?.color, primaryColor)
                             }
-                            val pinnedByBadges = remember(pinnedBy.identity, subscriberBadges) {
-                                ChatTextParser.resolveBadges(pinnedBy.identity, subscriberBadges)
+                            val pinnedByBadges = remember(pinnedBy.identity, subscriberBadges, context) {
+                                ChatTextParser.resolveBadges(pinnedBy.identity, subscriberBadges, context = context)
                             }
                             val pinnedByHeader = ChatTextParser.parseUserHeaderWithBadges(
                                 text = stringResource(R.string.pinned_by),

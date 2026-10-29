@@ -30,9 +30,9 @@
     <string name="search_placeholder">Ara...</string>
     <string name="hide">Gizle</string>
     <string name="replying_to">Yanıt veriyor</string>
-    <string name="message_deleted_by_ai_moderator">Mesaj yapay zeka moderatörü tarafından silindi</string>
-    <string name="message_deleted_rule_violation">Mesaj kullanıcının kural ihlali nedeniyle silindi</string>
-    <string name="message_deleted_by_moderator">Mesaj moderatör tarafından silindi</string>
+    <string name="message_deleted_by_ai_moderator">Mesaj yapay zeka moderatörü tarafından silindi.</string>
+    <string name="message_deleted_rule_violation">Mesaj kullanıcının kural ihlali nedeniyle silindi.</string>
+    <string name="message_deleted_by_moderator">Mesaj moderatör tarafından silindi.</string>
     <string name="streamer_is_live">%1$s YAYINDA!</string>
     <string name="channel_offline">KANAL ÇEVRİMDIŞI</string>
     <string name="play_live">Canlı oynat</string>
@@ -132,4 +132,5 @@
     <string name="more">More</string>
     <string name="no_recent_broadcasts">Henüz içerik bulunmuyor</string>
     <string name="views_count">%1$s görüntüleme</string>
+    <string name="viewers_count">%1$s izleyici</string>
 </resources>
