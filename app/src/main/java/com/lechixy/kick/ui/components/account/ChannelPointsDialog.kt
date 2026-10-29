@@ -36,7 +36,10 @@ internal fun ChannelPointsDialog(
     channel: ChannelDetail,
     points: Long?,
     kicks: Long?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    ownChannel: Boolean = false,
+    lastPointUpdate: java.time.Instant? = null,
+    nextPointAward: java.time.Instant? = null
 ) {
     var rewards by remember(channel.slug) { mutableStateOf<List<ChannelReward>?>(null) }
     var failed by remember(channel.slug) { mutableStateOf(false) }
@@ -50,7 +53,8 @@ internal fun ChannelPointsDialog(
         }
     }
     ChannelPointsPanel(channel.user?.username ?: channel.slug, rewards, failed, points, kicks,
-        onRetry = { retry++ }, onDismiss = onDismiss)
+        onRetry = { retry++ }, onDismiss = onDismiss, ownChannel = ownChannel,
+        lastPointUpdate = lastPointUpdate, nextPointAward = nextPointAward)
 }
 
 @Composable
@@ -61,7 +65,10 @@ internal fun ChannelPointsPanel(
     points: Long?,
     kicks: Long?,
     onRetry: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    ownChannel: Boolean = false,
+    lastPointUpdate: java.time.Instant? = null,
+    nextPointAward: java.time.Instant? = null
 ) {
     var showInfo by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -107,8 +114,9 @@ internal fun ChannelPointsPanel(
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    BalancePill(points, isKicks = false)
+                    BalancePill(points, isKicks = false, unlimited = ownChannel)
                     BalancePill(kicks, isKicks = true)
+                    if (!ownChannel) PointsUpdateTime(lastPointUpdate, nextPointAward, Modifier.weight(1f))
                 }
             }
         }
@@ -147,26 +155,52 @@ private fun RewardItemCard(reward: ChannelReward) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun BalanceTooltip(balance: Long?, isKicks: Boolean = false, content: @Composable () -> Unit) {
+internal fun BalanceTooltip(balance: Long?, isKicks: Boolean = false, unlimited: Boolean = false, content: @Composable () -> Unit) {
     val exactBalance = remember(balance) { balance?.let(::formatExactBalance) ?: "—" }
-    val label = stringResource(if (isKicks) R.string.channel_kicks_exact else R.string.channel_points_exact,
+    val label = if (unlimited) stringResource(R.string.points_unlimited) else stringResource(if (isKicks) R.string.channel_kicks_exact else R.string.channel_points_exact,
         exactBalance)
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
         tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) { content() }
 }
 
 @Composable
-private fun BalancePill(balance: Long?, isKicks: Boolean) {
-    BalanceTooltip(balance, isKicks) {
+private fun BalancePill(balance: Long?, isKicks: Boolean, unlimited: Boolean = false) {
+    BalanceTooltip(balance, isKicks, unlimited) {
         Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(painterResource(if (isKicks) R.drawable.channel_kicks_badge else R.drawable.bubble_chart_24dp_e3e3e3_fill1_wght400_grad0_opsz24),
                     stringResource(if (isKicks) R.string.chat_kicks_balance else R.string.chat_channel_points),
-                    Modifier.size(22.dp), tint = if (isKicks) Color.Unspecified else Color(0xFF53FC18))
-                Text(balance?.let(::formatExactBalance) ?: "—", fontWeight = FontWeight.Bold,
+                    Modifier.size(22.dp), tint = if (isKicks) Color.Unspecified else MaterialTheme.colorScheme.primary)
+                if (unlimited) Icon(painterResource(R.drawable.all_inclusive_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                    stringResource(R.string.points_unlimited), Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                else Text(balance?.let(::formatExactBalance) ?: "—", fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.labelLarge)
             }
+        }
+    }
+}
+
+@Composable
+private fun PointsUpdateTime(lastUpdate: java.time.Instant?, nextAward: java.time.Instant?, modifier: Modifier = Modifier) {
+    var now by remember { mutableStateOf(java.time.Instant.now()) }
+    LaunchedEffect(nextAward) {
+        while (nextAward != null && now.isBefore(nextAward)) {
+            kotlinx.coroutines.delay(1000)
+            now = java.time.Instant.now()
+        }
+    }
+    val formatted = remember(lastUpdate) {
+        lastUpdate?.let { java.time.format.DateTimeFormatter.ofLocalizedTime(java.time.format.FormatStyle.SHORT)
+            .withLocale(java.util.Locale.getDefault()).withZone(java.time.ZoneId.systemDefault()).format(it) } ?: "—"
+    }
+    Column(modifier, horizontalAlignment = Alignment.End) {
+        Text(stringResource(R.string.points_last_update, formatted), style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        nextAward?.let {
+            val remaining = java.time.Duration.between(now, it).seconds
+            if (remaining > 0) Text(stringResource(R.string.points_next_estimate, (remaining + 59) / 60),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

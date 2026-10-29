@@ -34,6 +34,10 @@ import coil3.compose.AsyncImage
 import com.lechixy.kick.R
 import com.lechixy.kick.data.model.SubscriberBadge
 import com.lechixy.kick.data.model.chat.ChatIdentity
+import com.lechixy.kick.data.model.chat.ChatBadge
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 
 data class ParsedChatMessage(
     val annotatedString: AnnotatedString,
@@ -45,8 +49,18 @@ data class ResolvedChatBadge(
     val name: String,
     val imageUrl: String? = null,
     @DrawableRes val drawableRes: Int? = null,
-    val sortOrder: Int
+    val sortOrder: Int,
+    val level: Int? = null
 )
+
+internal fun ChatBadge.levelNumber(): Int? {
+    val metadata = metadata
+    val number = if (metadata is JsonObject) {
+        (metadata["level"] as? JsonPrimitive)?.intOrNull
+            ?: (metadata["current_level"] as? JsonPrimitive)?.intOrNull
+    } else (metadata as? JsonPrimitive)?.intOrNull
+    return number?.takeIf { it >= 0 }
+}
 
 object ChatTextParser {
 
@@ -74,7 +88,8 @@ object ChatTextParser {
                         key = "badge_v2_${index}_${badge.name}",
                         name = badge.name.ifBlank { "badge" },
                         imageUrl = url,
-                        sortOrder = badge.sortOrder ?: (index + 1)
+                        sortOrder = badge.sortOrder ?: (index + 1),
+                        level = badge.levelNumber()
                     )
                 )
             }
@@ -244,13 +259,17 @@ object ChatTextParser {
         streamerUsername: String? = null,
         streamerSlug: String? = null,
         streamerMentionBrush: Brush? = null,
-        streamerMentionShadow: Shadow? = null
+        streamerMentionShadow: Shadow? = null,
+        deleted: Boolean = false
     ): ParsedChatMessage {
         val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
         val secondaryColor = MaterialTheme.colorScheme.secondary
         val primaryColor = MaterialTheme.colorScheme.primary
+        val deletedColor = MaterialTheme.colorScheme.onSurfaceVariant
 
         return remember(
+            deleted,
+            deletedColor,
             senderName,
             senderColor,
             content,
@@ -280,7 +299,7 @@ object ChatTextParser {
                                     placeholderVerticalAlign = PlaceholderVerticalAlign.Center
                                 )
                             ) {
-                                Box(
+                                BadgeTooltip(badge) { Box(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .padding(end = 3.dp),
@@ -302,7 +321,7 @@ object ChatTextParser {
                                             )
                                         }
                                     }
-                                }
+                                } }
                             }
                         }
                         appendSafeInlineContent(inlineId, alternateText = "[${badge.name.ifBlank { "badge" }}]")
@@ -316,7 +335,9 @@ object ChatTextParser {
                 append(": ")
 
                 // 3. Parse Content for Emotes and Mentions
-                appendParsedContent(
+                if (deleted) withStyle(SpanStyle(color = deletedColor, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)) {
+                    append(content)
+                } else appendParsedContent(
                     content = content,
                     fontSizeSp = safeFontSizeSp,
                     secondaryColor = secondaryColor,
@@ -346,12 +367,14 @@ object ChatTextParser {
         originalSenderColor: Color,
         originalContent: String,
         fontSizeSp: Int,
-        mutedColor: Color
+        mutedColor: Color,
+        deleted: Boolean = false
     ): ParsedChatMessage {
         val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
         val replyingToLabel = stringResource(R.string.replying_to)
 
         return remember(
+            deleted,
             originalSenderName,
             originalSenderColor,
             originalContent,
@@ -398,7 +421,9 @@ object ChatTextParser {
                     append(": ")
                 }
 
-                if (originalContent.isNotEmpty()) {
+                if (deleted) withStyle(SpanStyle(color = mutedColor, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)) {
+                    append(originalContent)
+                } else if (originalContent.isNotEmpty()) {
                     val tokens = findTokens(originalContent)
                     for (token in tokens) {
                         when (token) {
@@ -519,7 +544,7 @@ object ChatTextParser {
                                     placeholderVerticalAlign = PlaceholderVerticalAlign.Center
                                 )
                             ) {
-                                Box(
+                                BadgeTooltip(badge) { Box(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .padding(end = 3.dp),
@@ -541,7 +566,7 @@ object ChatTextParser {
                                             )
                                         }
                                     }
-                                }
+                                } }
                             }
                         }
                         appendSafeInlineContent(inlineId, alternateText = "[${badge.name.ifBlank { "badge" }}]")

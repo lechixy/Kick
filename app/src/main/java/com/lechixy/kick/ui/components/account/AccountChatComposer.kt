@@ -74,6 +74,14 @@ private fun ComposerContent(
     var points by remember { mutableStateOf<Long?>(null) }
     var kicks by remember { mutableStateOf<Long?>(null) }
     var showPointsDialog by remember { mutableStateOf(false) }
+    var identityDraft by remember { mutableStateOf<com.lechixy.kick.data.model.chat.ChatIdentity?>(null) }
+    var identityLoading by remember { mutableStateOf(false) }
+    var identitySaving by remember { mutableStateOf(false) }
+    var lastPointUpdate by remember { mutableStateOf<Instant?>(null) }
+    var lastEarnedAt by remember { mutableStateOf<Instant?>(null) }
+    var lastEarnReason by remember { mutableStateOf<String?>(null) }
+    var pointInterval by remember { mutableStateOf<Long?>(null) }
+    var previousPointInterval by remember { mutableStateOf<Long?>(null) }
     val currentPointsEvent by rememberUpdatedState(pointsUpdated)
     val currentSettingsPatch by rememberUpdatedState(settingsPatch)
     LaunchedEffect(settingsPatch) {
@@ -110,7 +118,10 @@ private fun ComposerContent(
                     val latest = currentPointsEvent
                     if (latest == before || latest == null ||
                         !ChannelPointsPolicy.accepts(latest, channel.id, AccountGraph.auth.session.value.profile?.userId))
-                        points = fetched
+                        {
+                            if (points != null && points != fetched) lastPointUpdate = Instant.now()
+                            points = fetched
+                        }
                 } catch (failure: Exception) { if (failure is CancellationException) throw failure }
                 delay(60_000)
             }
@@ -125,13 +136,28 @@ private fun ComposerContent(
     }
     LaunchedEffect(pointsUpdated, session.profile?.userId) {
         pointsUpdated?.takeIf { session.signedIn && ChannelPointsPolicy.accepts(it, channel.id, session.profile?.userId) }
-            ?.let { points = it.balance.toLong() }
+            ?.let {
+                val now = Instant.now()
+                lastPointUpdate = now
+                // Infer a cadence only from consecutive awards of the same reason, never balance polls.
+                if (it.points > 0 && it.reason.equals("WATCHED", ignoreCase = true)) {
+                    val interval = lastEarnedAt?.let { previous -> java.time.Duration.between(previous, now).seconds }
+                    if (lastEarnReason == it.reason && interval != null && interval in 30..3600) {
+                        pointInterval = previousPointInterval?.takeIf { previous -> kotlin.math.abs(previous - interval) <= 5 }?.let { interval }
+                        previousPointInterval = interval
+                    } else { pointInterval = null; previousPointInterval = null }
+                    lastEarnedAt = now
+                    lastEarnReason = it.reason
+                } else { pointInterval = null; previousPointInterval = null; lastEarnedAt = null }
+                points = it.balance.toLong()
+            }
     }
     LaunchedEffect(session.signedIn) {
         if (session.signedIn) lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) { delay(100); tick++ }
         }
     }
+    val ownChannel = session.signedIn && ChannelPointsPolicy.isOwnChannel(channel, session.profile?.userId)
     val effectiveAccess = access
     val presentation = remember(effectiveAccess, tick, session.profile) {
         effectiveAccess?.let {
@@ -179,6 +205,7 @@ private fun ComposerContent(
                 if (presentation?.accountAge == true) ChatMode(R.drawable.timer_24dp_e3e3e3_fill0_wght400_grad0_opsz24, stringResource(R.string.chat_account_age))
             }
         }
+        if (identityLoading || identitySaving) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (inputBlock == null && cooldown != null && cooldown.remainingMillis > 0) {
             Text(stringResource(R.string.chat_cooldown, (cooldown.remainingMillis + 999) / 1000),
@@ -199,8 +226,17 @@ private fun ComposerContent(
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         val validation = if (inputBlock == null && content.isNotEmpty()) ChatPolicy.messageError(content) else null
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            // The identity sheet will be wired in a later change.
-            IconButton(onClick = {}) {
+            IconButton(enabled = !identityLoading && !identitySaving && session.profile != null, onClick = {
+                identityLoading = true
+                error = null
+                scope.launch {
+                    try { identityDraft = AccountGraph.chat.identity(channel.id) }
+                    catch (failure: Exception) {
+                        if (failure is CancellationException) throw failure
+                        error = context.getString(R.string.identity_load_failed)
+                    } finally { identityLoading = false }
+                }
+            }) {
                 Icon(painterResource(R.drawable.person_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                     contentDescription = stringResource(R.string.chat_identity))
             }
@@ -212,10 +248,10 @@ private fun ComposerContent(
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            BalanceTooltip(points) {
+            BalanceTooltip(points, unlimited = ownChannel) {
                 AnimatedPoints(points, Modifier.clip(RoundedCornerShape(8.dp))
                     .clickable(onClickLabel = stringResource(R.string.channel_points_title)) { showPointsDialog = true }
-                    .padding(vertical = 8.dp, horizontal = 4.dp))
+                    .padding(vertical = 8.dp, horizontal = 4.dp), unlimited = ownChannel)
             }
             BalanceTooltip(kicks, isKicks = true) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -241,8 +277,27 @@ private fun ComposerContent(
         }
         if (access == null && !loading) TextButton(onClick = { refresh++ }) { Text(stringResource(R.string.chat_retry)) }
     }
+    identityDraft?.let { initial ->
+        ChatIdentityDialog(initial, session.profile?.name.orEmpty(), channel.subscriberBadges) { updated ->
+            identityDraft = null
+            if (updated != null) {
+                access = access?.copy(identity = updated)
+                identitySaving = true
+                scope.launch {
+                    try { AccountGraph.chat.updateIdentity(channel.id, session.generation, updated) }
+                    catch (failure: Exception) {
+                        if (failure is CancellationException) throw failure
+                        access = access?.copy(identity = initial)
+                        error = context.getString(R.string.identity_save_failed)
+                    } finally { identitySaving = false }
+                }
+            }
+        }
+    }
     if (showPointsDialog && session.signedIn) {
-        ChannelPointsDialog(channel, points, kicks, onDismiss = { showPointsDialog = false })
+        ChannelPointsDialog(channel, points, kicks, onDismiss = { showPointsDialog = false }, ownChannel = ownChannel,
+            lastPointUpdate = lastPointUpdate, nextPointAward = lastEarnedAt?.let { earned ->
+                pointInterval?.takeIf { channel.livestream != null }?.let { earned.plusSeconds(it) } })
     }
 }
 
@@ -255,7 +310,7 @@ private fun ChatMode(icon: Int, label: String) {
 }
 
 @Composable
-private fun AnimatedPoints(points: Long?, modifier: Modifier = Modifier) {
+private fun AnimatedPoints(points: Long?, modifier: Modifier = Modifier, unlimited: Boolean = false) {
     val pulse = remember { Animatable(1f) }
     var previous by remember { mutableStateOf(points) }
     LaunchedEffect(points) {
@@ -270,7 +325,9 @@ private fun AnimatedPoints(points: Long?, modifier: Modifier = Modifier) {
         Icon(painterResource(R.drawable.bubble_chart_24dp_e3e3e3_fill1_wght400_grad0_opsz24),
             stringResource(R.string.chat_channel_points), tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(22.dp).graphicsLayer { scaleX = pulse.value; scaleY = pulse.value; rotationZ = (pulse.value - 1f) * 45f })
-        AnimatedContent(targetState = points, label = "channel points", transitionSpec = {
+        if (unlimited) Icon(painterResource(R.drawable.all_inclusive_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+            stringResource(R.string.points_unlimited), Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+        else AnimatedContent(targetState = points, label = "channel points", transitionSpec = {
             (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut())
         }) { balance ->
             Text(balance?.let { FormatUtils.formatFollowersCount(it.toString()) } ?: "—",

@@ -7,6 +7,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChannelPointsPolicyTest {
+    @Test fun unlimitedPointsBelongOnlyToTheAuthenticatedChannelOwner() {
+        val channel = com.lechixy.kick.data.model.ChannelDetail(id = 7, userId = 42, slug = "tester")
+        assertTrue(ChannelPointsPolicy.isOwnChannel(channel, 42))
+        assertFalse(ChannelPointsPolicy.isOwnChannel(channel, 7))
+        assertFalse(ChannelPointsPolicy.isOwnChannel(channel, null))
+        assertFalse(ChannelPointsPolicy.isOwnChannel(channel.copy(userId = null), 42))
+        assertTrue(ChannelPointsPolicy.isOwnChannel(channel.copy(userId = null,
+            user = com.lechixy.kick.data.model.ChannelUser(42, "tester")), 42))
+    }
+
     @Test fun privatePublicationDoesNotRequireRedundantUserId() {
         val event = Json.decodeFromString<PointsUpdatedEvent>(
             """{"reason":"WATCHED","points":10,"balance":120,"channel_id":7}""")

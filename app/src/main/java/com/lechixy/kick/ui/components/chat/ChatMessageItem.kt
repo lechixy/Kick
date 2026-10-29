@@ -315,7 +315,8 @@ fun ChatMessageItem(
         streamerUsername = streamerUsername,
         streamerSlug = streamerSlug,
         streamerMentionBrush = streamerMentionBrush,
-        streamerMentionShadow = streamerMentionShadow
+        streamerMentionShadow = streamerMentionShadow,
+        deleted = message.messageDeleted != null
     )
 
     val rowModifier = if (broadcasterPalette != null) {
@@ -366,12 +367,13 @@ fun ChatMessageItem(
                 originalSenderColor = originalSenderColor,
                 originalContent = originalContent,
                 fontSizeSp = replyFontSizeSp,
-                mutedColor = replyMutedColor
+                mutedColor = replyMutedColor,
+                deleted = originalMessage.messageDeleted != null
             )
 
             Text(
                 text = parsedReply.annotatedString,
-                fontStyle = if (originalMessage.messageDeleted != null) FontStyle.Italic else FontStyle.Normal,
+                fontStyle = FontStyle.Normal,
                 inlineContent = parsedReply.inlineContent,
                 fontSize = replyFontSizeSp.sp,
                 lineHeight = (replyFontSizeSp + 3).sp,
@@ -506,7 +508,7 @@ fun ChatEventBaseItem(
     ) {
         Text(
             text = parsedHeader.annotatedString,
-//            fontStyle = FontStyle.Italic,
+
             inlineContent = parsedHeader.inlineContent,
             fontSize = headerFontSizeSp.sp,
             lineHeight = (headerFontSizeSp + 4).sp,

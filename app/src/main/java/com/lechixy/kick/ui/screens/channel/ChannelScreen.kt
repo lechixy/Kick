@@ -14,6 +14,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -41,6 +44,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.key
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -99,7 +104,6 @@ import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.components.AnimatedCounterText
 import com.lechixy.kick.ui.components.CHAT_WIDTH_FRACTION
 import com.lechixy.kick.ui.components.LiveBadge
-import com.lechixy.kick.ui.components.PlayerChromeButton
 import com.lechixy.kick.ui.components.TagChip
 import com.lechixy.kick.ui.components.VerifiedBadge
 import com.lechixy.kick.ui.components.VideoCard
@@ -208,6 +212,27 @@ fun ChannelScreen(
     val density = LocalDensity.current
 
     val channel = state.channel
+    val offline = channel != null && channel.livestream == null && playerHost?.recording == null
+    var offlineCollapsed by remember(channelSlug) { mutableStateOf(false) }
+    LaunchedEffect(offline) { if (!offline) offlineCollapsed = false }
+    val offlineCollapse = animateFloatAsState(
+        targetValue = if (offline && offlineCollapsed) 1f else 0f,
+        animationSpec = tween(440), label = "offline_banner_collapse"
+    )
+    androidx.compose.runtime.DisposableEffect(playerHost, offlineCollapse) {
+        playerHost?.offlineCollapseProgress = offlineCollapse
+        onDispose {
+            if (playerHost?.offlineCollapseProgress === offlineCollapse) playerHost?.offlineCollapseProgress = null
+        }
+    }
+    val channelContentState = key(channelSlug, selectedTab) { rememberLazyListState() }
+    val offlineScroll = remember(offline, channelContentState) {
+        OfflineBannerScrollConnection(
+            enabled = { offline },
+            atTop = { !channelContentState.canScrollBackward },
+            onCollapsedChange = { offlineCollapsed = it }
+        )
+    }
     val sharedChat = remember(viewModel, channel?.id, playerHost?.recording?.id) {
         movableContentOf<ChannelDetail, (() -> Unit)?, Modifier> { ch, onHide, chatMod ->
             if (playerHost?.recording != null) {
@@ -273,68 +298,29 @@ fun ChannelScreen(
                 contents = listOf(
                     {
                         Column(
-                            Modifier.fillMaxSize()
+                            Modifier.fillMaxSize().nestedScroll(offlineScroll)
                         ) {
                             // Player'ın oturduğu yer (PlayerHost bu alanı işliyor)
                             if (channel != null && channel.livestream == null && playerHost?.recording == null) {
                                 val bannerUrl = remember(channel, bannerWidthPx) {
                                     channel.getBannerUrl(targetWidthPx = bannerWidthPx)
                                 }
-                                val bannerWidthDp =
-                                    remember(screenWidthDp) { screenWidthDp.value.toInt() }
-                                val bannerHeightDp = remember(screenWidthDp) {
-                                    (screenWidthDp.value * 9f / 16f).toInt()
-                                }
-
-                                Box(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(16f / 9f)
-                                        .background(Color.Black),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (!bannerUrl.isNullOrEmpty()) {
-                                        AsyncImage(
-                                            model = remember(
-                                                bannerUrl,
-                                                bannerWidthDp,
-                                                bannerHeightDp
-                                            ) {
-                                                buildOptimizedImageRequest(
-                                                    context = context,
-                                                    data = bannerUrl,
-                                                    targetWidthDp = bannerWidthDp,
-                                                    targetHeightDp = bannerHeightDp
-                                                )
-                                            },
-                                            contentDescription = "Offline Banner",
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    } else {
-                                        Text(
-                                            stringResource(R.string.channel_offline),
-                                            color = Color.Gray,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    // Player yokken kapatma tuşu da sayfada olmalı
-                                    PlayerChromeButton(
-                                        painter = painterResource(R.drawable.keyboard_arrow_down_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                                        contentDescription = "Back",
-                                        modifier = Modifier
-                                            .align(Alignment.TopStart)
-                                            .padding(4.dp),
-                                        onClick = onBackClick
-                                    )
-                                }
+                                OfflineChannelBanner(
+                                    channel = channel,
+                                    bannerUrl = bannerUrl,
+                                    collapseProgress = offlineCollapse,
+                                    onCollapse = { offlineCollapsed = true },
+                                    onBackClick = onBackClick
+                                )
                             } else {
                                 Spacer(
                                     Modifier
                                         .fillMaxWidth()
                                         .layout { measurable, constraints ->
                                             val colWidth = constraints.maxWidth
-                                            val normalHeightPx = (colWidth * 9f / 16f).roundToInt()
+                                            val fullHeightPx = (colWidth * 9f / 16f).roundToInt()
+                                            val compactHeightPx = 84.dp.roundToPx().coerceAtMost(fullHeightPx)
+                                            val normalHeightPx = (fullHeightPx + (compactHeightPx - fullHeightPx) * offlineCollapse.value).roundToInt()
                                             val hPx = if (isWide) {
                                                 val totalH = constraints.maxHeight
                                                 val headerPx =
@@ -429,6 +415,7 @@ fun ChannelScreen(
                                             .weight(1f)
                                     ) {
                                         LazyColumn(
+                                            state = channelContentState,
                                             modifier = Modifier.fillMaxSize()
                                         ) {
                                             item {

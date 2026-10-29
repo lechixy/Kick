@@ -2,6 +2,9 @@ package com.lechixy.kick.ui.components.account
 
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.lechixy.kick.R
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lechixy.kick.data.account.*
@@ -17,6 +20,7 @@ fun rememberAccountFollowAction(slug: String): AccountFollowAction {
     val session by AccountGraph.auth.session.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
     var following by remember(slug, session.generation) { mutableStateOf<Boolean?>(null) }
     var busy by remember(slug, session.generation) { mutableStateOf(false) }
     var error by remember(slug, session.generation) { mutableStateOf<String?>(null) }
@@ -32,28 +36,28 @@ fun rememberAccountFollowAction(slug: String): AccountFollowAction {
             error = null; unsupported = false
         } catch (failure: Exception) {
             if (failure is CancellationException) throw failure
-            error = failure.userMessage()
+            error = context.getString(R.string.channel_follow_failed)
             unsupported = failure is AccountApiException && failure.status in listOf(401, 403, 404)
         } finally { busy = false }
     }
-    if (dialog) AlertDialog(onDismissRequest = { dialog = false }, title = { Text("Kanal takibi") },
+    if (dialog) AlertDialog(onDismissRequest = { dialog = false }, title = { Text(stringResource(R.string.channel_follow_title)) },
         text = {
             if (!session.signedIn) AccountPanel()
             else androidx.compose.foundation.layout.Column {
-                Text(error ?: "Takip durumu doğrulanamadı.")
+                Text(error ?: stringResource(R.string.channel_follow_unavailable))
             }
         },
         confirmButton = { TextButton(onClick = {
             dialog = false
             runCatching { uriHandler.openUri("https://kick.com/$slug") }
-        }) { Text("Kick’te aç") } },
-        dismissButton = { TextButton(onClick = { dialog = false; refresh++ }) { Text("Kapat") } })
+        }) { Text(stringResource(R.string.channel_open_kick)) } },
+        dismissButton = { TextButton(onClick = { dialog = false; refresh++ }) { Text(stringResource(R.string.account_close)) } })
     val generation = session.generation
     return AccountFollowAction(following == true, when {
-        busy -> "Bekleyin…"
-        unsupported -> "Kick’te aç"
-        following == true -> "Takibi bırak"
-        else -> "Takip et"
+        busy -> stringResource(R.string.channel_follow_wait)
+        unsupported -> stringResource(R.string.channel_open_kick)
+        following == true -> stringResource(R.string.channel_unfollow)
+        else -> stringResource(R.string.follow)
     }, !busy) {
         if (!session.signedIn || following == null || unsupported) dialog = true
         else {
@@ -66,7 +70,7 @@ fun rememberAccountFollowAction(slug: String): AccountFollowAction {
                 } catch (failure: Exception) {
                     if (failure is CancellationException) throw failure
                     if (generation == AccountGraph.auth.session.value.generation) {
-                        error = failure.userMessage(); dialog = true
+                        error = context.getString(R.string.channel_follow_failed); dialog = true
                         unsupported = failure is AccountApiException && failure.status in listOf(401, 403, 404)
                     }
                 } finally { busy = false }

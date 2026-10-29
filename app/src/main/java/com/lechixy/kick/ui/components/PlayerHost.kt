@@ -98,7 +98,7 @@ import kotlinx.coroutines.launch
 internal const val WIDE_BREAKPOINT_DP = 700
 internal const val CHAT_WIDTH_FRACTION = 0.35f
 
-private const val MINI_DEFAULT_WIDTH_DP = 200f
+private const val MINI_DEFAULT_WIDTH_DP = 240f
 private const val MINI_MIN_WIDTH_DP = 140f
 private const val MINI_MAX_WIDTH_DP = 500f
 private const val MINI_PADDING_DP = 16f
@@ -406,7 +406,10 @@ fun PlayerHost(
         val wide = safeArea.width >= wideBreakpointPx
         val chatW = host.sideChatWidthPx(safeArea.width, hasSideChat = wide)
         val w = (safeArea.width - chatW).coerceAtLeast(0)
-        val playerHeight = (w * 9f / 16f).roundToInt()
+        val fullHeight = (w * 9f / 16f).roundToInt()
+        val compactHeight = px(84f).roundToInt().coerceAtMost(fullHeight)
+        val playerHeight = (fullHeight + (compactHeight - fullHeight) *
+            (host.offlineCollapseProgress?.value ?: 0f)).roundToInt()
         val headerPx = if (host.channelHeaderHeightPx > 0) {
             host.channelHeaderHeightPx
         } else {

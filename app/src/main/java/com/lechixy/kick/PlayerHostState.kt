@@ -35,6 +35,8 @@ class PlayerHostState(
     initialSlug: String? = null,
     initialChatWidthFraction: Float = 0.35f
 ) {
+    // Read by PlayerHost during layout so returning live shares the page's height animation.
+    var offlineCollapseProgress by mutableStateOf<androidx.compose.runtime.State<Float>?>(null)
     var mode by mutableStateOf(initialMode)
         private set
     var slug by mutableStateOf(initialSlug)

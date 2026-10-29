@@ -21,6 +21,24 @@ class AccountChatRepository(private val auth: AuthRepository) {
     private val blockedDuration = mutableMapOf<Pair<Long, Long>, Long>()
     private val json = Json { ignoreUnknownKeys = true }
 
+    suspend fun identity(channelId: Long): ChatIdentity {
+        val userId = auth.session.value.profile?.userId ?: error("Sign in required")
+        val response = auth.request("https://kick.com/api/v2/channels/$channelId/users/$userId/identity")
+        val data = (response["data"] as? JsonObject) ?: response
+        return json.decodeFromJsonElement(data["identity"] ?: error("Missing identity"))
+    }
+
+    suspend fun updateIdentity(channelId: Long, expectedGeneration: Long, identity: ChatIdentity) {
+        check(auth.session.value.generation == expectedGeneration && auth.session.value.signedIn)
+        val userId = auth.session.value.profile?.userId ?: error("Sign in required")
+        require(identity.badges.count { it.active != false } + identity.badgesV2.count { it.selected } <= 4)
+        auth.request("https://kick.com/api/v2/channels/$channelId/users/$userId/identity", "PUT", buildJsonObject {
+            putJsonArray("badges") { identity.badges.filter { it.active != false }.forEach { add(it.type) } }
+            putJsonArray("badges_v2") { identity.badgesV2.filter { it.selected }.forEach { add(it.name) } }
+            put("color", identity.color)
+        })
+    }
+
     suspend fun access(channel: ChannelDetail): ChatAccess {
         require(channel.slug.matches(Regex("[A-Za-z0-9_-]+")))
         val settings = auth.request("https://web.kick.com/api/v1/channels/${channel.id}/chat/settings")["data"]?.jsonObject

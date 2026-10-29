@@ -2,6 +2,14 @@ package com.lechixy.kick.ui.screens.settings
 
 import android.graphics.PixelFormat
 import android.view.Gravity
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.view.Window
+import androidx.appcompat.view.WindowCallbackWrapper
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.window.DialogWindowProvider
 import android.view.WindowManager
 import android.view.inspector.WindowInspector
 import androidx.activity.ComponentActivity
@@ -137,6 +145,53 @@ fun DeveloperToolsOverlay(isInPipMode: Boolean, onTriggerLive: () -> Unit, canTr
         params.x = (initialRoomX * xFraction).toInt()
         params.y = (initialRoomY * yFraction).toInt()
         var resizeJob: Job? = null
+        var idleJob: Job? = null
+        var idleHidden by mutableStateOf(false)
+        fun recordInput() {
+            idleJob?.cancel()
+            idleHidden = false
+            view.visibility = View.VISIBLE
+            if (params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE != 0) {
+                params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                if (view.isAttachedToWindow) manager.updateViewLayout(view, params)
+            }
+            idleJob = scope.launch {
+                delay(7_000)
+                idleHidden = true
+                params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                if (view.isAttachedToWindow) manager.updateViewLayout(view, params)
+                delay(180)
+                view.visibility = View.INVISIBLE
+            }
+        }
+        // Observe input without consuming it, including when a Compose dialog owns the window.
+        val inputCallbacks = mutableMapOf<Window, Pair<Window.Callback, Window.Callback>>()
+        fun observeWindow(window: Window) {
+            if (window in inputCallbacks) return
+            val original = window.callback ?: return
+            val observer = object : WindowCallbackWrapper(original) {
+                override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                    recordInput()
+                    return super.dispatchTouchEvent(event)
+                }
+                override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+                    recordInput()
+                    return super.dispatchGenericMotionEvent(event)
+                }
+                override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                    recordInput()
+                    return super.dispatchKeyEvent(event)
+                }
+            }
+            inputCallbacks[window] = original to observer
+            window.callback = observer
+        }
+        fun observeDialogWindows(root: View) {
+            if (root is DialogWindowProvider) observeWindow(root.window)
+            if (root is ViewGroup) for (index in 0 until root.childCount) observeDialogWindows(root.getChildAt(index))
+        }
+        observeWindow(activity.window)
+        recordInput()
         fun savePosition() {
             val x = xFraction
             val y = yFraction
@@ -173,10 +228,17 @@ fun DeveloperToolsOverlay(isInPipMode: Boolean, onTriggerLive: () -> Unit, canTr
         view.setContent {
             var visible by remember { mutableStateOf(false) }
             LaunchedEffect(Unit) { visible = true }
-            val opacity by animateFloatAsState(if (visible) 1f else 0f, tween(180), label = "developerOpacity")
+            val opacity by animateFloatAsState(if (visible && !idleHidden) 1f else 0f, tween(180), label = "developerOpacity")
             val expandDescription = stringResource(if (expanded) R.string.developer_minimize else R.string.developer_expand)
             Surface(shape = MaterialTheme.shapes.large, shadowElevation = 8.dp, tonalElevation = 6.dp,
-                modifier = Modifier.fillMaxSize().graphicsLayer {
+                modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            awaitPointerEvent(PointerEventPass.Initial)
+                            recordInput()
+                        }
+                    }
+                }.graphicsLayer {
                         alpha = opacity; scaleX = 0.96f + opacity * 0.04f; scaleY = scaleX
                     }) {
                 Column {
@@ -238,7 +300,14 @@ fun DeveloperToolsOverlay(isInPipMode: Boolean, onTriggerLive: () -> Unit, canTr
             while (isActive) {
                 delay(200)
                 if (!activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) continue
-                val focused = WindowInspector.getGlobalWindowViews().lastOrNull {
+                val roots = WindowInspector.getGlobalWindowViews()
+                roots.filter { it !== view }.forEach(::observeDialogWindows)
+                val closed = inputCallbacks.keys.filter { it !== activity.window && !it.decorView.isAttachedToWindow }
+                closed.forEach { window ->
+                    val callbacks = inputCallbacks.remove(window)!!
+                    if (window.callback === callbacks.second) window.callback = callbacks.first
+                }
+                val focused = roots.lastOrNull {
                     it !== view && it.hasWindowFocus() && it.isAttachedToWindow
                 } ?: continue
                 if (params.token != focused.windowToken || !view.isAttachedToWindow) {
@@ -251,6 +320,10 @@ fun DeveloperToolsOverlay(isInPipMode: Boolean, onTriggerLive: () -> Unit, canTr
         }
         onDispose {
             resizeJob?.cancel()
+            idleJob?.cancel()
+            inputCallbacks.forEach { (window, callbacks) ->
+                if (window.callback === callbacks.second) window.callback = callbacks.first
+            }
             followFocusedWindow.cancel()
             activity.window.decorView.removeCallbacks(attachTask)
             activity.lifecycle.removeObserver(observer)

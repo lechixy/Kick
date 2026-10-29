@@ -105,7 +105,7 @@ object SettingsKeys {
     )
     val MINI_PLAYER_WIDTH_DP = SettingKey(
         key = floatPreferencesKey("mini_player_width_dp"),
-        defaultValue = 200f,
+        defaultValue = 240f,
         type = SettingType.FloatType,
         validator = { it in 140f..500f }
     )

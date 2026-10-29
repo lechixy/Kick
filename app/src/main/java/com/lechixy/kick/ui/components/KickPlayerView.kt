@@ -319,7 +319,7 @@ fun KickPlayerView(
     }
 
     LaunchedEffect(player, isMuted, volume) {
-        player?.volume = if (isMuted) 0f else PlayerUtils.perceivedVolumeToGain(volume)
+        player?.volume = if (isMuted) 0f else volume
     }
 
     LaunchedEffect(showControls, isAdjustingVolume, isSeeking) {
@@ -724,7 +724,12 @@ fun KickPlayerView(
                 behindLiveText = formatLiveOffset(liveOffsetMs),
                 onGoToLive = handleGoToLive,
                 onTogglePlay = handleTogglePlay,
-                onToggleMute = { isMuted = !isMuted },
+                onToggleMute = {
+                    if (volume == 0f) {
+                        volume = 1f
+                        isMuted = false
+                    } else isMuted = !isMuted
+                },
                 onVolumeChange = { newVol ->
                     isAdjustingVolume = true
                     volume = newVol
@@ -1437,36 +1442,7 @@ internal fun PlayerControlsOverlay(
                     }
                 }
 
-                if (showChatButton) {
-                    Surface(
-                        onClick = onToggleChat,
-                        shape = CircleShape,
-                        color = Color.Black.copy(alpha = 0.65f),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                        shadowElevation = 4.dp
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.chat_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                                contentDescription = if (isChatVisible) stringResource(R.string.player_hide_chat) else stringResource(R.string.player_show_chat),
-                                tint = if (isChatVisible) MaterialTheme.colorScheme.primary else Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = stringResource(R.string.chat),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-                    }
-                }
+
             }
         }
 
@@ -1674,6 +1650,14 @@ internal fun PlayerControlsOverlay(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(if (isCompact) 2.dp else 8.dp)
                 ) {
+                    if (showChatButton) IconButton(
+                        onClick = onToggleChat,
+                        modifier = if (isCompact) Modifier.size(36.dp) else Modifier
+                    ) {
+                        Icon(painterResource(R.drawable.chat_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                            contentDescription = stringResource(if (isChatVisible) R.string.player_hide_chat else R.string.player_show_chat),
+                            tint = if (isChatVisible) MaterialTheme.colorScheme.primary else Color.White)
+                    }
                     IconButton(
                         onClick = onToggleTheater,
                         modifier = if (isCompact) Modifier.size(36.dp) else Modifier
@@ -1724,19 +1708,19 @@ internal fun MiniControlsOverlay(
         Row(
             Modifier
                 .align(Alignment.TopEnd)
-                .padding(4.dp)
+                .padding(8.dp)
         ) {
             PlayerChromeButton(
                 painter = painterResource(R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                 contentDescription = stringResource(R.string.player_close),
-                size = 30.dp,
+                size = 48.dp,
                 onClick = onClose
             )
         }
         Row(
             Modifier
                 .align(Alignment.BottomStart)
-                .padding(4.dp)
+                .padding(8.dp)
         ) {
             PlayerChromeButton(
                 painter = painterResource(
@@ -1744,7 +1728,7 @@ internal fun MiniControlsOverlay(
                     else R.drawable.play_arrow_24dp_e3e3e3_fill1_wght400_grad0_opsz24
                 ),
                 contentDescription = "Play/Pause",
-                size = 30.dp,
+                size = 48.dp,
                 onClick = onTogglePlay
             )
         }
@@ -1758,10 +1742,10 @@ internal fun ShellChrome(mode: PlayerMode, onMinimize: () -> Unit, onClose: () -
             PlayerChromeButton(
                 painter = painterResource(R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                 contentDescription = stringResource(R.string.player_close),
-                size = 30.dp,
+                size = 48.dp,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(4.dp),
+                    .padding(8.dp),
                 onClick = onClose
             )
         } else {
@@ -1770,7 +1754,7 @@ internal fun ShellChrome(mode: PlayerMode, onMinimize: () -> Unit, onClose: () -
                 contentDescription = "Minimize",
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(4.dp),
+                    .padding(8.dp),
                 onClick = onMinimize
             )
         }

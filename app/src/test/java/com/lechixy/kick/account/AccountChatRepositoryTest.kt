@@ -12,6 +12,29 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AccountChatRepositoryTest {
+    @Test fun identitySaveUsesSelectedBadgeNamesAndAuthenticatedUser() = runBlocking {
+        var puts = 0
+        val auth = signedInAuth { request ->
+            assertEquals("/api/v2/channels/100/users/42/identity", request.url.encodedPath)
+            if (request.method == "PUT") {
+                puts++
+                val buffer = Buffer(); request.body!!.writeTo(buffer)
+                assertEquals(objectJson("""{"badges":["broadcaster"],"badges_v2":["level_22"],"color":"#00F1FF"}"""), objectJson(buffer.readUtf8()))
+                objectJson("{}")
+            } else objectJson("""{"data":{"identity":{"color":"#DEB2FF","badges":[{"type":"broadcaster","active":true},{"type":"vip","active":false}],"badges_v2":[{"name":"level_22","selected":true},{"name":"other","selected":false}]}}}""")
+        }
+        val repo = AccountChatRepository(auth)
+        val initial = repo.identity(100)
+        assertEquals("#DEB2FF", initial.color)
+        assertEquals(0, puts)
+        repo.updateIdentity(100, auth.session.value.generation, initial.copy(color = "#00F1FF"))
+        assertEquals(1, puts)
+        val generation = auth.session.value.generation
+        auth.signOut()
+        assertTrue(runCatching { repo.updateIdentity(100, generation, initial) }.isFailure)
+        assertEquals(1, puts)
+    }
+
     @Test fun fetchesBothBalancesFromTheirRespectiveHosts() = runBlocking {
         val auth = signedInAuth { request ->
             when (request.url.encodedPath) {
