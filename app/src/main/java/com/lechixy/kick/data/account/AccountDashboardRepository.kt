@@ -37,7 +37,7 @@ data class AccountLevel(
         val remaining = xpToNextLevel.coerceAtLeast(0).toDouble()
         return if (earned + remaining == 0.0) 0f else (earned / (earned + remaining)).toFloat()
     }
-    val tierBackground: String get() = "https://static.kick.com/tier/background/level-${((level / 10) * 10).coerceIn(10, 90)}.webp"
+    val tierBackground: String get() = "https://static.kick.com/tier/background/level-${((level / 10) * 10).coerceIn(20, 90)}.webp"
 }
 @Serializable
 data class AccountLevelBadge(

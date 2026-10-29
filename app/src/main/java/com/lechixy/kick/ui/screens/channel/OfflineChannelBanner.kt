@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.res.painterResource
@@ -35,18 +36,40 @@ internal fun OfflineChannelBanner(
     collapseProgress: State<Float>,
     onCollapse: () -> Unit,
     onBackClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onTravelChanged: (Float) -> Unit = {},
+    onDrag: (Float) -> Unit = {},
+    onDragFinished: () -> Unit = {},
+    onDismissDrag: ((Float) -> Unit)? = null,
+    onDismissDragFinished: (velocity: Float, cancelled: Boolean) -> Unit = { _, _ -> }
 ) {
     Box(modifier.fillMaxWidth().layout { measurable, constraints ->
         val normal = (constraints.maxWidth * 9f / 16f).roundToInt()
         val compact = 84.dp.roundToPx().coerceAtMost(normal)
+        onTravelChanged((normal - compact).toFloat())
         val height = (normal + (compact - normal) * collapseProgress.value).roundToInt()
         val child = measurable.measure(Constraints.fixed(constraints.maxWidth, height))
         layout(child.width, child.height) { child.place(0, 0) }
     }.clipToBounds()
         .clickable(onClickLabel = stringResource(R.string.offline_banner_collapse), onClick = onCollapse)
         .pointerInput(onCollapse) {
-            detectVerticalDragGestures { change, _ -> change.consume(); onCollapse() }
+            val tracker = VelocityTracker()
+            var dismissGesture: Boolean? = null
+            detectVerticalDragGestures(
+                onDragStart = { dismissGesture = null; tracker.resetTracking() },
+                onDragEnd = {
+                    if (dismissGesture == true) onDismissDragFinished(tracker.calculateVelocity().y, false)
+                    else onDragFinished()
+                },
+                onDragCancel = {
+                    if (dismissGesture == true) onDismissDragFinished(0f, true) else onDragFinished()
+                }
+            ) { change, amount ->
+                change.consume()
+                tracker.addPosition(change.uptimeMillis, change.position)
+                if (dismissGesture == null) dismissGesture = amount > 0f && onDismissDrag != null
+                if (dismissGesture == true) onDismissDrag?.invoke(amount) else onDrag(-amount)
+            }
         }.background(Color.Black), contentAlignment = Alignment.Center) {
         if (!bannerUrl.isNullOrBlank()) {
             FittedBannerImage(bannerUrl)

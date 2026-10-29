@@ -20,7 +20,7 @@ class AccountDashboardTest {
         val data = json.decodeFromString<AccountLevelResponse>(level).data
         assertEquals(725f / 1608f, data.progress, 0.0001f)
         assertEquals("badge.gif", data.badge?.animatedImage)
-        for ((number, tier) in listOf(0 to 10, 9 to 10, 10 to 10, 21 to 20, 99 to 90, 100 to 90)) {
+        for ((number, tier) in listOf(0 to 20, 9 to 20, 10 to 20, 19 to 20, 20 to 20, 21 to 20, 99 to 90, 100 to 90)) {
             assertEquals("https://static.kick.com/tier/background/level-$tier.webp", data.copy(level = number).tierBackground)
         }
         assertEquals(0f, data.copy(progressXp = 0, xpToNextLevel = 0).progress)

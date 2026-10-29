@@ -179,7 +179,7 @@ fun KickPlayerView(
         if (recording != null) "${baseId}_recording_${recording.id}" else if (liveId != null) "${baseId}_$liveId" else baseId
     }
 
-    var hasRenderedFirstFrame by remember(playbackUrl, stableId) { mutableStateOf(false) }
+    var hasRenderedFirstFrame by remember(stableId) { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
     var isPlayerReady by remember { mutableStateOf(false) }
     var loadedMediaId by remember { mutableStateOf<String?>(null) }
@@ -379,7 +379,7 @@ fun KickPlayerView(
     /**
      * Player listener
      */
-    DisposableEffect(player, stableId, playbackUrl) {
+    DisposableEffect(player, stableId) {
         val p = player
         if (p == null) {
             onDispose { }
@@ -398,7 +398,6 @@ fun KickPlayerView(
                             (live && (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE))
                     isPlayerReady = playbackState == Player.STATE_READY
                     if (playbackState == Player.STATE_READY && p.playWhenReady) {
-                        hasRenderedFirstFrame = true
                         playbackError = null
                     } else if (live && playbackState == Player.STATE_ENDED) {
                         liveRetryTrigger++
@@ -406,6 +405,8 @@ fun KickPlayerView(
                     loadedMediaId = p.currentMediaItem?.mediaId
                 }
 
+                // READY and isPlaying can arrive before the texture contains a frame.
+                // Only the renderer event may uncover the video beneath the preview.
                 override fun onRenderedFirstFrame() {
                     if (p.currentMediaItem?.mediaId != stableId) return
                     hasRenderedFirstFrame = true
@@ -418,7 +419,6 @@ fun KickPlayerView(
                     if (p.currentMediaItem?.mediaId != stableId) return
                     isPlaying = playing
                     if (playing) {
-                        hasRenderedFirstFrame = true
                         playbackError = null
                     }
                 }
@@ -460,9 +460,6 @@ fun KickPlayerView(
 
             val isSameMedia = p.currentMediaItem?.mediaId == stableId
             isPlaying = isSameMedia && p.isPlaying
-            if (isSameMedia && (p.isPlaying || p.playbackState == Player.STATE_READY)) {
-                hasRenderedFirstFrame = true
-            }
             isBuffering = !isSameMedia || p.playbackState == Player.STATE_BUFFERING
             isPlayerReady = isSameMedia && p.playbackState == Player.STATE_READY
             loadedMediaId = p.currentMediaItem?.mediaId
@@ -493,8 +490,13 @@ fun KickPlayerView(
         playbackError = null
 
         val currentItem = p.currentMediaItem
+        // Reloading channel metadata can rotate the signed HLS URL without changing
+        // the broadcast. Keep a healthy session running when returning from mini mode.
+        // A failed/idle session may still adopt the refreshed URL to recover playback.
+        val keepLiveSession = isLiveStream && p.playerError == null &&
+                p.playbackState != Player.STATE_IDLE && p.playbackState != Player.STATE_ENDED
         val alreadyLoaded = currentItem?.mediaId == stableId &&
-                currentItem.localConfiguration?.uri?.toString() == playbackUrl &&
+                (keepLiveSession || currentItem.localConfiguration?.uri?.toString() == playbackUrl) &&
                 currentItem.mediaMetadata.extras?.getBoolean(
                     EXTRA_LOW_LATENCY,
                     lowLatencyEnabled
@@ -504,7 +506,6 @@ fun KickPlayerView(
             // tracking metadata must not replace the media item of an active HLS stream.
             loadedMediaId = stableId
             isPlayerReady = p.playbackState == Player.STATE_READY
-            hasRenderedFirstFrame = p.isPlaying || isPlayerReady
             if (p.playbackState == Player.STATE_IDLE || p.playbackState == Player.STATE_ENDED) {
                 p.seekToDefaultPosition()
                 p.prepare()
@@ -628,16 +629,16 @@ fun KickPlayerView(
 
         AnimatedVisibility(
             visible = !hasRenderedFirstFrame && !overlayThumbnail.isNullOrEmpty(),
-            enter = fadeIn(),
-            exit = fadeOut(tween(300))
+            enter = androidx.compose.animation.EnterTransition.None,
+            exit = fadeOut(tween(180))
         ) {
             AsyncImage(
                 model = remember(overlayThumbnail) {
                     buildOptimizedImageRequest(
                         context = context,
                         data = overlayThumbnail,
-                        targetWidthDp = 640,
-                        targetHeightDp = 360
+                        targetWidthDp = if (recording == null && previewThumbnailUrl != null) 400 else 640,
+                        targetHeightDp = if (recording == null && previewThumbnailUrl != null) 225 else 360
                     )
                 },
                 contentDescription = null,

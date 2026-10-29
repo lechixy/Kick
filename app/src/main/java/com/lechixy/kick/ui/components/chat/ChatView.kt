@@ -116,6 +116,7 @@ fun ChatView(
     chatEvents: Flow<ChatWebSocketEvent> = emptyFlow(),
     streamerUsername: String? = null,
     streamerSlug: String? = null,
+    channelId: Long? = null,
     onConnectClick: () -> Unit = {},
     onDisconnectClick: () -> Unit = {},
     onHideChat: (() -> Unit)? = null,
@@ -133,9 +134,25 @@ fun ChatView(
         .collectAsStateWithLifecycle(initialValue = SettingsKeys.CHAT_MESSAGE_SPACING.defaultValue)
 
     var showOptions by remember { mutableStateOf(false) }
+    var showChatters by androidx.compose.runtime.saveable.rememberSaveable(streamerSlug) { mutableStateOf(false) }
+    val community: ChatCommunityViewModel = androidx.lifecycle.viewmodel.compose.viewModel(key = "community-$streamerSlug")
+    val activeChatters by community.chatters.collectAsStateWithLifecycle()
+    val activeChattersError by community.listError.collectAsStateWithLifecycle()
+    val selectedProfile by community.profile.collectAsStateWithLifecycle()
+    val mutedUsers by community.mutedUsers.collectAsStateWithLifecycle()
+    val visibleMessages = remember(messages, mutedUsers) {
+        messages.filter { it.sender?.username?.lowercase(java.util.Locale.ROOT) !in mutedUsers }
+    }
+    androidx.activity.compose.BackHandler(enabled = showChatters && selectedProfile == null) { showChatters = false }
+    LaunchedEffect(showChatters, channelId) {
+        if (showChatters && channelId != null) community.loadChatters(channelId)
+    }
+    selectedProfile?.let { profile ->
+        KickUserProfileDialog(profile, community::closeProfile, community::toggleFollow, community::toggleMute)
+    }
 
     val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = messages.lastIndex.coerceAtLeast(0)
+        initialFirstVisibleItemIndex = visibleMessages.lastIndex.coerceAtLeast(0)
     )
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     val scope = rememberCoroutineScope()
@@ -163,12 +180,12 @@ fun ChatView(
         }
     }
 
-    val lastMessageId = messages.lastOrNull()?.id
+    val lastMessageId = visibleMessages.lastOrNull()?.id
 
     LaunchedEffect(lastMessageId) {
-        if (lastMessageId != null && messages.isNotEmpty()) {
+        if (lastMessageId != null && visibleMessages.isNotEmpty()) {
             if (autoScrollEnabled && !isUserDragging) {
-                listState.scrollToItem(messages.lastIndex)
+                listState.scrollToItem(visibleMessages.lastIndex)
                 unreadCount = 0
             } else {
                 unreadCount++
@@ -186,7 +203,11 @@ fun ChatView(
             connectionState = connectionState,
             showOptions = showOptions,
             onToggleOptions = { showOptions = true },
-            onHideChat = onHideChat
+            onHideChat = onHideChat,
+            showChatters = showChatters,
+            chatterCount = activeChatters?.totalCount,
+            onToggleChatters = { showChatters = !showChatters },
+            chattersEnabled = channelId != null
         )
 
         // Chat Options Modal BottomSheet
@@ -213,7 +234,7 @@ fun ChatView(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "Sohbet Ayarları",
+                            text = stringResource(R.string.chat_settings),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -227,18 +248,14 @@ fun ChatView(
                     ) {
                         SettingSwitch(
                             key = SettingsKeys.AUTO_CONNECT_CHAT,
-                            title = "Otomatik Bağlan",
-                            description = "Kanal ekranına girildiğinde sohbete otomatik bağlan"
+                            title = stringResource(R.string.chat_auto_connect_title),
+                            description = stringResource(R.string.chat_auto_connect_description)
                         )
 
                         val isDisconnected = connectionState == ChatConnectionState.DISCONNECTED
                         SettingCard(
-                            title = "Sohbet Bağlantısını Kes",
-                            description = if (isDisconnected) {
-                                "Sohbet bağlantısı şu anda kapalı"
-                            } else {
-                                "Mevcut sohbet odası bağlantısını sonlandır"
-                            },
+                            title = stringResource(R.string.chat_disconnect_title),
+                            description = stringResource(if (isDisconnected) R.string.chat_disconnected_description else R.string.chat_disconnect_description),
                             enabled = !isDisconnected,
                             containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
                             borderColor = MaterialTheme.colorScheme.error.copy(alpha = 0.5f),
@@ -252,8 +269,8 @@ fun ChatView(
 
                         SettingSlider(
                             key = SettingsKeys.CHAT_FONT_SIZE,
-                            title = "Yazı Boyutu",
-                            description = "Sohbet mesajlarının yazı tipi boyutu",
+                            title = stringResource(R.string.chat_font_size_title),
+                            description = stringResource(R.string.chat_font_size_description),
                             valueRange = 10f..24f,
                             steps = 13,
                             valueFormatter = { "${it}sp" }
@@ -261,8 +278,8 @@ fun ChatView(
 
                         SettingSlider(
                             key = SettingsKeys.CHAT_MESSAGE_SPACING,
-                            title = "Mesaj Aralığı",
-                            description = "Mesajlar arasındaki dikey aralık",
+                            title = stringResource(R.string.chat_spacing_title),
+                            description = stringResource(R.string.chat_spacing_description),
                             valueRange = 0f..25f,
                             steps = 24,
                             valueFormatter = { "${it}dp" }
@@ -274,13 +291,19 @@ fun ChatView(
             }
         }
 
+        if (showChatters) {
+            ActiveChattersContent(activeChatters, activeChattersError,
+                onRetry = { channelId?.let(community::loadChatters) },
+                onUserClick = { user -> streamerSlug?.let { community.openProfile(it, user) } },
+                modifier = Modifier.fillMaxWidth().weight(1f))
+        } else {
         // Chat Message List
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            if (messages.isEmpty()) {
+            if (visibleMessages.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -296,7 +319,7 @@ fun ChatView(
                                     strokeWidth = 2.5.dp
                                 )
                                 Text(
-                                    text = "Sohbete bağlanılıyor...",
+                                    text = stringResource(R.string.chat_connecting_message),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.outline
                                 )
@@ -309,11 +332,7 @@ fun ChatView(
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Text(
-                                    text = if (!autoConnectChat) {
-                                        "Otomatik sohbet bağlantısı kapalı."
-                                    } else {
-                                        "Sohbet bağlantısı kesildi."
-                                    },
+                                    text = stringResource(if (!autoConnectChat) R.string.chat_auto_connect_disabled else R.string.chat_disconnected_message),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.outline
                                 )
@@ -321,14 +340,14 @@ fun ChatView(
                                     onClick = onConnectClick,
                                     shape = RoundedCornerShape(8.dp)
                                 ) {
-                                    Text("Sohbete Bağlan")
+                                    Text(stringResource(R.string.chat_connect_action))
                                 }
                             }
                         }
 
                         else -> {
                             Text(
-                                text = "Henüz mesaj yok. İlk mesajı bekle!",
+                                text = stringResource(R.string.chat_empty_message),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
@@ -343,7 +362,7 @@ fun ChatView(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
                 ) {
                     items(
-                        items = messages,
+                        items = visibleMessages,
                         key = { it.id }
                     ) { message ->
                         ChatMessageItem(
@@ -352,7 +371,11 @@ fun ChatView(
                             subscriberBadges = subscriberBadges,
                             userColors = userColors,
                             streamerUsername = streamerUsername,
-                            streamerSlug = streamerSlug
+                            streamerSlug = streamerSlug,
+                            onUserClick = { sender -> streamerSlug?.let { slug ->
+                                community.openProfile(slug, com.lechixy.kick.data.model.chat.ActiveChatter(
+                                    username = sender.username, slug = sender.slug.orEmpty()), sender)
+                            } }
                         )
                     }
                 }
@@ -375,16 +398,20 @@ fun ChatView(
                     val tickerItem = when (wsEvent) {
                         is ChatWebSocketEvent.StreamHosted -> {
                             val raid = wsEvent.event
+                            val raidCount = raid.message.numberOfViewers
+                            // min 20_000L max 60_000L
+                            val durationDependingOnRaidCount = (raidCount * 1000L).coerceIn(20_000L, 60_000L)
                             ChatTickerOverlayItem(
                                 id = "raid_${raid.message.id}",
                                 iconRes = R.drawable.swords_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
                                 segments = listOf(
                                     ChatTextParser.EventTextSegment(raid.user.username, isBold = true,
+                                        username = raid.user.username,
                                         color = ChatTextParser.parseHexColor(currentUserColors[raid.user.username.lowercase()], currentPrimaryColor)),
                                     ChatTextParser.EventTextSegment(currentRaidContext.getString(R.string.chat_raid_suffix, raid.message.numberOfViewers), isBold = false)
                                 ),
                                 accentColor = currentPrimaryColor,
-                                durationMillis = 30_000L,
+                                durationMillis = durationDependingOnRaidCount,
                                 source = ChatTickerEventSource.Raid(raid)
                             )
                         }
@@ -461,6 +488,9 @@ fun ChatView(
                 queue = tickerEventQueue,
                 fontSizeSp = fontSize,
                 onActiveHeightChanged = { tickerOverlayHeightPx = it },
+                onUsernameClick = { username -> streamerSlug?.let { slug ->
+                    community.openProfile(slug, com.lechixy.kick.data.model.chat.ActiveChatter(username = username))
+                } },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
@@ -481,7 +511,7 @@ fun ChatView(
 
             // Floating "Scroll to bottom" button with unread counter
             androidx.compose.animation.AnimatedVisibility(
-                visible = !isAtBottom && messages.isNotEmpty(),
+                visible = !isAtBottom && visibleMessages.isNotEmpty(),
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier
@@ -499,7 +529,7 @@ fun ChatView(
                             autoScrollEnabled = true
                             unreadCount = 0
                             scope.launch {
-                                val lastIdx = messages.lastIndex
+                                val lastIdx = visibleMessages.lastIndex
                                 if (lastIdx >= 0) {
                                     listState.scrollToItem(lastIdx)
                                 }
@@ -513,11 +543,11 @@ fun ChatView(
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.keyboard_arrow_down_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                            contentDescription = "Scroll to bottom",
+                            contentDescription = stringResource(R.string.chat_scroll_bottom),
                             modifier = Modifier.size(18.dp)
                         )
                         val buttonText =
-                            if (unreadCount > 0) "En son mesajlara git (+$unreadCount)" else "En son mesajlara git"
+                            if (unreadCount > 0) stringResource(R.string.chat_scroll_unread, unreadCount) else stringResource(R.string.chat_scroll_bottom)
                         Text(
                             text = buttonText,
                             style = MaterialTheme.typography.labelSmall,
@@ -528,6 +558,7 @@ fun ChatView(
             }
         }
         composer()
+        }
     }
 }
 
@@ -804,7 +835,7 @@ private fun PinnedMessageOverlay(
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.push_pin_24dp),
-                        contentDescription = "Show pinned message",
+                        contentDescription = stringResource(R.string.chat_show_pinned),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp)
                     )
@@ -819,7 +850,11 @@ private fun ChatHeader(
     connectionState: ChatConnectionState,
     showOptions: Boolean,
     onToggleOptions: () -> Unit,
-    onHideChat: (() -> Unit)? = null
+    onHideChat: (() -> Unit)? = null,
+    showChatters: Boolean = false,
+    chatterCount: Int? = null,
+    onToggleChatters: () -> Unit = {},
+    chattersEnabled: Boolean = false
 ) {
     Row(
         modifier = Modifier
@@ -830,6 +865,7 @@ private fun ChatHeader(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(
+            modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -847,11 +883,16 @@ private fun ChatHeader(
                 }
             }
             Text(
-                text = stringResource(R.string.chat),
+                text = stringResource(if (showChatters) R.string.active_chatters_title else R.string.chat),
+                modifier = Modifier.weight(1f, fill = false),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (showChatters) Text("(${chatterCount ?: "…"})", color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         }
 
         Row(
@@ -865,7 +906,7 @@ private fun ChatHeader(
                 ChatConnectionState.ERROR -> stringResource(R.string.error) to MaterialTheme.colorScheme.error
             }
 
-            Row(
+            if (!showChatters) Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -883,7 +924,12 @@ private fun ChatHeader(
                 )
             }
 
-            IconButton(
+            IconButton(onClick = onToggleChatters, enabled = chattersEnabled, modifier = Modifier.size(32.dp)) {
+                Icon(painterResource(if (showChatters) R.drawable.group_24dp_e3e3e3_fill1_wght400_grad0_opsz24
+                    else R.drawable.group_24dp_e3e3e3_fill0_wght400_grad0_opsz24), stringResource(R.string.active_chatters_title), Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary)
+            }
+            if (!showChatters) IconButton(
                 onClick = onToggleOptions,
                 modifier = Modifier.size(32.dp)
             ) {
@@ -938,7 +984,8 @@ private fun buildCelebrationTickerItem(
             ChatTextParser.EventTextSegment(
                 text = username,
                 isBold = true,
-                color = userColor
+                color = userColor,
+                username = username
             )
         )
         if (months != null && months > 0) {
@@ -991,7 +1038,8 @@ private fun buildChannelSubscriptionTickerItem(
             ChatTextParser.EventTextSegment(
                 text = username,
                 isBold = true,
-                color = userColor
+                color = userColor,
+                username = username
             )
         )
         if (months != null && months > 0) {
@@ -1045,7 +1093,8 @@ private fun buildGiftedSubscriptionsTickerItem(
             ChatTextParser.EventTextSegment(
                 text = gifterName,
                 isBold = true,
-                color = gifterColor
+                color = gifterColor,
+                username = event.gifterUsername.takeIf { it.isNotBlank() }
             )
         )
         if (giftedCount > 1) {
@@ -1059,7 +1108,7 @@ private fun buildGiftedSubscriptionsTickerItem(
             )
             add(ChatTextParser.EventTextSegment(text = " to ", isBold = false))
         } else {
-            add(ChatTextParser.EventTextSegment(text = " gifted a sub to ", isBold = false))
+            add(ChatTextParser.EventTextSegment(text = " gifted a sub", isBold = false))
         }
 
         if (recipients.isEmpty() || giftedCount < 5) {
@@ -1071,8 +1120,7 @@ private fun buildGiftedSubscriptionsTickerItem(
                 )
             )
         } else {
-            // If there is less than 5 people being gifted, just show their names
-
+            // If there is less than 5 people being gifted show their names
             recipients.forEachIndexed { index, recipient ->
                 if (index > 0) {
                     add(ChatTextParser.EventTextSegment(text = ", ", isBold = false))
@@ -1085,7 +1133,8 @@ private fun buildGiftedSubscriptionsTickerItem(
                     ChatTextParser.EventTextSegment(
                         text = recipient,
                         isBold = true,
-                        color = recipientColor
+                        color = recipientColor,
+                        username = recipient
                     )
                 )
 
@@ -1109,7 +1158,8 @@ private fun ChatEventTickerOverlay(
     queue: MutableList<ChatTickerOverlayItem>,
     fontSizeSp: Int,
     onActiveHeightChanged: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onUsernameClick: ((String) -> Unit)? = null
 ) {
     val currentItem = queue.firstOrNull()
     var displayedItem by remember { mutableStateOf<ChatTickerOverlayItem?>(null) }
@@ -1247,6 +1297,7 @@ private fun ChatEventTickerOverlay(
                             defaultBoldColor = accentColor,
                             defaultTextColor = MaterialTheme.colorScheme.onSurface,
                             onScrollingChanged = { isUserScrolling = it },
+                            onUsernameClick = onUsernameClick,
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(vertical = 2.dp)
@@ -1298,7 +1349,7 @@ private fun ChatEventTickerOverlay(
 }
 
 @Composable
-private fun ContinuousTickerRow(
+internal fun ContinuousTickerRow(
     @DrawableRes iconRes: Int,
     iconTint: Color,
     segments: List<ChatTextParser.EventTextSegment>,
@@ -1307,14 +1358,16 @@ private fun ContinuousTickerRow(
     defaultTextColor: Color,
     modifier: Modifier = Modifier,
     onScrollingChanged: (Boolean) -> Unit = {},
+    onUsernameClick: ((String) -> Unit)? = null,
     speedDpPerSecond: Float = 48f
 ) {
     val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
-    val annotatedString = remember(segments, defaultBoldColor, defaultTextColor) {
+    val annotatedString = remember(segments, defaultBoldColor, defaultTextColor, onUsernameClick) {
         ChatTextParser.buildEventAnnotatedString(
             segments = segments,
             boldColor = defaultBoldColor,
-            mutedColor = defaultTextColor
+            mutedColor = defaultTextColor,
+            onUsernameClick = onUsernameClick
         )
     }
 
@@ -1342,7 +1395,7 @@ private fun ContinuousTickerRow(
     }
 
     LaunchedEffect(speedPxPerSec, stridePx, isUserScrolling) {
-        if (stridePx <= 0f || isUserScrolling) return@LaunchedEffect
+        if (stridePx <= 0f || speedPxPerSec <= 0f || isUserScrolling) return@LaunchedEffect
         var lastFrameNanos = withFrameNanos { it }
         while (isActive) {
             withFrameNanos { frameNanos ->

@@ -58,7 +58,12 @@ fun ChatMessageItem(
     userColors: Map<String, String> = emptyMap(),
     streamerUsername: String? = null,
     streamerSlug: String? = null,
+    onUserClick: ((com.lechixy.kick.data.model.chat.ChatSender) -> Unit)? = null,
 ) {
+    val onEventUserClick: ((String) -> Unit)? = onUserClick?.let { callback -> { username ->
+        callback(message.sender?.takeIf { it.username.equals(username, ignoreCase = true) }
+            ?: com.lechixy.kick.data.model.chat.ChatSender(username = username))
+    } }
     // 1. Reward Redeemed Event
     val rewardEvent = message.rewardRedeemed
     if (message.isRewardRedeemed && rewardEvent != null) {
@@ -88,6 +93,7 @@ fun ChatMessageItem(
             iconRes = R.drawable.bubble_chart_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
             segments = segments,
             bodyContent = rewardEvent.userInput.takeIf { it.isNotBlank() },
+            onUsernameClick = onEventUserClick,
             fontSizeSp = fontSizeSp,
             stripeColor = rewardColor,
             contentPadding = 2.dp,
@@ -163,6 +169,7 @@ fun ChatMessageItem(
             bodyContent = null,
             fontSizeSp = fontSizeSp,
             stripeColor = gifterColor,
+            onUsernameClick = onEventUserClick,
             contentPadding = 10.dp,
             streamerUsername = streamerUsername,
             streamerSlug = streamerSlug,
@@ -205,6 +212,7 @@ fun ChatMessageItem(
             bodyContent = message.content.takeIf { it.isNotBlank() },
             fontSizeSp = fontSizeSp,
             stripeColor = userColor,
+            onUsernameClick = onEventUserClick,
             iconTint = defaultPrimaryColor,
             streamerUsername = streamerUsername,
             streamerSlug = streamerSlug,
@@ -248,6 +256,7 @@ fun ChatMessageItem(
             bodyContent = message.content.takeIf { it.isNotBlank() },
             fontSizeSp = fontSizeSp,
             stripeColor = userColor,
+            onUsernameClick = onEventUserClick,
             iconTint = defaultPrimaryColor,
             streamerUsername = streamerUsername,
             streamerSlug = streamerSlug,
@@ -372,7 +381,20 @@ fun ChatMessageItem(
             )
 
             Text(
-                text = parsedReply.annotatedString,
+                text = androidx.compose.ui.text.buildAnnotatedString {
+                    append(parsedReply.annotatedString.withMentionLinks(onEventUserClick))
+                    val start = parsedReply.annotatedString.text.indexOf(originalSenderName)
+                    if (start >= 0 && onUserClick != null) {
+                        addLink(androidx.compose.ui.text.LinkAnnotation.Clickable("reply-chatter",
+                            styles = chatterLinkStyles(androidx.compose.ui.text.SpanStyle(color = originalSenderColor, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)),
+                            linkInteractionListener = {
+                            onUserClick(originalMessage.sender?.takeIf { it.username == originalSenderName }
+                                ?: com.lechixy.kick.data.model.chat.ChatSender(
+                                    id = message.metadata.originalSender?.id, username = originalSenderName,
+                                    slug = message.metadata.originalSender?.slug, identity = message.metadata.originalSender?.identity))
+                        }), start, start + originalSenderName.length)
+                    }
+                },
                 fontStyle = FontStyle.Normal,
                 inlineContent = parsedReply.inlineContent,
                 fontSize = replyFontSizeSp.sp,
@@ -385,7 +407,17 @@ fun ChatMessageItem(
         }
 
         Text(
-            text = parsedMessage.annotatedString,
+            text = androidx.compose.ui.text.buildAnnotatedString {
+                append(parsedMessage.annotatedString.withMentionLinks(onEventUserClick))
+                val start = parsedMessage.annotatedString.text.indexOf(senderName)
+                if (start >= 0 && onUserClick != null && message.sender != null) {
+                    addLink(androidx.compose.ui.text.LinkAnnotation.Clickable("chatter",
+                        styles = chatterLinkStyles(androidx.compose.ui.text.SpanStyle(color = effectiveSenderColor, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)),
+                        linkInteractionListener = {
+                        onUserClick(message.sender)
+                    }), start, start + senderName.length)
+                }
+            },
             fontStyle = FontStyle.Normal,
             inlineContent = parsedMessage.inlineContent,
             fontSize = fontSizeSp.sp,
@@ -472,7 +504,8 @@ fun ChatEventBaseItem(
     contentPadding: Dp = 6.dp,
     iconTint: Color = MaterialTheme.colorScheme.primary,
     streamerUsername: String? = null,
-    streamerSlug: String? = null
+    streamerSlug: String? = null,
+    onUsernameClick: ((String) -> Unit)? = null
 ) {
     val boldColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
     val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)
@@ -507,7 +540,19 @@ fun ChatEventBaseItem(
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Text(
-            text = parsedHeader.annotatedString,
+            text = androidx.compose.ui.text.buildAnnotatedString {
+                append(parsedHeader.annotatedString)
+                val username = segments.firstOrNull()?.text.orEmpty()
+                val start = parsedHeader.annotatedString.text.indexOf(username)
+                if (onUsernameClick != null && username.isNotBlank() && start >= 0) {
+                    addLink(androidx.compose.ui.text.LinkAnnotation.Clickable("event-chatter",
+                        styles = chatterLinkStyles(androidx.compose.ui.text.SpanStyle(color = segments.firstOrNull()?.color ?: boldColor,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)),
+                        linkInteractionListener = {
+                        onUsernameClick(username)
+                    }), start, start + username.length)
+                }
+            },
 
             inlineContent = parsedHeader.inlineContent,
             fontSize = headerFontSizeSp.sp,
@@ -536,7 +581,7 @@ fun ChatEventBaseItem(
             )
 
             Text(
-                text = parsedBody.annotatedString,
+                text = parsedBody.annotatedString.withMentionLinks(onUsernameClick),
                 inlineContent = parsedBody.inlineContent,
                 fontSize = fontSizeSp.sp,
                 lineHeight = (fontSizeSp + 5).sp,

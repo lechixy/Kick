@@ -21,16 +21,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import com.lechixy.kick.data.model.playbackId
+import com.lechixy.kick.R
 import com.lechixy.kick.data.model.ChannelVideo
+import com.lechixy.kick.data.model.playbackId
 import com.lechixy.kick.util.FormatUtils
 import com.lechixy.kick.util.buildOptimizedImageRequest
 import java.text.NumberFormat
 import java.util.Locale
+
+@Composable
+fun VideoCardSkeleton(modifier: Modifier = Modifier) {
+    MediaCardSkeleton(modifier, withAvatar = false)
+}
 
 @Composable
 fun VideoCard(
@@ -100,7 +107,7 @@ fun VideoCard(
                         .padding(8.dp)
                 ) {
                     Text(
-                        text = "${NumberFormat.getNumberInstance(Locale.US).format(video.views)} views",
+                        text = stringResource(R.string.views_count, NumberFormat.getNumberInstance(Locale.US).format(video.views)),
                         color = Color.White,
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)

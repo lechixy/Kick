@@ -12,16 +12,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AccountChatRepositoryTest {
-    @Test fun identitySaveUsesSelectedBadgeNamesAndAuthenticatedUser() = runBlocking {
+    @Test fun identitySaveMatchesWebsiteV2DescriptorsWhenOnlyColorChanges() = runBlocking {
         var puts = 0
         val auth = signedInAuth { request ->
             assertEquals("/api/v2/channels/100/users/42/identity", request.url.encodedPath)
             if (request.method == "PUT") {
                 puts++
                 val buffer = Buffer(); request.body!!.writeTo(buffer)
-                assertEquals(objectJson("""{"badges":["broadcaster"],"badges_v2":["level_22"],"color":"#00F1FF"}"""), objectJson(buffer.readUtf8()))
+                assertEquals(objectJson("""{"badges":["broadcaster"],"badges_v2":[{"name":"level"}],"color":"#00F1FF"}"""), objectJson(buffer.readUtf8()))
                 objectJson("{}")
-            } else objectJson("""{"data":{"identity":{"color":"#DEB2FF","badges":[{"type":"broadcaster","active":true},{"type":"vip","active":false}],"badges_v2":[{"name":"level_22","selected":true},{"name":"other","selected":false}]}}}""")
+            } else objectJson("""{"data":{"identity":{"color":"#DEB2FF","badges":[{"type":"broadcaster","active":true},{"type":"vip","active":false}],"badges_v2":[{"name":"level","badge_type":"global","image_url":"https://example.com/level.png","metadata":{"level":22},"selected":true},{"name":"other","selected":false}]}}}""")
         }
         val repo = AccountChatRepository(auth)
         val initial = repo.identity(100)
@@ -33,6 +33,17 @@ class AccountChatRepositoryTest {
         auth.signOut()
         assertTrue(runCatching { repo.updateIdentity(100, generation, initial) }.isFailure)
         assertEquals(1, puts)
+    }
+
+    @Test fun identitySaveKeepsV2EmptyWhenNoBadgesAreSelected() = runBlocking {
+        val auth = signedInAuth { request ->
+            val buffer = Buffer(); request.body!!.writeTo(buffer)
+            assertEquals(objectJson("""{"badges":[],"badges_v2":[],"color":"#FFFFFF"}"""), objectJson(buffer.readUtf8()))
+            objectJson("{}")
+        }
+        AccountChatRepository(auth).updateIdentity(100, auth.session.value.generation,
+            com.lechixy.kick.data.model.chat.ChatIdentity(color = "#FFFFFF",
+                badgesV2 = listOf(com.lechixy.kick.data.model.chat.ChatBadge(name = "level", selected = false))))
     }
 
     @Test fun fetchesBothBalancesFromTheirRespectiveHosts() = runBlocking {

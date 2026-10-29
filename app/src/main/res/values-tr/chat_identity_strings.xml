@@ -31,6 +31,7 @@
     <string name="channel_follow_failed">Takip durumu yüklenemedi veya güncellenemedi. Tekrar deneyin.</string>
     <string name="channel_open_kick">Kick’te aç</string>
     <string name="channel_follow_wait">Bekleyin…</string>
-    <string name="channel_unfollow">Takibi bırak</string>
+
     <string name="offline_minimize">Küçült</string>
+    <string name="chat_loading">Yükleniyor…</string>
 </resources>

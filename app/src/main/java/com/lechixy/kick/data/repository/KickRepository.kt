@@ -17,6 +17,9 @@ import retrofit2.HttpException
 class KickRepository(
     private val api: KickApi
 ) {
+    suspend fun getChannelLinks(slug: String) = com.lechixy.kick.data.model.parseChannelLinks(api.getChannelLinks(slug))
+    suspend fun getChannelGoals(slug: String) = com.lechixy.kick.data.model.parseChannelGoals(api.getChannelGoals(slug))
+
     suspend fun getLastHourGiftedSubsRank(channelId: Long): Int? =
         api.getGiftedSubsLeaderboard(com.lechixy.kick.data.model.hourlyLeaderboardStart()).rankFor(channelId)
 

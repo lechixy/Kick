@@ -127,4 +127,9 @@
     <string name="account_cancel_login">Girişi iptal et</string>
     <string name="account_login_optional">Hesap bağlamak isteğe bağlıdır. Yayınları giriş yapmadan izleyebilirsin.</string>
     <string name="events">Etkinlikler</string>
+    <string name="channel_unfollow">Takipten çık</string>
+    <string name="recent_broadcasts">Geçmiş yayınlar</string>
+    <string name="more">More</string>
+    <string name="no_recent_broadcasts">Henüz içerik bulunmuyor</string>
+    <string name="views_count">%1$s görüntüleme</string>
 </resources>

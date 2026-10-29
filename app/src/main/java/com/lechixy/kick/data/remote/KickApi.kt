@@ -26,6 +26,24 @@ import retrofit2.http.Query
 import retrofit2.http.Url
 
 interface KickApi {
+    @GET("https://web.kick.com/api/v1/channels/{channelId}/chat/active-chatters")
+    suspend fun getActiveChatters(@Path("channelId") channelId: Long): kotlinx.serialization.json.JsonObject
+
+    @GET("https://kick.com/api/v2/channels/{slug}/users/{username}")
+    suspend fun getChatter(@Path("slug") slug: String, @Path("username") username: String): kotlinx.serialization.json.JsonObject
+
+    @GET("https://kick.com/api/v2/channels/{slug}/info")
+    suspend fun getChatterChannel(@Path("slug") slug: String): kotlinx.serialization.json.JsonObject
+
+    @GET("https://web.kick.com/api/v1/gamification/users/{userId}/streak")
+    suspend fun getChatterStreak(@Path("userId") userId: Long): kotlinx.serialization.json.JsonObject
+
+    @GET("https://kick.com/api/v1/channels/{slug}/links")
+    suspend fun getChannelLinks(@Path("slug") slug: String): kotlinx.serialization.json.JsonElement
+
+    @GET("https://kick.com/api/v2/channels/{slug}/goals")
+    suspend fun getChannelGoals(@Path("slug") slug: String): kotlinx.serialization.json.JsonElement
+
     @GET("api/v1/analytics/leaderboard")
     suspend fun getGiftedSubsLeaderboard(
         @Query("start_time") startTime: String,

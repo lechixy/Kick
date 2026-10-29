@@ -14,9 +14,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.height
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -30,11 +27,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,13 +41,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.runtime.key
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
@@ -61,6 +56,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -70,10 +66,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
@@ -87,7 +82,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil3.compose.AsyncImage
 import com.lechixy.kick.PlayerHostState
 import com.lechixy.kick.PlayerMode
 import com.lechixy.kick.R
@@ -103,17 +97,20 @@ import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.components.AnimatedCounterText
 import com.lechixy.kick.ui.components.CHAT_WIDTH_FRACTION
+import com.lechixy.kick.ui.components.ChannelCardSkeleton
 import com.lechixy.kick.ui.components.LiveBadge
+import com.lechixy.kick.ui.components.SkeletonBlock
+import com.lechixy.kick.ui.components.SkeletonLoadingScope
 import com.lechixy.kick.ui.components.TagChip
 import com.lechixy.kick.ui.components.VerifiedBadge
 import com.lechixy.kick.ui.components.VideoCard
+import com.lechixy.kick.ui.components.VideoSkeletonGrid
 import com.lechixy.kick.ui.components.WIDE_BREAKPOINT_DP
 import com.lechixy.kick.ui.components.account.rememberAccountFollowAction
 import com.lechixy.kick.ui.components.chat.ChatView
 import com.lechixy.kick.ui.components.resolveEventChipColors
 import com.lechixy.kick.ui.components.resolveLanguageChipColors
 import com.lechixy.kick.util.FormatUtils
-import com.lechixy.kick.util.buildOptimizedImageRequest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -212,13 +209,13 @@ fun ChannelScreen(
     val density = LocalDensity.current
 
     val channel = state.channel
+    LaunchedEffect(selectedTab, channel?.id) {
+        if (selectedTab == ChannelTab.ABOUT) viewModel.loadAbout()
+    }
     val offline = channel != null && channel.livestream == null && playerHost?.recording == null
-    var offlineCollapsed by remember(channelSlug) { mutableStateOf(false) }
-    LaunchedEffect(offline) { if (!offline) offlineCollapsed = false }
-    val offlineCollapse = animateFloatAsState(
-        targetValue = if (offline && offlineCollapsed) 1f else 0f,
-        animationSpec = tween(440), label = "offline_banner_collapse"
-    )
+    val offlineCollapse = remember(channelSlug, scope) { OfflineBannerState(scope) }
+    val offlineDismissReset = remember(channelSlug) { arrayOfNulls<kotlinx.coroutines.Job>(1) }
+    LaunchedEffect(offline) { if (!offline) offlineCollapse.animateTo(0f) }
     androidx.compose.runtime.DisposableEffect(playerHost, offlineCollapse) {
         playerHost?.offlineCollapseProgress = offlineCollapse
         onDispose {
@@ -230,7 +227,7 @@ fun ChannelScreen(
         OfflineBannerScrollConnection(
             enabled = { offline },
             atTop = { !channelContentState.canScrollBackward },
-            onCollapsedChange = { offlineCollapsed = it }
+            state = offlineCollapse
         )
     }
     val sharedChat = remember(viewModel, channel?.id, playerHost?.recording?.id) {
@@ -251,326 +248,361 @@ fun ChannelScreen(
         }
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .pointerInput(Unit) {
-                detectTapGestures { }
-            }
-    ) {
-        BoxWithConstraints(
-            Modifier
+    SkeletonLoadingScope(active = state.isLoading ||
+        (selectedTab == ChannelTab.CLIPS && state.isClipsLoading && state.clips.isEmpty()) ||
+        (selectedTab == ChannelTab.ABOUT && (state.links.loading || state.goals.loading ||
+            (!state.links.loaded && !state.links.failed)))) {
+        Box(
+            modifier = modifier
                 .fillMaxSize()
-                .windowInsetsPadding(inlineInsets)
-        ) {
-            val screenWidthDp = maxWidth
-            val isWide = screenWidthDp >= WIDE_BREAKPOINT_DP.dp
-            val visibleTabs = remember(isWide) {
-                if (isWide) ChannelTab.entries.filter { it != ChannelTab.CHAT }
-                else ChannelTab.entries
-            }
-            val effectiveSelectedTab = if (isWide && selectedTab == ChannelTab.CHAT) {
-                ChannelTab.HOME
-            } else {
-                selectedTab
-            }
-
-            LaunchedEffect(isWide) {
-                if (isWide && selectedTab == ChannelTab.CHAT) {
-                    selectedTab = ChannelTab.HOME
+                .background(MaterialTheme.colorScheme.background)
+                .pointerInput(Unit) {
+                    detectTapGestures { }
                 }
-            }
-            val bannerWidthPx = remember(screenWidthDp, density) {
-                with(density) { screenWidthDp.toPx().toInt() }
-            }
+        ) {
+            BoxWithConstraints(
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(inlineInsets)
+            ) {
+                val screenWidthDp = maxWidth
+                val isWide = screenWidthDp >= WIDE_BREAKPOINT_DP.dp
+                val visibleTabs = remember(isWide) {
+                    if (isWide) ChannelTab.entries.filter { it != ChannelTab.CHAT }
+                    else ChannelTab.entries
+                }
+                val effectiveSelectedTab = if (isWide && selectedTab == ChannelTab.CHAT) {
+                    ChannelTab.HOME
+                } else {
+                    selectedTab
+                }
 
-            var isDraggingHandle by remember { mutableStateOf(false) }
-            var dragAccumulatedPx by remember { mutableFloatStateOf(0f) }
-            var dragStartFraction by remember { mutableFloatStateOf(chatWidthFraction) }
+                LaunchedEffect(isWide) {
+                    if (isWide && selectedTab == ChannelTab.CHAT) {
+                        selectedTab = ChannelTab.HOME
+                    }
+                }
+                val bannerWidthPx = remember(screenWidthDp, density) {
+                    with(density) { screenWidthDp.toPx().toInt() }
+                }
 
-            val isFullScreen = playerHost?.mode == PlayerMode.Fullscreen
-            val hasSideChat = isWide || isFullScreen
-            val isChatActuallyVisible =
-                playerHost?.isSideChatOpen(isWide) ?: (isWide && isChatVisible)
+                var isDraggingHandle by remember { mutableStateOf(false) }
+                var dragAccumulatedPx by remember { mutableFloatStateOf(0f) }
+                var dragStartFraction by remember { mutableFloatStateOf(chatWidthFraction) }
 
-            Layout(
-                contents = listOf(
-                    {
-                        Column(
-                            Modifier.fillMaxSize().nestedScroll(offlineScroll)
-                        ) {
-                            // Player'ın oturduğu yer (PlayerHost bu alanı işliyor)
-                            if (channel != null && channel.livestream == null && playerHost?.recording == null) {
-                                val bannerUrl = remember(channel, bannerWidthPx) {
-                                    channel.getBannerUrl(targetWidthPx = bannerWidthPx)
-                                }
-                                OfflineChannelBanner(
-                                    channel = channel,
-                                    bannerUrl = bannerUrl,
-                                    collapseProgress = offlineCollapse,
-                                    onCollapse = { offlineCollapsed = true },
-                                    onBackClick = onBackClick
-                                )
-                            } else {
-                                Spacer(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .layout { measurable, constraints ->
-                                            val colWidth = constraints.maxWidth
-                                            val fullHeightPx = (colWidth * 9f / 16f).roundToInt()
-                                            val compactHeightPx = 84.dp.roundToPx().coerceAtMost(fullHeightPx)
-                                            val normalHeightPx = (fullHeightPx + (compactHeightPx - fullHeightPx) * offlineCollapse.value).roundToInt()
-                                            val hPx = if (isWide) {
-                                                val totalH = constraints.maxHeight
-                                                val headerPx =
-                                                    if ((playerHost?.channelHeaderHeightPx ?: 0) > 0) {
-                                                        playerHost!!.channelHeaderHeightPx
-                                                    } else {
-                                                        (totalH * 0.24f).roundToInt()
-                                                    }
-                                                val theaterTargetPx =
-                                                    (totalH - headerPx).coerceIn(0, totalH)
-                                                (normalHeightPx + (theaterTargetPx - normalHeightPx) * theaterAnim.value).roundToInt()
-                                            } else {
-                                                normalHeightPx
-                                            }
-                                            val placeable = measurable.measure(
-                                                Constraints.fixed(colWidth, hPx.coerceAtLeast(0))
-                                            )
-                                            layout(placeable.width, placeable.height) {
-                                                placeable.place(0, 0)
-                                            }
-                                        }
-                                )
-                            }
+                val isFullScreen = playerHost?.mode == PlayerMode.Fullscreen
+                val hasSideChat = isWide || isFullScreen
+                val isChatActuallyVisible =
+                    playerHost?.isSideChatOpen(isWide) ?: (isWide && isChatVisible)
 
-                            if (channel != null) {
-                                val isLive = channel.livestream != null && playerHost?.recording == null
-                                val hasPlayback = isLive || playerHost?.recording != null
-                                val lastLiveText = remember(state.videos) {
-                                    val latestVideo = state.videos.firstOrNull()
-                                    FormatUtils.formatLastLive(
-                                        latestVideo?.startTime ?: latestVideo?.createdAt,
-                                        true
-                                    )
-                                }
-
-                                // ChannelHeaderInfo: geniş ekranda (tablet) theater mod dahil her zaman görünür, mobilde kontrollerle senkronize
-                                AnimatedVisibility(
-                                    visible = isProfilePhotoExpanded || if (isWide || !hasPlayback) true else isControlsVisible,
-                                    enter = expandVertically(tween(300)) + fadeIn(tween(300)),
-                                    exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
-                                ) {
-                                    ChannelHeaderInfo(
+                Layout(
+                    contents = listOf(
+                        {
+                            Column(
+                                Modifier.fillMaxSize().nestedScroll(offlineScroll)
+                            ) {
+                                // Player'ın oturduğu yer (PlayerHost bu alanı işliyor)
+                                if (channel != null && channel.livestream == null && playerHost?.recording == null) {
+                                    val bannerUrl = remember(channel, bannerWidthPx) {
+                                        channel.getBannerUrl(targetWidthPx = bannerWidthPx)
+                                    }
+                                    OfflineChannelBanner(
                                         channel = channel,
-                                        event = state.event,
-                                        lastHourGiftedSubsRank = state.lastHourGiftedSubsRank,
-                                        recording = playerHost?.recording,
-                                        onPlayLive = { playerHost?.playLive() },
-                                        onProfilePhotoExpandedChange = { isProfilePhotoExpanded = it },
-                                        isLive = isLive,
-                                        lastLiveText = lastLiveText,
-                                        isFollowing = followAction.following,
-                                        followLabel = followAction.label,
-                                        followEnabled = followAction.enabled,
-                                        onFollowClick = followAction.onClick,
-                                        context = context,
-                                        onHeightMeasured = { heightPx ->
-                                            if (heightPx > 0 && playerHost?.channelHeaderHeightPx != heightPx) {
-                                                playerHost?.channelHeaderHeightPx = heightPx
+                                        bannerUrl = bannerUrl,
+                                        collapseProgress = offlineCollapse,
+                                        onCollapse = { offlineCollapse.animateTo(1f) },
+                                        onBackClick = onBackClick,
+                                        onTravelChanged = { offlineCollapse.travelPx = it },
+                                        onDrag = { offlineCollapse.drag(it) },
+                                        onDragFinished = offlineCollapse::settle,
+                                        onDismissDrag = playerHost?.let { host -> { amount ->
+                                            offlineDismissReset[0]?.cancel()
+                                            host.dragOffsetY = (host.dragOffsetY + amount).coerceAtLeast(0f)
+                                        } },
+                                        onDismissDragFinished = { velocity, cancelled ->
+                                            playerHost?.let { host ->
+                                                val threshold = with(density) { 72.dp.toPx() }
+                                                if (!cancelled && (host.dragOffsetY > threshold || velocity > 1800f)) onBackClick()
+                                                else offlineDismissReset[0] = scope.launch {
+                                                    androidx.compose.animation.core.animate(host.dragOffsetY, 0f,
+                                                        animationSpec = tween(300)) { value, _ -> host.dragOffsetY = value }
+                                                }
                                             }
                                         }
                                     )
-                                }
-
-                                // ChannelTabsRow: geniş ekranda theater modda gizlenir, mobilde kontrollerle senkronize
-                                AnimatedVisibility(
-                                    visible = if (isWide) (!isTheaterMode || !hasPlayback) else (!hasPlayback || isControlsVisible),
-                                    enter = expandVertically(tween(300)) + fadeIn(tween(300)),
-                                    exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
-                                ) {
-                                    ChannelTabsRow(
-                                        tabs = visibleTabs,
-                                        selectedTab = effectiveSelectedTab,
-                                        onTabSelected = { selectedTab = it }
+                                } else {
+                                    Spacer(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .layout { measurable, constraints ->
+                                                val colWidth = constraints.maxWidth
+                                                val fullHeightPx = (colWidth * 9f / 16f).roundToInt()
+                                                val compactHeightPx = 84.dp.roundToPx().coerceAtMost(fullHeightPx)
+                                                val normalHeightPx = (fullHeightPx + (compactHeightPx - fullHeightPx) * offlineCollapse.value).roundToInt()
+                                                val hPx = if (isWide) {
+                                                    val totalH = constraints.maxHeight
+                                                    val headerPx =
+                                                        if ((playerHost?.channelHeaderHeightPx ?: 0) > 0) {
+                                                            playerHost!!.channelHeaderHeightPx
+                                                        } else {
+                                                            (totalH * 0.24f).roundToInt()
+                                                        }
+                                                    val theaterTargetPx =
+                                                        (totalH - headerPx).coerceIn(0, totalH)
+                                                    (normalHeightPx + (theaterTargetPx - normalHeightPx) * theaterAnim.value).roundToInt()
+                                                } else {
+                                                    normalHeightPx
+                                                }
+                                                val placeable = measurable.measure(
+                                                    Constraints.fixed(colWidth, hPx.coerceAtLeast(0))
+                                                )
+                                                layout(placeable.width, placeable.height) {
+                                                    placeable.place(0, 0)
+                                                }
+                                            }
                                     )
                                 }
 
-                                if (effectiveSelectedTab == ChannelTab.CHAT && !hasSideChat) {
-                                    sharedChat(
-                                        channel,
-                                        null,
+                                if (channel != null) {
+                                    val isLive = channel.livestream != null && playerHost?.recording == null
+                                    val hasPlayback = isLive || playerHost?.recording != null
+                                    val lastLiveText = remember(state.videos) {
+                                        val latestVideo = state.videos.firstOrNull()
+                                        FormatUtils.formatLastLive(
+                                            latestVideo?.startTime ?: latestVideo?.createdAt,
+                                            true
+                                        )
+                                    }
+
+                                    // ChannelHeaderInfo: geniş ekranda (tablet) theater mod dahil her zaman görünür, mobilde kontrollerle senkronize
+                                    AnimatedVisibility(
+                                        visible = isProfilePhotoExpanded || if (isWide || !hasPlayback) true else isControlsVisible,
+                                        enter = expandVertically(tween(300)) + fadeIn(tween(300)),
+                                        exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
+                                    ) {
+                                        ChannelHeaderInfo(
+                                            channel = channel,
+                                            event = state.event,
+                                            lastHourGiftedSubsRank = state.lastHourGiftedSubsRank,
+                                            recording = playerHost?.recording,
+                                            onPlayLive = { playerHost?.playLive() },
+                                            onProfilePhotoExpandedChange = { isProfilePhotoExpanded = it },
+                                            isLive = isLive,
+                                            lastLiveText = lastLiveText,
+                                            isFollowing = followAction.following,
+                                            followLabel = followAction.label,
+                                            followEnabled = followAction.enabled,
+                                            onFollowClick = followAction.onClick,
+                                            context = context,
+                                            onHeightMeasured = { heightPx ->
+                                                if (heightPx > 0 && playerHost?.channelHeaderHeightPx != heightPx) {
+                                                    playerHost?.channelHeaderHeightPx = heightPx
+                                                }
+                                            }
+                                        )
+                                    }
+
+                                    // ChannelTabsRow: geniş ekranda theater modda gizlenir, mobilde kontrollerle senkronize
+                                    AnimatedVisibility(
+                                        visible = if (isWide) (!isTheaterMode || !hasPlayback) else (!hasPlayback || isControlsVisible),
+                                        enter = expandVertically(tween(300)) + fadeIn(tween(300)),
+                                        exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
+                                    ) {
+                                        ChannelTabsRow(
+                                            tabs = visibleTabs,
+                                            selectedTab = effectiveSelectedTab,
+                                            onTabSelected = { selectedTab = it }
+                                        )
+                                    }
+
+                                    if (effectiveSelectedTab == ChannelTab.CHAT && !hasSideChat) {
+                                        sharedChat(
+                                            channel,
+                                            null,
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .weight(1f)
+                                        )
+                                    } else {
+                                        AnimatedVisibility(
+                                            visible = if (isWide) (!isTheaterMode || !hasPlayback) else true,
+                                            enter = expandVertically(tween(300)) + fadeIn(tween(300)),
+                                            exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .weight(1f)
+                                        ) {
+                                            LazyColumn(
+                                                state = channelContentState,
+                                                modifier = Modifier.fillMaxSize()
+                                            ) {
+                                                item {
+                                                    ChannelTabContent(
+                                                        tab = effectiveSelectedTab,
+                                                        channel = channel,
+                                                        linksState = state.links,
+                                                        goalState = state.goals,
+                                                        onRetryAbout = { viewModel.loadAbout(retry = true) },
+                                                        videos = state.videos,
+                                                        clips = state.clips,
+                                                        clipsError = state.clipsError,
+                                                        isClipsLoading = state.isClipsLoading,
+                                                        onRetryClips = viewModel::retryClips,
+                                                        onPlayRecording = { playerHost?.playRecording(it) },
+                                                        onNavigateToVideos = {
+                                                            selectedTab = ChannelTab.VIDEOS
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Box(
                                         Modifier
                                             .fillMaxWidth()
                                             .weight(1f)
-                                    )
-                                } else {
-                                    AnimatedVisibility(
-                                        visible = if (isWide) (!isTheaterMode || !hasPlayback) else true,
-                                        enter = expandVertically(tween(300)) + fadeIn(tween(300)),
-                                        exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .weight(1f)
                                     ) {
-                                        LazyColumn(
-                                            state = channelContentState,
-                                            modifier = Modifier.fillMaxSize()
-                                        ) {
-                                            item {
-                                                ChannelTabContent(
-                                                    tab = effectiveSelectedTab,
-                                                    channel = channel,
-                                                    videos = state.videos,
-                                                    clips = state.clips,
-                                                    clipsError = state.clipsError,
-                                                    isClipsLoading = state.isClipsLoading,
-                                                    onRetryClips = viewModel::retryClips,
-                                                    onPlayRecording = { playerHost?.playRecording(it) },
-                                                    onNavigateToVideos = {
-                                                        selectedTab = ChannelTab.VIDEOS
-                                                    }
-                                                )
+                                        if (state.error != null) {
+                                            Text(
+                                                text = state.error ?: "Unknown error",
+                                                color = MaterialTheme.colorScheme.error,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier
+                                                    .align(Alignment.Center)
+                                                    .padding(16.dp)
+                                            )
+                                        } else {
+                                            androidx.compose.foundation.lazy.LazyColumn(
+                                                Modifier.fillMaxSize(),
+                                                contentPadding = PaddingValues(16.dp),
+                                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                                            ) {
+                                                item { SkeletonBlock(Modifier.fillMaxWidth(0.7f).height(22.dp)) }
+                                                item { ChannelCardSkeleton() }
+                                                item { SkeletonBlock(Modifier.fillMaxWidth().height(48.dp)) }
+                                                item { VideoSkeletonGrid(Modifier.fillMaxWidth()) }
                                             }
                                         }
                                     }
                                 }
-                            } else {
+                            }
+                        },
+                        {
+                            // Yan sohbet paneli: hasSideChat aktifken her zaman compose'lu kalır,
+                            // böylece sola kaydırmanın ilk karesinde sıfırdan oluşturulmaz, GPU'da kayarak açılır.
+                            if (hasSideChat && channel != null) {
                                 Box(
                                     Modifier
-                                        .fillMaxWidth()
-                                        .weight(1f)
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            val openProgress = (playerHost?.chatOpenProgress?.value
+                                                ?: if (isChatActuallyVisible) 1f else 0f).coerceIn(0f, 1f)
+                                            alpha = openProgress
+                                        }
                                 ) {
-                                    if (state.error != null) {
-                                        Text(
-                                            text = state.error ?: "Unknown error",
-                                            color = MaterialTheme.colorScheme.error,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier
-                                                .align(Alignment.Center)
-                                                .padding(16.dp)
-                                        )
-                                    } else {
-                                        CircularProgressIndicator(Modifier.align(Alignment.Center))
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    {
-                        // Yan sohbet paneli: hasSideChat aktifken her zaman compose'lu kalır,
-                        // böylece sola kaydırmanın ilk karesinde sıfırdan oluşturulmaz, GPU'da kayarak açılır.
-                        if (hasSideChat && channel != null) {
-                            Box(
-                                Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        val openProgress = (playerHost?.chatOpenProgress?.value
-                                            ?: if (isChatActuallyVisible) 1f else 0f).coerceIn(0f, 1f)
-                                        alpha = openProgress
-                                    }
-                            ) {
-                                sharedChat(
-                                    channel,
-                                    { playerHost?.setSideChatVisible(visible = false, isWide = isWide) },
-                                    Modifier.fillMaxSize()
-                                )
-
-                                if (isChatActuallyVisible || isDraggingHandle) {
-                                    ChatResizeHandle(
-                                        isDragging = isDraggingHandle,
-                                        onDragStart = {
-                                            isDraggingHandle = true
-                                            dragAccumulatedPx = 0f
-                                            dragStartFraction = chatWidthFraction
-                                        },
-                                        onDragEnd = {
-                                            isDraggingHandle = false
-                                            val currentFraction = playerHost?.chatWidthFraction
-                                            if (currentFraction != null && playerHost.isSideChatOpen(isWide)) {
-                                                scope.launch {
-                                                    settingsRepository.set(
-                                                        SettingsKeys.CHAT_WIDTH_FRACTION,
-                                                        currentFraction
-                                                    )
-                                                }
-                                            }
-                                        },
-                                        onDrag = { dragAmountPx ->
-                                            dragAccumulatedPx += dragAmountPx
-                                            val screenWidthPx = with(density) { screenWidthDp.toPx() }
-                                            if (screenWidthPx > 0f) {
-                                                val deltaFraction = -dragAccumulatedPx / screenWidthPx
-                                                val newFraction = dragStartFraction + deltaFraction
-                                                if (newFraction < 0.18f) {
-                                                    playerHost?.updateChatWidthFraction(dragStartFraction)
-                                                    playerHost?.setSideChatVisible(
-                                                        visible = false,
-                                                        isWide = isWide
-                                                    )
-                                                    isDraggingHandle = false
-                                                } else {
-                                                    playerHost?.updateChatWidthFraction(newFraction)
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .align(Alignment.CenterStart)
-                                            .fillMaxHeight()
-                                            .width(24.dp)
-                                            .offset(x = (-12).dp)
+                                    sharedChat(
+                                        channel,
+                                        { playerHost?.setSideChatVisible(visible = false, isWide = isWide) },
+                                        Modifier.fillMaxSize()
                                     )
+
+                                    if (isChatActuallyVisible || isDraggingHandle) {
+                                        ChatResizeHandle(
+                                            isDragging = isDraggingHandle,
+                                            onDragStart = {
+                                                isDraggingHandle = true
+                                                dragAccumulatedPx = 0f
+                                                dragStartFraction = chatWidthFraction
+                                            },
+                                            onDragEnd = {
+                                                isDraggingHandle = false
+                                                val currentFraction = playerHost?.chatWidthFraction
+                                                if (currentFraction != null && playerHost.isSideChatOpen(isWide)) {
+                                                    scope.launch {
+                                                        settingsRepository.set(
+                                                            SettingsKeys.CHAT_WIDTH_FRACTION,
+                                                            currentFraction
+                                                        )
+                                                    }
+                                                }
+                                            },
+                                            onDrag = { dragAmountPx ->
+                                                dragAccumulatedPx += dragAmountPx
+                                                val screenWidthPx = with(density) { screenWidthDp.toPx() }
+                                                if (screenWidthPx > 0f) {
+                                                    val deltaFraction = -dragAccumulatedPx / screenWidthPx
+                                                    val newFraction = dragStartFraction + deltaFraction
+                                                    if (newFraction < 0.18f) {
+                                                        playerHost?.updateChatWidthFraction(dragStartFraction)
+                                                        playerHost?.setSideChatVisible(
+                                                            visible = false,
+                                                            isWide = isWide
+                                                        )
+                                                        isDraggingHandle = false
+                                                    } else {
+                                                        playerHost?.updateChatWidthFraction(newFraction)
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .align(Alignment.CenterStart)
+                                                .fillMaxHeight()
+                                                .width(24.dp)
+                                                .offset(x = (-12).dp)
+                                        )
+                                    }
                                 }
                             }
                         }
+                    ),
+                    modifier = Modifier.fillMaxSize()
+                ) { (mainMeasurables, sideChatMeasurables), constraints ->
+                    val totalW = constraints.maxWidth
+                    val totalH = constraints.maxHeight
+                    val openProgress = if (hasSideChat) {
+                        (playerHost?.chatOpenProgress?.value
+                            ?: if (isChatActuallyVisible) 1f else 0f).coerceIn(0f, 1f)
+                    } else {
+                        0f
                     }
-                ),
-                modifier = Modifier.fillMaxSize()
-            ) { (mainMeasurables, sideChatMeasurables), constraints ->
-                val totalW = constraints.maxWidth
-                val totalH = constraints.maxHeight
-                val openProgress = if (hasSideChat) {
-                    (playerHost?.chatOpenProgress?.value
-                        ?: if (isChatActuallyVisible) 1f else 0f).coerceIn(0f, 1f)
-                } else {
-                    0f
-                }
-                val targetChatW = (totalW * chatWidthFraction).roundToInt().coerceAtLeast(1)
-                val currentChatW = if (hasSideChat) (targetChatW * openProgress).roundToInt() else 0
+                    val targetChatW = (totalW * chatWidthFraction).roundToInt().coerceAtLeast(1)
+                    val currentChatW = if (hasSideChat) (targetChatW * openProgress).roundToInt() else 0
 
-                // Tam ekranda sol sütun player'ın altında kaldığı için sabit genişlikte tutulur ->
-                // tam ekranda chat kaydırılırken arkadaki sayfa yeniden ölçülmez.
-                val mainColW = if (!hasSideChat || isFullScreen) {
-                    totalW
-                } else {
-                    (totalW - currentChatW).coerceAtLeast(0)
-                }
+                    // Tam ekranda sol sütun player'ın altında kaldığı için sabit genişlikte tutulur ->
+                    // tam ekranda chat kaydırılırken arkadaki sayfa yeniden ölçülmez.
+                    val mainColW = if (!hasSideChat || isFullScreen) {
+                        totalW
+                    } else {
+                        (totalW - currentChatW).coerceAtLeast(0)
+                    }
 
-                val mainPlaceable = mainMeasurables.firstOrNull()?.measure(
-                    Constraints.fixed(mainColW, totalH)
-                )
+                    val mainPlaceable = mainMeasurables.firstOrNull()?.measure(
+                        Constraints.fixed(mainColW, totalH)
+                    )
 
-                val sideChatMeasureW = if (isDraggingHandle) {
-                    currentChatW.coerceAtLeast(1)
-                } else {
-                    targetChatW
-                }
-                val sideChatPlaceable = sideChatMeasurables.firstOrNull()?.measure(
-                    Constraints.fixed(sideChatMeasureW, totalH)
-                )
+                    val sideChatMeasureW = if (isDraggingHandle) {
+                        currentChatW.coerceAtLeast(1)
+                    } else {
+                        targetChatW
+                    }
+                    val sideChatPlaceable = sideChatMeasurables.firstOrNull()?.measure(
+                        Constraints.fixed(sideChatMeasureW, totalH)
+                    )
 
-                layout(totalW, totalH) {
-                    // Keep inline measurements for the return transition, but never draw
-                    // channel details behind the fullscreen player or fading side chat.
-                    if (!isFullScreen) mainPlaceable?.place(0, 0)
-                    if (sideChatPlaceable != null && currentChatW > 0) {
-                        sideChatPlaceable.place(totalW - currentChatW, 0)
+                    layout(totalW, totalH) {
+                        // Keep inline measurements for the return transition, but never draw
+                        // channel details behind the fullscreen player or fading side chat.
+                        if (!isFullScreen) mainPlaceable?.place(0, 0)
+                        if (sideChatPlaceable != null && currentChatW > 0) {
+                            sideChatPlaceable.place(totalW - currentChatW, 0)
+                        }
                     }
                 }
             }
         }
     }
+
 }
 
 @Composable
@@ -596,6 +628,7 @@ private fun ChannelChatSection(
         chatEvents = viewModel.chatEvents,
         streamerUsername = channel.user?.username,
         streamerSlug = channel.slug,
+        channelId = channel.id,
         onConnectClick = viewModel::connectChat,
         onDisconnectClick = viewModel::disconnectChat,
         onHideChat = onHideChat,
@@ -925,6 +958,9 @@ private fun ChannelTabsRow(
 private fun ChannelTabContent(
     tab: ChannelTab,
     channel: ChannelDetail,
+    linksState: com.lechixy.kick.data.model.ChannelSectionState<List<com.lechixy.kick.data.model.KickChannelLinkDto>>,
+    goalState: com.lechixy.kick.data.model.ChannelSectionState<List<com.lechixy.kick.data.model.KickGoalDto>>,
+    onRetryAbout: () -> Unit,
     videos: List<ChannelVideo>,
     clips: List<ChannelClip>,
     clipsError: String?,
@@ -952,13 +988,14 @@ private fun ChannelTabContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Recent Broadcasts",
+                            text = stringResource(R.string.recent_broadcasts),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         TextButton(onClick = onNavigateToVideos) {
                             Text(
-                                text = "More",
+                                text = stringResource(R.string.more),
+                                style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -985,7 +1022,7 @@ private fun ChannelTabContent(
                     }
                 } else {
                     Text(
-                        text = "Henüz içerik bulunmuyor.",
+                        text = stringResource(R.string.no_recent_broadcasts),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -993,25 +1030,7 @@ private fun ChannelTabContent(
             }
         }
 
-        ChannelTab.ABOUT -> {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "About",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = if (!channel.user?.bio.isNullOrBlank()) channel.user.bio else "Biyografi eklenmemiş.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
+        ChannelTab.ABOUT -> ChannelAboutTabContent(channel, linksState, goalState, onRetryAbout)
 
         ChannelTab.VIDEOS -> {
             if (videos.isEmpty()) {
@@ -1051,8 +1070,8 @@ private fun ChannelTabContent(
         }
 
         ChannelTab.CLIPS -> {
-            if (isClipsLoading) {
-                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            if (isClipsLoading && clips.isEmpty()) {
+                VideoSkeletonGrid(Modifier.fillMaxWidth().padding(16.dp))
             } else if (clipsError != null) {
                 Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(clipsError, color = MaterialTheme.colorScheme.outline)

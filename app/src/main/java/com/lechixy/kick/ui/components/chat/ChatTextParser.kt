@@ -449,9 +449,11 @@ object ChatTextParser {
                                 appendSafeInlineContent(inlineId, alternateText = ":${token.name.ifBlank { "emote" }}:")
                             }
                             is ChatToken.Mention -> {
+                                pushStringAnnotation(CHAT_MENTION_TAG, token.text.removePrefix("@"))
                                 withStyle(SpanStyle(color = mutedColor, fontWeight = FontWeight.Medium)) {
                                     append(token.text)
                                 }
+                                pop()
                             }
                             is ChatToken.Url -> {
                                 withStyle(
@@ -617,13 +619,15 @@ object ChatTextParser {
     data class EventTextSegment(
         val text: String,
         val isBold: Boolean = false,
-        val color: Color? = null
+        val color: Color? = null,
+        val username: String? = null
     )
 
     fun buildEventAnnotatedString(
         segments: List<EventTextSegment>,
         boldColor: Color,
-        mutedColor: Color
+        mutedColor: Color,
+        onUsernameClick: ((String) -> Unit)? = null
     ): AnnotatedString = buildAnnotatedString {
         for (segment in segments) {
             if (segment.text.isEmpty()) continue
@@ -633,7 +637,10 @@ object ChatTextParser {
                 fontWeight = if (segment.isBold) FontWeight.Bold else FontWeight.Normal
             )
             withStyle(style) {
-                append(segment.text)
+                if (segment.username != null && onUsernameClick != null) {
+                    withLink(LinkAnnotation.Clickable("chatter:${segment.username}", styles = chatterLinkStyles(style),
+                        linkInteractionListener = { onUsernameClick(segment.username) })) { append(segment.text) }
+                } else append(segment.text)
             }
         }
     }
@@ -794,9 +801,11 @@ object ChatTextParser {
                         )
                     }
 
+                    pushStringAnnotation(CHAT_MENTION_TAG, mentionedUser)
                     withStyle(mentionSpanStyle) {
                         append(token.text)
                     }
+                    pop()
                 }
                 is ChatToken.Url -> {
                     withLink(

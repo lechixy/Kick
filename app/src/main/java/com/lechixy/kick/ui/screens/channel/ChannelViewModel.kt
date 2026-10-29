@@ -1,6 +1,9 @@
 package com.lechixy.kick.ui.screens.channel
 
 import android.util.Log
+import com.lechixy.kick.data.model.ChannelSectionState
+import com.lechixy.kick.data.model.KickChannelLinkDto
+import com.lechixy.kick.data.model.KickGoalDto
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lechixy.kick.data.model.ChannelClip
@@ -35,6 +38,8 @@ data class ChannelUiState(
     val event: ChannelEvent? = null,
     val videos: List<ChannelVideo> = emptyList(),
     val clips: List<ChannelClip> = emptyList(),
+    val links: ChannelSectionState<List<KickChannelLinkDto>> = ChannelSectionState(),
+    val goals: ChannelSectionState<List<KickGoalDto>> = ChannelSectionState(),
     val clipsError: String? = null,
     val isClipsLoading: Boolean = true,
     val chatHistory: ChatHistoryData? = null,
@@ -73,6 +78,7 @@ class ChannelViewModel(
     private var viewersPollingJob: Job? = null
     private var liveRefreshJob: Job? = null
     private var leaderboardJob: Job? = null
+    private var aboutJob: Job? = null
     private var loadedSlug: String? = null
 
     private var observedAccount: Pair<Long, Long?>? = null
@@ -240,6 +246,7 @@ class ChannelViewModel(
                 repository.chatWebSocketClient.disconnect()
                 _chatSettings.value = kotlinx.serialization.json.JsonObject(emptyMap())
             }
+            aboutJob?.cancel()
             loadedSlug = slug
             liveRefreshJob?.cancel()
             viewersPollingJob?.cancel()
@@ -303,6 +310,32 @@ class ChannelViewModel(
                     isLoading = false,
                     error = e.message ?: "Failed to load channel"
                 )
+            }
+        }
+    }
+
+    fun loadAbout(retry: Boolean = false) {
+        val channel = _uiState.value.channel ?: return
+        if (aboutJob?.isActive == true) return
+        val links = _uiState.value.links
+        val goals = _uiState.value.goals
+        val fetchLinks = !links.loaded && (!links.failed || retry)
+        val fetchGoals = !goals.loaded && (!goals.failed || retry)
+        if (!fetchLinks && !fetchGoals) return
+        aboutJob = viewModelScope.launch {
+            if (fetchLinks) launch {
+                _uiState.update { it.copy(links = ChannelSectionState(loading = true)) }
+                val result = try { ChannelSectionState(value = repository.getChannelLinks(channel.slug), loaded = true) }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { ChannelSectionState<List<KickChannelLinkDto>>(failed = true) }
+                _uiState.update { if (it.channel?.id == channel.id) it.copy(links = result) else it }
+            }
+            if (fetchGoals) launch {
+                _uiState.update { it.copy(goals = ChannelSectionState(loading = true)) }
+                val result = try { ChannelSectionState(value = repository.getChannelGoals(channel.slug), loaded = true) }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { ChannelSectionState<List<KickGoalDto>>(failed = true) }
+                _uiState.update { if (it.channel?.id == channel.id) it.copy(goals = result) else it }
             }
         }
     }

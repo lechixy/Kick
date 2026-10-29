@@ -34,7 +34,12 @@ class AccountChatRepository(private val auth: AuthRepository) {
         require(identity.badges.count { it.active != false } + identity.badgesV2.count { it.selected } <= 4)
         auth.request("https://kick.com/api/v2/channels/$channelId/users/$userId/identity", "PUT", buildJsonObject {
             putJsonArray("badges") { identity.badges.filter { it.active != false }.forEach { add(it.type) } }
-            putJsonArray("badges_v2") { identity.badgesV2.filter { it.selected }.forEach { add(it.name) } }
+            // The website sends V2 badge descriptors, unlike the legacy string badge list.
+            putJsonArray("badges_v2") {
+                identity.badgesV2.filter { it.selected }.forEach { badge ->
+                    add(buildJsonObject { put("name", badge.name) })
+                }
+            }
             put("color", identity.color)
         })
     }
@@ -104,12 +109,16 @@ class AccountChatRepository(private val auth: AuthRepository) {
     fun clearSession() { lastSent.clear(); blockedUntil.clear(); blockedDuration.clear() }
 
     fun restriction(channelId: Long, access: ChatAccess, content: String? = null): String? {
+        return restrictionIssue(channelId, access, content)?.legacyMessage
+    }
+
+    fun restrictionIssue(channelId: Long, access: ChatAccess, content: String? = null): ChatRestriction? {
         val key = auth.session.value.generation to channelId
         val now = Instant.now()
         blockedUntil[key]?.let {
-            if (now.isBefore(it)) return "Gönderim sınırı: ${it.epochSecond - now.epochSecond + 1} saniye bekleyin."
+            if (now.isBefore(it)) return ChatRestriction(ChatIssue.RATE_LIMIT, it.epochSecond - now.epochSecond + 1)
         }
-        return ChatPolicy.restriction(access.settings, access.member,
+        return ChatPolicy.restrictionIssue(access.settings, access.member,
             auth.accountCreatedAt?.let { runCatching { Instant.parse(it) }.getOrNull() },
             now, lastSent[key], content)
     }
@@ -118,9 +127,9 @@ class AccountChatRepository(private val auth: AuthRepository) {
         val generation = auth.session.value.generation
         return sendMutex.withLock {
             check(auth.session.value.signedIn && generation == auth.session.value.generation) { "Session changed" }
-            ChatPolicy.messageError(content)?.let { throw IllegalArgumentException(it) }
+            ChatPolicy.messageIssue(content)?.let { throw ChatPolicyException(ChatRestriction(it)) }
             val access = access(channel) // Fresh settings and membership before every send.
-            restriction(channel.id, access, content)?.let { throw IllegalArgumentException(it) }
+            restrictionIssue(channel.id, access, content)?.let { throw ChatPolicyException(it) }
             val chatroomId = channel.chatroom?.id?.takeIf { it > 0 }
                 ?: throw IllegalArgumentException("Sohbet odası doğrulanamadı. Kanalı yeniden açın.")
             check(auth.session.value.signedIn && generation == auth.session.value.generation)

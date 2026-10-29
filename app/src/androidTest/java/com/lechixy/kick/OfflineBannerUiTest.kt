@@ -27,6 +27,15 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.lechixy.kick.data.settings.LocalSettingsRepository
+import com.lechixy.kick.data.settings.SettingsRepository
+import com.lechixy.kick.ui.components.PlayerHost
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class OfflineBannerUiTest {
@@ -40,58 +49,135 @@ class OfflineBannerUiTest {
         }
     }
 
-    @Test fun reversingInTheMiddleKeepsBannerHiddenUntilContentReachesTop() {
-        var collapsed by mutableStateOf(false)
+    @Test fun draggingHoldsAnIntermediateHeightAndOnlyExpandsAtTheTop() {
+        lateinit var state: com.lechixy.kick.ui.screens.channel.OfflineBannerState
         lateinit var jump: (Int) -> Unit
         lateinit var firstIndex: () -> Int
+        lateinit var contentHasMoved: () -> Boolean
         compose.setContent { MaterialTheme {
             val list = rememberLazyListState()
             val scope = rememberCoroutineScope()
+            val banner = remember { com.lechixy.kick.ui.screens.channel.OfflineBannerState(scope) }
             SideEffect {
+                state = banner
                 jump = { index -> scope.launch { list.scrollToItem(index) } }
                 firstIndex = { list.firstVisibleItemIndex }
+                contentHasMoved = { list.canScrollBackward }
             }
-            val progress = animateFloatAsState(if (collapsed) 1f else 0f, tween(440))
-            val connection = remember { OfflineBannerScrollConnection({ true }, { !list.canScrollBackward }, { collapsed = it }) }
+            val connection = remember { OfflineBannerScrollConnection({ true }, { !list.canScrollBackward }, banner) }
             Column(Modifier.width(700.dp).fillMaxHeight().nestedScroll(connection)) {
-                OfflineChannelBanner(ChannelDetail(1, slug = "tester"), null, progress,
-                    { collapsed = true }, {}, Modifier.testTag("banner"))
+                OfflineChannelBanner(ChannelDetail(1, slug = "tester"), null, banner,
+                    { banner.animateTo(1f) }, {}, Modifier.testTag("banner"),
+                    onTravelChanged = { banner.travelPx = it }, onDrag = { banner.drag(it) }, onDragFinished = banner::settle)
                 LazyColumn(Modifier.weight(1f).testTag("content"), state = list) {
                     items(80) { Text("Channel content $it", Modifier.fillMaxWidth().height(48.dp)) }
                 }
             }
         } }
-        compose.onNodeWithTag("content").performTouchInput { swipeUp() }
-        compose.runOnIdle { assertTrue(collapsed); jump(30) }
+        compose.onNodeWithTag("content").performTouchInput {
+            swipe(center, center - androidx.compose.ui.geometry.Offset(0f, 140f), durationMillis = 700)
+        }
+        var held = 0f
+        compose.runOnIdle { held = state.value; assertTrue(held > 0.06f && held < 0.94f) }
+        compose.mainClock.advanceTimeBy(1000)
+        compose.runOnIdle { assertEquals(held, state.value, 0.001f) }
+        // Release a short, fast swipe while the header is still partially expanded.
+        // Kinetic frames must finish collapsing it before scrolling the list underneath.
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithTag("content").performTouchInput {
+            swipe(center, center - androidx.compose.ui.geometry.Offset(0f, 180f), durationMillis = 60)
+        }
+        repeat(90) {
+            compose.mainClock.advanceTimeByFrame()
+            compose.runOnUiThread {
+                if (contentHasMoved()) assertEquals("Content must not outrun the collapsing banner", 1f, state.value, 0.001f)
+            }
+        }
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertEquals("Fling must continue moving the banner after release", 1f, state.value, 0.001f)
+            assertTrue("The remaining fling should reach the content", contentHasMoved())
+            jump(30)
+        }
         compose.waitUntil(3_000) { firstIndex() == 30 }
         compose.onNodeWithTag("content").performTouchInput {
             swipe(center, center + androidx.compose.ui.geometry.Offset(0f, 80f), durationMillis = 700)
         }
-        compose.runOnIdle {
-            assertTrue("The direction-change gesture must stay in the middle of the page", firstIndex() > 0)
-            assertTrue("Reversing before the top must not expand the banner", collapsed)
-            jump(2)
-        }
+        compose.runOnIdle { assertTrue(firstIndex() > 0); assertEquals(1f, state.value, 0.001f); jump(2) }
         compose.waitForIdle()
         compose.onNodeWithTag("content").performTouchInput { swipeDown() }
-        compose.runOnIdle { assertFalse("Returning to the top must expand the banner", collapsed) }
+        compose.runOnIdle { assertTrue("Returning to the top must expand the banner progressively", state.value < 1f) }
     }
 
-    @Test fun repeatedBannerTapsStayCollapsedAndLabelClearsTheMinimizeButton() {
-        var collapsed by mutableStateOf(false)
+    @Test fun nearEndpointsSettleAndLabelClearsMinimizeButton() {
+        lateinit var banner: com.lechixy.kick.ui.screens.channel.OfflineBannerState
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         compose.setContent { MaterialTheme {
-            val progress = animateFloatAsState(if (collapsed) 1f else 0f, tween(440))
+            val scope = rememberCoroutineScope()
+            val state = remember { com.lechixy.kick.ui.screens.channel.OfflineBannerState(scope) }
+            SideEffect { banner = state }
             Box(Modifier.width(700.dp)) {
-                OfflineChannelBanner(ChannelDetail(1, slug = "tester"), null, progress,
-                    { collapsed = true }, {}, Modifier.testTag("banner"))
+                OfflineChannelBanner(ChannelDetail(1, slug = "tester"), null, state,
+                    { state.animateTo(1f) }, {}, Modifier.testTag("banner"), onTravelChanged = { state.travelPx = it })
             }
         } }
-        compose.onNodeWithTag("banner").performClick()
-        compose.onNodeWithTag("banner").performClick()
-        compose.runOnIdle { assertTrue(collapsed) }
+        compose.runOnIdle { banner.drag(banner.travelPx * 0.02f); banner.settle() }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(0f, banner.value, 0.001f); banner.drag(banner.travelPx * 0.98f); banner.settle() }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(1f, banner.value, 0.001f) }
         val button = compose.onNodeWithContentDescription(context.getString(R.string.offline_minimize)).fetchSemanticsNode().boundsInRoot
         val text = compose.onNodeWithText(context.getString(R.string.offline_channel_name, "tester"), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        assertTrue("Offline text must not overlap the minimize button", text.left > button.right)
+        assertTrue(text.left > button.right)
+    }
+
+    @Test fun downwardBannerGestureIsRoutedToScreenDismissal() {
+        var distance = 0f
+        var released = false
+        var progressDrag = false
+        compose.setContent { MaterialTheme {
+            OfflineChannelBanner(ChannelDetail(1, slug = "tester"), null, remember { mutableFloatStateOf(0f) }, {}, {},
+                Modifier.width(700.dp).testTag("banner"), onDrag = { progressDrag = true },
+                onDismissDrag = { distance += it }, onDismissDragFinished = { _, cancelled -> released = !cancelled })
+        } }
+        compose.onNodeWithTag("banner").performTouchInput {
+            swipe(center, center + androidx.compose.ui.geometry.Offset(0f, 180f), durationMillis = 400)
+        }
+        compose.runOnIdle { assertTrue(distance > 0f); assertTrue(released); assertFalse(progressDrag) }
+    }
+
+    @Test fun offlineHostScalesDownBeforeClosingAndNeverEntersMiniMode() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val file = File(context.cacheDir, "offline-exit-${System.nanoTime()}.preferences_pb")
+        val storeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val repository = SettingsRepository(PreferenceDataStoreFactory.create(scope = storeScope, produceFile = { file }))
+        val host = PlayerHostState().apply {
+            open("tester")
+            onChannelLoaded("tester", ChannelDetail(1, slug = "tester"))
+        }
+        val modes = mutableListOf<PlayerMode>()
+        try {
+            compose.setContent {
+                val mode = host.mode
+                SideEffect { modes += mode }
+                CompositionLocalProvider(LocalSettingsRepository provides repository) { MaterialTheme {
+                    PlayerHost(host, false, host::minimize, host::expand, host::close,
+                        pageContent = { Box(Modifier.fillMaxSize().testTag("offlinePage")) })
+                } }
+            }
+            compose.waitForIdle()
+            val originalBounds = compose.onNodeWithTag("offlinePage").fetchSemanticsNode().boundsInRoot
+            compose.mainClock.autoAdvance = false
+            compose.runOnUiThread { host.dragOffsetY = 80f; host.minimize() }
+            compose.mainClock.advanceTimeBy(160)
+            compose.runOnUiThread { assertEquals(PlayerMode.Expanded, host.mode); assertTrue(host.isExiting) }
+            val currentBounds = compose.onNodeWithTag("offlinePage").fetchSemanticsNode().boundsInRoot
+            assertTrue("The offline page must shrink before it is removed", currentBounds.width < originalBounds.width)
+            assertTrue("The swipe displacement must be retained during dismissal", currentBounds.top > originalBounds.top)
+            compose.mainClock.advanceTimeBy(400)
+            compose.runOnUiThread { assertEquals(PlayerMode.Hidden, host.mode); assertFalse(modes.contains(PlayerMode.Mini)) }
+            compose.mainClock.autoAdvance = true
+        } finally { storeScope.cancel(); file.delete() }
     }
 }

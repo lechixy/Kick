@@ -4,7 +4,6 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.view.WindowManager
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
@@ -32,6 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +53,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -63,6 +65,8 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -148,27 +152,23 @@ fun PlayerHost(
 
     val expansion = host.expansionSource
     val expandProgress = remember { Animatable(0f, visibilityThreshold = NORM_THRESHOLD) }
-    var isExpanding by remember { mutableStateOf(false) }
-    var previewThumbnailUrl by remember(host.slug) { mutableStateOf<String?>(null) }
+    val isExpanding = expansion != null
+    var hostOrigin by remember { mutableStateOf(Offset.Zero) }
+    val previewThumbnailUrl = remember(host.slug) { expansion?.thumbnailUrl }
 
     val exitAlpha = remember { Animatable(1f, visibilityThreshold = NORM_THRESHOLD) }
     val exitScale = remember { Animatable(1f, visibilityThreshold = NORM_THRESHOLD) }
 
     LaunchedEffect(host.isExiting) {
         if (host.isExiting) {
-            launch {
-                exitAlpha.animateTo(
-                    targetValue = 0f,
-                    animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
-                )
-            }
-            launch {
-                exitScale.animateTo(
-                    targetValue = 0.94f,
-                    animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
-                )
+            kotlinx.coroutines.coroutineScope {
+                launch { exitAlpha.animateTo(0f, tween(350, easing = FastOutSlowInEasing)) }
+                launch { exitScale.animateTo(0.94f, tween(350, easing = FastOutSlowInEasing)) }
             }
             host.finishClose()
+            exitAlpha.snapTo(1f)
+            exitScale.snapTo(1f)
+        } else {
             exitAlpha.snapTo(1f)
             exitScale.snapTo(1f)
         }
@@ -186,7 +186,7 @@ fun PlayerHost(
     var fsDy by remember { mutableFloatStateOf(0f) }
     val showPage by remember {
         derivedStateOf {
-            host.mode == PlayerMode.Expanded || host.mode == PlayerMode.Fullscreen || pageAlpha > 0.01f || isExpanding
+            host.mode == PlayerMode.Expanded || host.mode == PlayerMode.Fullscreen || pageAlpha > 0.01f
         }
     }
     val loaded = host.channel
@@ -245,7 +245,11 @@ fun PlayerHost(
         else -> 0f
     }
 
-    LaunchedEffect(mode) {
+    LaunchedEffect(mode, isExpanding) {
+        if (isExpanding) {
+            pageAlpha = 1f
+            return@LaunchedEffect
+        }
         animate(
             pageAlpha,
             if (mode == PlayerMode.Mini) 0f else 1f,
@@ -254,27 +258,14 @@ fun PlayerHost(
     }
 
     LaunchedEffect(expansion) {
-        if (expansion != null) {
-            previewThumbnailUrl = expansion.thumbnailUrl
-            isExpanding = true
-            pageAlpha = 1f
-            try {
-                expandProgress.snapTo(0f)
-                expandProgress.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(
-                        durationMillis = 360,
-                        easing = CubicBezierEasing(0.16f, 1.0f, 0.30f, 1.0f)
-                    )
-                )
-            } finally {
-                isExpanding = false
-                if (host.expansionSource === expansion) host.clearExpansionSource()
-            }
-        } else {
-            isExpanding = false
-        }
+        if (expansion == null) return@LaunchedEffect
+        expandProgress.snapTo(0f)
+        expandProgress.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
+        if (host.expansionSource === expansion) host.clearExpansionSource()
     }
+
+    fun localSourceRect(rect: androidx.compose.ui.geometry.Rect): IntRect =
+        rect.translate(-hostOrigin).roundToIntRect()
 
     var hasBeenFullscreen by remember { mutableStateOf(false) }
     var enteredFullscreenFromPortrait by remember { mutableStateOf(false) }
@@ -538,6 +529,7 @@ fun PlayerHost(
     Box(
         modifier
             .fillMaxSize()
+            .onGloballyPositioned { hostOrigin = it.positionInRoot() }
             .layout { measurable, constraints ->
                 val cw = constraints.maxWidth
                 val ch = constraints.maxHeight
@@ -548,6 +540,7 @@ fun PlayerHost(
                 }
             }
             .graphicsLayer {
+                translationY = if (!playerVisible) host.dragOffsetY else 0f
                 scaleX = exitScale.value
                 scaleY = exitScale.value
                 alpha = exitAlpha.value
@@ -557,45 +550,26 @@ fun PlayerHost(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .let { mod ->
+                    // Reveal a page measured at its final size. Resizing its constraints
+                    // on every frame reflows chat and changes the adaptive layout mid-flight.
+                    .graphicsLayer {
+                        translationY = playerDy
+                        alpha = pageAlpha
                         if (isExpanding) {
-                            mod
-                                .layout { measurable, constraints ->
-                                    val cw = constraints.maxWidth
-                                    val ch = constraints.maxHeight
-                                    val safeArea = resolveSafeArea(cw, ch)
-                                    metrics.update(cw, ch, safeArea)
-                                    val p = expandProgress.value
-                                    val destRect = IntRect(0, 0, cw, ch)
-                                    val sourceCardRect =
-                                        expansion?.cardRect?.roundToIntRect() ?: destRect
-                                    val shellRect = lerpRect(sourceCardRect, destRect, p)
-                                    val pl = measurable.measure(
-                                        Constraints.fixed(
-                                            shellRect.width.coerceAtLeast(0),
-                                            shellRect.height.coerceAtLeast(0)
-                                        )
-                                    )
-                                    layout(cw, ch) {
-                                        pl.place(shellRect.left, shellRect.top)
-                                    }
-                                }
-                                .graphicsLayer {
-                                    val p = expandProgress.value
-                                    val radiusPx =
-                                        ((expansion?.cornerRadius ?: 12.dp).toPx() * (1f - p))
-                                            .coerceAtLeast(0f)
-                                    shape = RoundedCornerShape(radiusPx)
-                                    clip = radiusPx > 0.5f
-                                    shadowElevation = (8.dp.toPx() * (1f - p)).coerceAtLeast(0f)
-                                }
-                                .background(MaterialTheme.colorScheme.background)
+                            val p = expandProgress.value
+                            val source = localSourceRect(expansion.cardRect)
+                            val shell = lerpRect(source, IntRect(0, 0, size.width.roundToInt(), size.height.roundToInt()), p)
+                            val radius = expansion.cornerRadius.toPx() * (1f - p)
+                            shape = GenericShape { _, _ ->
+                                addRoundRect(RoundRect(shell.left.toFloat(), shell.top.toFloat(),
+                                    shell.right.toFloat(), shell.bottom.toFloat(), CornerRadius(radius)))
+                            }
+                            clip = true
                         } else {
-                            mod
-                                .graphicsLayer { translationY = playerDy; alpha = pageAlpha }
-                                .background(MaterialTheme.colorScheme.background)
+                            clip = false
                         }
                     }
+                    .background(MaterialTheme.colorScheme.background)
                     .pointerInput(Unit) {
                         detectTapGestures { }
                     }
@@ -609,6 +583,9 @@ fun PlayerHost(
                                 val destContentAlpha = ((p - 0.22f) / 0.78f).coerceIn(0f, 1f)
                                 translationY = 18.dp.toPx() * (1f - destContentAlpha)
                                 alpha = destContentAlpha
+                            } else {
+                                translationY = 0f
+                                alpha = 1f
                             }
                         }
                 ) {
@@ -617,81 +594,7 @@ fun PlayerHost(
             }
         }
 
-        if (isExpanding && expansion != null) {
-            if (!expansion.thumbnailUrl.isNullOrEmpty() || expansion.isStreamCard) {
-                // Expanding 16:9 Hero Media Layer
-                Box(
-                    Modifier
-                        .layout { measurable, constraints ->
-                            val cw = constraints.maxWidth
-                            val ch = constraints.maxHeight
-                            val safeArea = resolveSafeArea(cw, ch)
-                            metrics.update(cw, ch, safeArea)
-                            val p = expandProgress.value
-                            val destRect = IntRect(0, 0, cw, ch)
-                            val sourceCardRect = expansion.cardRect.roundToIntRect()
-                            val sourceMediaRect =
-                                expansion.mediaRect?.roundToIntRect() ?: sourceCardRect
-                            val targetMediaRect = inlineRect(safeArea)
-                            val currentMediaRect = lerpRect(sourceMediaRect, targetMediaRect, p)
-                            val pl = measurable.measure(
-                                Constraints.fixed(
-                                    currentMediaRect.width.coerceAtLeast(0),
-                                    currentMediaRect.height.coerceAtLeast(0)
-                                )
-                            )
-                            layout(cw, ch) {
-                                pl.place(currentMediaRect.left, currentMediaRect.top)
-                            }
-                        }
-                        .graphicsLayer {
-                            val p = expandProgress.value
-                            val topRadiusPx =
-                                (expansion.cornerRadius.toPx() * (1f - p)).coerceAtLeast(0f)
-                            val bottomRadiusPx =
-                                if (p > 0.7f) 0f else (topRadiusPx * (1f - p)).coerceAtLeast(0f)
-                            shape = RoundedCornerShape(
-                                topStart = topRadiusPx,
-                                topEnd = topRadiusPx,
-                                bottomStart = bottomRadiusPx,
-                                bottomEnd = bottomRadiusPx
-                            )
-                            clip = topRadiusPx > 0.5f || bottomRadiusPx > 0.5f
-                        }
-                        .background(Color.Black)
-                ) {
-                    if (!expansion.thumbnailUrl.isNullOrEmpty()) {
-                        AsyncImage(
-                            model = remember(expansion.thumbnailUrl) {
-                                buildOptimizedImageRequest(
-                                    context = context,
-                                    data = expansion.thumbnailUrl,
-                                    targetWidthDp = 400,
-                                    targetHeightDp = 225
-                                )
-                            },
-                            contentDescription = expansion.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-
-                    if (expansion.isLive) {
-                        Box(
-                            Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(8.dp)
-                                .graphicsLayer {
-                                    val p = expandProgress.value
-                                    alpha = (1f - p / 0.6f).coerceIn(0f, 1f)
-                                }
-                        ) {
-                            LiveBadge()
-                        }
-                    }
-                }
-            }
-
+        if (isExpanding) {
             // Card Source Details (Phase 1: quickly fades out in first ~70ms)
             Box(
                 Modifier
@@ -702,13 +605,13 @@ fun PlayerHost(
                         metrics.update(cw, ch, safeArea)
                         val p = expandProgress.value
                         val destRect = IntRect(0, 0, cw, ch)
-                        val sourceCardRect = expansion.cardRect.roundToIntRect()
+                        val sourceCardRect = localSourceRect(expansion.cardRect)
                         val sourceMediaRect =
-                            expansion.mediaRect?.roundToIntRect() ?: sourceCardRect
+                            expansion.mediaRect?.let(::localSourceRect) ?: sourceCardRect
                         val shellRect = lerpRect(sourceCardRect, destRect, p)
                         val currentMediaRect = lerpRect(sourceMediaRect, inlineRect(safeArea), p)
                         val mediaH =
-                            if (!expansion.thumbnailUrl.isNullOrEmpty() || expansion.isStreamCard) {
+                            if (expansion.isStreamCard) {
                                 currentMediaRect.height
                             } else {
                                 0
@@ -830,7 +733,9 @@ fun PlayerHost(
             }
         }
 
-        if (playerVisible && !isExpanding) {
+        // Keep the real surface mounted throughout the connected transition so loading
+        // starts immediately and the final frame never swaps to a newly created player.
+        if (playerVisible) {
             Box(
                 Modifier
                     .drawWithContent {
@@ -851,7 +756,12 @@ fun PlayerHost(
                         val safeArea = resolveSafeArea(cw, ch)
                         val fsSafeArea = resolveFullscreenSafeArea(cw, ch)
                         metrics.update(cw, ch, safeArea)
-                        val f = frameAt(currentT(), cw, ch, safeArea, fsSafeArea)
+                        val target = frameAt(currentT(), cw, ch, safeArea, fsSafeArea)
+                        val f = if (isExpanding) {
+                            val source = if (expansion.isStreamCard) expansion.mediaRect ?: expansion.cardRect
+                                else expansion.cardRect
+                            lerpRect(localSourceRect(source), target, expandProgress.value)
+                        } else target
                         val p = measurable.measure(
                             Constraints.fixed(
                                 f.width.coerceAtLeast(0),
@@ -864,7 +774,11 @@ fun PlayerHost(
                     }
                     .graphicsLayer {
                         val m = (-currentT()).coerceIn(0f, 1f)
-                        shape = RoundedCornerShape(12.dp.toPx() * m)
+                        alpha = if (isExpanding && !expansion.isStreamCard)
+                            ((expandProgress.value - 0.18f) / 0.42f).coerceIn(0f, 1f) else 1f
+                        val openingRadius = if (isExpanding)
+                            expansion.cornerRadius.toPx() * (1f - expandProgress.value) else 0f
+                        shape = RoundedCornerShape(max(openingRadius, 12.dp.toPx() * m))
                         clip = true
                         shadowElevation = 12.dp.toPx() * m
                     }
@@ -1277,8 +1191,8 @@ private fun PlayerSurface(
                 onToggleChat = host::toggleChatVisibility,
                 isInPipMode = isInPipMode,
                 isMini = mode == PlayerMode.Mini,
-                hideBufferingIndicator = announcementId != null,
-                pendingAutoFullscreen = host.pendingAutoFullscreen,
+                hideBufferingIndicator = announcementId != null || host.expansionSource != null,
+                pendingAutoFullscreen = host.pendingAutoFullscreen && host.expansionSource == null,
                 onConsumeAutoFullscreen = host::consumeAutoFullscreen,
                 onFullScreenChange = host::setFullscreen,
                 onToggleTheater = host::toggleTheaterMode,
@@ -1289,15 +1203,15 @@ private fun PlayerSurface(
             )
         } else {
             val bannerUrl = remember(channel) { channel?.getBannerUrl(targetWidthPx = 1080) }
-            val displayImage = if (!bannerUrl.isNullOrEmpty()) bannerUrl else previewThumbnailUrl
+            val displayImage = previewThumbnailUrl ?: bannerUrl
             if (!displayImage.isNullOrEmpty()) {
                 AsyncImage(
                     model = remember(displayImage) {
                         buildOptimizedImageRequest(
                             context = context,
                             data = displayImage,
-                            targetWidthDp = 640,
-                            targetHeightDp = 360
+                            targetWidthDp = 400,
+                            targetHeightDp = 225
                         )
                     },
                     contentDescription = "Banner",
@@ -1315,7 +1229,7 @@ private fun PlayerSurface(
                 if (loadError == null) CircularProgressIndicator()
                 else TextButton(onClick = { retry++ }) { Text(loadError.orEmpty()) }
             }
-            if (!isInPipMode) {
+            if (!isInPipMode && host.expansionSource == null) {
                 ShellChrome(mode = mode, onMinimize = {
                     if (mode == PlayerMode.Fullscreen) host.setFullscreen(false) else onMinimize()
                 }, onClose = onClose)

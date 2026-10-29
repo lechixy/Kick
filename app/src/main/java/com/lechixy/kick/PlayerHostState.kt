@@ -327,6 +327,7 @@ class PlayerHostState(
 
     fun close() {
         isExiting = false
+        dragOffsetY = 0f
         pendingAutoFullscreen = false
         activeLiveAnnouncementId = null
         mode = PlayerMode.Hidden

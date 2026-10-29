@@ -104,7 +104,7 @@ private fun ComposerContent(
                 settings = ChatSettingsUpdates.apply(fetched.settings, currentSettingsPatch))
         } catch (failure: Exception) {
             if (failure is CancellationException) throw failure
-            accessError = failure.userMessage()
+            accessError = failure.chatUserMessage(context)
         } finally { loading = false }
     }
     LaunchedEffect(session.signedIn, refresh, connectionState == ChatConnectionState.CONNECTED) {
@@ -176,30 +176,32 @@ private fun ComposerContent(
         ChatInputBlock.EMOTES_ONLY -> stringResource(R.string.chat_emotes_only)
         null -> null
     }
-    val restriction = remember(effectiveAccess, tick, session.profile) {
-        effectiveAccess?.let { AccountGraph.chat.restriction(channel.id, it) }
+    val restrictionIssue = remember(effectiveAccess, tick, session.profile) {
+        effectiveAccess?.let { AccountGraph.chat.restrictionIssue(channel.id, it) }
     }
+    val restriction = restrictionIssue?.localized(context)
     val cooldown = remember(effectiveAccess, tick) {
         effectiveAccess?.let { AccountGraph.chat.cooldown(channel.id, it) }
     }
     Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (!session.signedIn) {
-            Text("Sohbete katılmak için giriş yapın.")
-            session.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            Text(stringResource(R.string.chat_sign_in_required))
+            session.error?.let { Text(stringResource(R.string.chat_auth_error), color = MaterialTheme.colorScheme.error) }
             if (session.status == SessionStatus.Connecting) {
-                TextButton(onClick = { AccountGraph.auth.cancelLogin() }) { Text("Girişi iptal et") }
-            } else TextButton(onClick = { AccountGraph.auth.beginLogin(context) }) { Text("Kick ile giriş yap") }
+                TextButton(onClick = { AccountGraph.auth.cancelLogin() }) { Text(stringResource(R.string.account_cancel_login)) }
+            } else TextButton(onClick = { AccountGraph.auth.beginLogin(context) }) { Text(stringResource(R.string.account_login)) }
             return@Column
         }
         ChatRulesCard(effectiveAccess?.settings?.rules.orEmpty(), session.generation, rulesSeen, markRulesSeen)
         effectiveAccess?.settings?.let { settings ->
             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (presentation?.hasModes == false && inputBlock == null)
-                    ChatMode(R.drawable.chat_24dp_e3e3e3_fill0_wght400_grad0_opsz24, stringResource(R.string.chat_available))
+                // Chat is open no need for any status
+//                if (presentation?.hasModes == false && inputBlock == null)
+//                    ChatMode(R.drawable.chat_24dp_e3e3e3_fill0_wght400_grad0_opsz24, stringResource(R.string.chat_available))
                 if (presentation?.slowMode == true) ChatMode(R.drawable.snail_24dp_e3e3e3_fill1_wght400_grad0_opsz24,
                     stringResource(R.string.chat_slow_mode, settings.slowMode.durationSeconds))
-                if (presentation?.emotesOnly == true) ChatMode(R.drawable.chat_24dp_e3e3e3_fill0_wght400_grad0_opsz24, stringResource(R.string.chat_emotes_only))
+                if (presentation?.emotesOnly == true) ChatMode(R.drawable.mood_24dp_e3e3e3_fill0_wght400_grad0_opsz24, stringResource(R.string.chat_emotes_only))
                 if (presentation?.subscribersOnly == true) ChatMode(R.drawable.stars_2_24dp_e3e3e3_fill0_wght400_grad0_opsz24, stringResource(R.string.chat_subscribers_only))
                 if (presentation?.followersOnly == true) ChatMode(R.drawable.group_24dp_e3e3e3_fill0_wght400_grad0_opsz24, stringResource(R.string.chat_followers_only))
                 if (presentation?.accountAge == true) ChatMode(R.drawable.timer_24dp_e3e3e3_fill0_wght400_grad0_opsz24, stringResource(R.string.chat_account_age))
@@ -207,12 +209,6 @@ private fun ComposerContent(
         }
         if (identityLoading || identitySaving) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (inputBlock == null && cooldown != null && cooldown.remainingMillis > 0) {
-            Text(stringResource(R.string.chat_cooldown, (cooldown.remainingMillis + 999) / 1000),
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            LinearProgressIndicator(progress = { (cooldown.remainingMillis.toFloat() / cooldown.totalMillis).coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().height(3.dp))
-        }
         val disabledReason = when {
             connectionState != ChatConnectionState.CONNECTED -> stringResource(R.string.chat_connect_to_send)
             loading -> stringResource(R.string.chat_checking_permissions)
@@ -224,7 +220,8 @@ private fun ComposerContent(
         }
         accessError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        val validation = if (inputBlock == null && content.isNotEmpty()) ChatPolicy.messageError(content) else null
+        val validation = if (inputBlock == null && content.isNotEmpty()) ChatPolicy.messageIssue(content)?.let {
+            ChatRestriction(it).localized(context) } else null
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             IconButton(enabled = !identityLoading && !identitySaving && session.profile != null, onClick = {
                 identityLoading = true
@@ -240,11 +237,11 @@ private fun ComposerContent(
                 Icon(painterResource(R.drawable.person_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                     contentDescription = stringResource(R.string.chat_identity))
             }
-            OutlinedTextField(value = if (inputBlock == null) content else "", onValueChange = { content = it },
-                placeholder = { Text(inputBlockText ?: stringResource(R.string.chat_message_placeholder)) },
-                modifier = Modifier.weight(1f), maxLines = 4,
+            ChatComposerTextField(value = if (inputBlock == null) content else "", onValueChange = { content = it },
+                blockedText = inputBlockText,
+                modifier = Modifier.weight(1f),
                 enabled = !sending && !loading && effectiveAccess != null && inputBlock == null,
-                isError = validation != null, supportingText = validation?.let { { Text(it) } })
+                validation = validation)
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -261,7 +258,9 @@ private fun ComposerContent(
                 }
             }
             Spacer(Modifier.weight(1f))
-            Button(enabled = disabledReason == null && inputBlock == null && !sending && content.isNotBlank() && validation == null,
+            ChatSendButton(sending = sending, loading = loading,
+                cooldown = cooldown.takeIf { inputBlock == null && connectionState == ChatConnectionState.CONNECTED && effectiveAccess != null },
+                enabled = disabledReason == null && inputBlock == null && content.isNotBlank() && validation == null,
                 onClick = {
                     sending = true; error = null
                     val draft = content
@@ -269,11 +268,11 @@ private fun ComposerContent(
                         try { AccountGraph.chat.send(channel, draft); content = "" }
                         catch (failure: Exception) {
                             if (failure is CancellationException) throw failure
-                            error = if (failure is IllegalArgumentException) failure.message else if (failure is java.io.IOException)
-                                context.getString(R.string.chat_send_unknown) else failure.userMessage()
+                            error = if (failure is java.io.IOException) context.getString(R.string.chat_send_unknown)
+                                else failure.chatUserMessage(context)
                         } finally { sending = false; refresh++; tick++ }
                     }
-                }) { Text(stringResource(if (sending) R.string.chat_sending else R.string.chat_send)) }
+                })
         }
         if (access == null && !loading) TextButton(onClick = { refresh++ }) { Text(stringResource(R.string.chat_retry)) }
     }
@@ -363,5 +362,41 @@ private fun ChatRulesCard(rules: String, generation: Long, seen: (Long) -> Boole
                 else Text(rules, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
+    }
+}
+
+@Composable
+internal fun ChatComposerTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    enabled: Boolean,
+    blockedText: String? = null,
+    validation: String? = null,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(value = value, onValueChange = onValueChange, enabled = enabled,
+        placeholder = { Text(blockedText ?: stringResource(R.string.chat_message_placeholder)) },
+        modifier = modifier, maxLines = 4, isError = validation != null,
+        supportingText = validation?.let { { Text(it) } })
+}
+
+@Composable
+internal fun ChatSendButton(
+    sending: Boolean,
+    loading: Boolean,
+    cooldown: AccountChatRepository.Cooldown?,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val remaining = cooldown?.remainingMillis ?: 0L
+    val label = when {
+        sending -> stringResource(R.string.chat_sending)
+        loading -> stringResource(R.string.chat_loading)
+        remaining > 0L -> stringResource(R.string.chat_cooldown, (remaining + 999) / 1000)
+        else -> stringResource(R.string.chat_send)
+    }
+    Button(onClick = onClick, enabled = enabled && !sending && !loading && remaining <= 0L, modifier = modifier) {
+        Text(label)
     }
 }

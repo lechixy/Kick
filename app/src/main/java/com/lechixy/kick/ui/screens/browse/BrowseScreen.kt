@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,9 +45,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
+import com.lechixy.kick.ui.components.BrowseStreamCardSkeleton
+import com.lechixy.kick.ui.components.ChannelCard
+import com.lechixy.kick.ui.components.ChannelCardSkeleton
+import com.lechixy.kick.ui.components.ExpansionSource
+import com.lechixy.kick.ui.components.SkeletonBlock
+import com.lechixy.kick.ui.components.SkeletonLoadingScope
 import com.lechixy.kick.R
 import com.lechixy.kick.data.model.toChannelDetail
-import com.lechixy.kick.ui.components.ChannelCard
 import com.lechixy.kick.util.buildOptimizedImageRequest
 
 import androidx.compose.runtime.mutableStateOf
@@ -56,7 +60,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
-import com.lechixy.kick.ui.components.ExpansionSource
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -67,81 +70,79 @@ fun BrowseScreen(
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
-    Scaffold(
-        topBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                OutlinedTextField(
-                    value = state.query,
-                    onValueChange = viewModel::onQueryChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = {
-                        Text(
-                            text = stringResource(id = R.string.search_placeholder),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            painter = painterResource(id = R.drawable.search_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                            contentDescription = "Search"
-                        )
-                    },
-                    trailingIcon = {
-                        if (state.query.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.onQueryChange("") }) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                                    contentDescription = "Clear"
-                                )
+    SkeletonLoadingScope(active = state.isLoading) {
+        Scaffold(
+            topBar = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = state.query,
+                        onValueChange = viewModel::onQueryChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = {
+                            Text(
+                                text = stringResource(id = R.string.search_placeholder),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                painter = painterResource(id = R.drawable.search_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                                contentDescription = "Search"
+                            )
+                        },
+                        trailingIcon = {
+                            if (state.query.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.onQueryChange("") }) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                                        contentDescription = "Clear"
+                                    )
+                                }
                             }
-                        }
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
-                )
-            }
-        }
-    ) { paddingValues ->
-        when {
-            state.isLoading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-            }
-
-            state.error != null -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = state.error ?: "Search error",
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
                     )
                 }
             }
+        ) { paddingValues ->
+            when {
+                state.isLoading -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize().padding(paddingValues),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        item { SkeletonBlock(Modifier.width(110.dp).height(20.dp)) }
+                        item {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp), maxItemsInEachRow = 3) {
+                                repeat(3) { ChannelCardSkeleton(Modifier.weight(1f, fill = false).widthIn(min = 280.dp)) }
+                            }
+                        }
+                        item { SkeletonBlock(Modifier.padding(top = 12.dp).width(130.dp).height(20.dp)) }
+                        item {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(6) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        SkeletonBlock(Modifier.width(130.dp).height(160.dp), RoundedCornerShape(8.dp))
+                                        SkeletonBlock(Modifier.width(95.dp).height(14.dp))
+                                    }
+                                }
+                            }
+                        }
+                        item { SkeletonBlock(Modifier.padding(top = 12.dp).width(140.dp).height(20.dp)) }
+                        items(3) { BrowseStreamCardSkeleton() }
+                    }
+                }
 
-            state.searchData != null -> {
-                val data = state.searchData!!
-                val hasChannels = data.channels.isNotEmpty()
-                val hasCategories = data.categories.isNotEmpty()
-                val hasStreams = data.livestreams.isNotEmpty()
-
-                if (!hasChannels && !hasCategories && !hasStreams) {
+                state.error != null -> {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -149,154 +150,177 @@ fun BrowseScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Sonuç bulunamadı",
-                            color = MaterialTheme.colorScheme.outline
+                            text = state.error ?: "Search error",
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center
                         )
                     }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(24.dp)
-                    ) {
-                        // 1. CHANNELS (Responsive Grid / Flow)
-                        if (hasChannels) {
-                            item {
-                                Text(
-                                    text = "CHANNELS",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                }
 
-                            item {
-                                FlowRow(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                                    maxItemsInEachRow = 3
-                                ) {
-                                    data.channels.forEach { ch ->
-                                        ChannelCard(
-                                            channel = ch.toChannelDetail(),
-                                            onChannelClick = { slug -> onChannelClick(slug, null) },
-                                            onChannelClickWithSource = { slug, source -> onChannelClick(slug, source) }
-                                        )
+                state.searchData != null -> {
+                    val data = state.searchData!!
+                    val hasChannels = data.channels.isNotEmpty()
+                    val hasCategories = data.categories.isNotEmpty()
+                    val hasStreams = data.livestreams.isNotEmpty()
+
+                    if (!hasChannels && !hasCategories && !hasStreams) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(paddingValues),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Sonuç bulunamadı",
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(paddingValues),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(24.dp)
+                        ) {
+                            // 1. CHANNELS (Responsive Grid / Flow)
+                            if (hasChannels) {
+                                item {
+                                    Text(
+                                        text = "CHANNELS",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                item {
+                                    FlowRow(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                        maxItemsInEachRow = 3
+                                    ) {
+                                        data.channels.forEach { ch ->
+                                            ChannelCard(
+                                                channel = ch.toChannelDetail(),
+                                                onChannelClick = { slug -> onChannelClick(slug, null) },
+                                                onChannelClickWithSource = { slug, source -> onChannelClick(slug, source) }
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        // 2. CATEGORIES
-                        if (hasCategories) {
-                            item {
-                                Text(
-                                    text = "CATEGORIES",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            // 2. CATEGORIES
+                            if (hasCategories) {
+                                item {
+                                    Text(
+                                        text = "CATEGORIES",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
 
-                            item {
-                                LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    items(data.categories, key = { "cat_${it.slug}" }) { cat ->
-                                        Card(
-                                            modifier = Modifier
-                                                .width(130.dp)
-                                                .clickable { /* İleride category filter */ },
-                                            shape = RoundedCornerShape(8.dp),
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
-                                                    alpha = 0.3f
+                                item {
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        items(data.categories, key = { "cat_${it.slug}" }) { cat ->
+                                            Card(
+                                                modifier = Modifier
+                                                    .width(130.dp)
+                                                    .clickable { /* İleride category filter */ },
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                                        alpha = 0.3f
+                                                    )
                                                 )
-                                            )
-                                        ) {
-                                            Column {
-                                                AsyncImage(
-                                                    model = remember(cat.thumbnail?.src) {
-                                                        buildOptimizedImageRequest(
-                                                            context = context,
-                                                            data = cat.thumbnail?.src,
-                                                            targetWidthDp = 130,
-                                                            targetHeightDp = 170
-                                                        )
-                                                    },
-                                                    contentDescription = cat.name,
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .height(160.dp),
-                                                    contentScale = ContentScale.Crop
-                                                )
-                                                Text(
-                                                    text = cat.name,
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.padding(8.dp)
-                                                )
+                                            ) {
+                                                Column {
+                                                    AsyncImage(
+                                                        model = remember(cat.thumbnail?.src) {
+                                                            buildOptimizedImageRequest(
+                                                                context = context,
+                                                                data = cat.thumbnail?.src,
+                                                                targetWidthDp = 130,
+                                                                targetHeightDp = 170
+                                                            )
+                                                        },
+                                                        contentDescription = cat.name,
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(160.dp),
+                                                        contentScale = ContentScale.Crop
+                                                    )
+                                                    Text(
+                                                        text = cat.name,
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        modifier = Modifier.padding(8.dp)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        // 3. LIVESTREAMS (Responsive Grid / Flow)
-                        if (hasStreams) {
-                            item {
-                                Text(
-                                    text = "LIVESTREAMS",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            // 3. LIVESTREAMS (Responsive Grid / Flow)
+                            if (hasStreams) {
+                                item {
+                                    Text(
+                                        text = "LIVESTREAMS",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
 
-                            item {
-                                FlowRow(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                                    maxItemsInEachRow = 3
-                                ) {
-                                    data.livestreams.forEach { stream ->
-                                        BrowseLivestreamCard(
-                                            stream = stream,
-                                            onChannelClick = onChannelClick,
-                                            modifier = Modifier
-                                                .weight(1f, fill = false)
-                                                .widthIn(min = 280.dp)
-                                        )
+                                item {
+                                    FlowRow(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                        maxItemsInEachRow = 3
+                                    ) {
+                                        data.livestreams.forEach { stream ->
+                                            BrowseLivestreamCard(
+                                                stream = stream,
+                                                onChannelClick = onChannelClick,
+                                                modifier = Modifier
+                                                    .weight(1f, fill = false)
+                                                    .widthIn(min = 280.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            else -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Aramak istediğin kanalı veya içeriği yaz",
-                        color = MaterialTheme.colorScheme.outline
-                    )
+                else -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Aramak istediğin kanalı veya içeriği yaz",
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
                 }
             }
         }
     }
+
 }
 
 @Composable

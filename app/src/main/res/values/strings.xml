@@ -126,4 +126,9 @@
     <string name="account_cancel_login">Cancel sign in</string>
     <string name="account_login_optional">Connecting an account is optional. You can watch streams without signing in.</string>
     <string name="events">Events</string>
+    <string name="channel_unfollow">Unfollow</string>
+    <string name="recent_broadcasts">Recent broadcasts</string>
+    <string name="more">More</string>
+    <string name="no_recent_broadcasts">No recent broadcasts yet</string>
+    <string name="views_count">%1$s views</string>
 </resources>

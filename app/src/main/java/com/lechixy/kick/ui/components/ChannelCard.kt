@@ -1,5 +1,7 @@
 package com.lechixy.kick.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,6 +34,22 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import coil3.compose.AsyncImage
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.util.buildOptimizedImageRequest
+
+@Composable
+fun ChannelCardSkeleton(modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        SkeletonBlock(Modifier.size(46.dp), CircleShape)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SkeletonBlock(Modifier.fillMaxWidth(0.6f).height(18.dp))
+            SkeletonBlock(Modifier.fillMaxWidth(0.4f).height(12.dp))
+        }
+    }
+}
 
 @Composable
 fun ChannelCard(
