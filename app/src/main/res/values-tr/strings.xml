@@ -133,4 +133,7 @@
     <string name="no_recent_broadcasts">Henüz içerik bulunmuyor</string>
     <string name="views_count">%1$s görüntüleme</string>
     <string name="viewers_count">%1$s izleyici</string>
+    <string name="language_english">İngilizce</string>
+    <string name="language_turkish">Türkçe</string>
+    <string name="chat_new_messages">Yeni mesajlar</string>
 </resources>

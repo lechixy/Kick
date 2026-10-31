@@ -18,6 +18,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -64,11 +71,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SliderState
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -190,8 +201,8 @@ fun KickPlayerView(
     var isPlaying by remember { mutableStateOf(true) }
     var isMuted by remember { mutableStateOf(false) }
     var volume by remember { mutableFloatStateOf(1f) }
-    var playbackError by remember { mutableStateOf<String?>(null) }
-    var liveRetryTrigger by remember { mutableIntStateOf(0) }
+    var playbackError by remember(stableId) { mutableStateOf<String?>(null) }
+    var liveRetryTrigger by remember(stableId) { mutableIntStateOf(0) }
     var isSeeking by remember(stableId) { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(false) }
     var isAdjustingVolume by remember { mutableStateOf(false) }
@@ -407,6 +418,7 @@ fun KickPlayerView(
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    if (p.currentMediaItem?.mediaId != stableId) return
                     val live = latestIsLiveStream
                     if (live) {
                         playbackError = null
@@ -433,11 +445,11 @@ fun KickPlayerView(
         }
     }
 
-    LaunchedEffect(player, liveRetryTrigger, isLiveStream) {
+    LaunchedEffect(player, stableId, playbackUrl, liveRetryTrigger, isLiveStream) {
         val p = player ?: return@LaunchedEffect
         if (liveRetryTrigger <= 0 || !isLiveStream) return@LaunchedEffect
         delay(2000.milliseconds)
-        if (isActive && latestIsLiveStream && p.playbackState != Player.STATE_READY) {
+        if (isActive && latestIsLiveStream && p.currentMediaItem?.mediaId == stableId && p.playbackState != Player.STATE_READY) {
             isBuffering = true
             playbackError = null
             p.seekToDefaultPosition()
@@ -456,8 +468,8 @@ fun KickPlayerView(
         // Reloading channel metadata can rotate the signed HLS URL without changing
         // the broadcast. Keep a healthy session running when returning from mini mode.
         // A failed/idle session may still adopt the refreshed URL to recover playback.
-        val keepLiveSession = isLiveStream && p.playerError == null &&
-                p.playbackState != Player.STATE_IDLE && p.playbackState != Player.STATE_ENDED
+        val keepLiveSession = isLiveStream && p.isCurrentMediaItemLive && p.playerError == null &&
+                p.playbackState == Player.STATE_READY
         val alreadyLoaded = currentItem?.mediaId == stableId &&
                 (keepLiveSession || currentItem.localConfiguration?.uri?.toString() == playbackUrl) &&
                 currentItem.mediaMetadata.extras?.getBoolean(
@@ -493,7 +505,7 @@ fun KickPlayerView(
             channelName = channelName.ifBlank { "Kick" },
             viewersText = (if (isLiveStream) channel?.livestream?.viewerCount else null)
                 ?.let {
-                    "${FormatUtils.formatViewersCount(it)} ${
+                    "${FormatUtils.formatViewersCount(it, context.resources.configuration.locales[0])} ${
                         context.applicationContext.getString(
                             R.string.viewers
                         )
@@ -624,8 +636,9 @@ fun KickPlayerView(
                 else -> autoQualityLabel
             }
         }
-        val viewersText = remember(channel?.livestream?.viewerCount) {
-            "${FormatUtils.formatViewersCount(channel?.livestream?.viewerCount)} ${
+        val viewersLocale = LocalConfiguration.current.locales[0]
+        val viewersText = remember(channel?.livestream?.viewerCount, viewersLocale) {
+            "${FormatUtils.formatViewersCount(channel?.livestream?.viewerCount, viewersLocale)} ${
                 context.applicationContext.getString(
                     R.string.viewers
                 )
@@ -1227,7 +1240,7 @@ private fun PlayerSettingsOptionRow(
 }
 
 @Composable
-internal fun PlayerControlsOverlay(
+internal fun AnimatedVisibilityScope.PlayerControlsOverlay(
     isFullScreen: Boolean,
     isTheaterMode: Boolean = false,
     isChatVisible: Boolean = true,
@@ -1295,6 +1308,10 @@ internal fun PlayerControlsOverlay(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
+                .animateEnterExit(
+                    enter = slideInVertically(tween(260)) { -it / 2 },
+                    exit = slideOutVertically(tween(180)) { -it / 2 }
+                )
                 .padding(
                     start = if (isCompact) 2.dp else 4.dp,
                     top = if (isCompact) 2.dp else 8.dp,
@@ -1376,7 +1393,11 @@ internal fun PlayerControlsOverlay(
          * Play Icon / Center
          */
         Row(
-            modifier = Modifier.align(Alignment.Center),
+            modifier = Modifier.align(Alignment.Center).animateEnterExit(
+                enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow), initialScale = 0.5f),
+                exit = scaleOut(tween(160), targetScale = 0.65f)
+            ),
             horizontalArrangement = Arrangement.spacedBy(28.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1413,7 +1434,10 @@ internal fun PlayerControlsOverlay(
         /**
          * Bottom
          */
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().animateEnterExit(
+            enter = slideInVertically(tween(260)) { it / 2 },
+            exit = slideOutVertically(tween(180)) { it / 2 }
+        )) {
             if (!isLive) {
                 var remaining by remember { mutableStateOf(false) }
                 var scrubPosition by remember { mutableStateOf<Float?>(null) }
@@ -1426,7 +1450,7 @@ internal fun PlayerControlsOverlay(
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.clickable { remaining = !remaining }.padding(vertical = 2.dp)
                     )
-                    Slider(
+                    CompactPlayerSlider(
                         value = (scrubPosition ?: positionMs.toFloat()).coerceIn(0f, durationMs.coerceAtLeast(1).toFloat()),
                         valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(),
                         enabled = durationMs > 0,
@@ -1484,12 +1508,12 @@ internal fun PlayerControlsOverlay(
                             modifier = Modifier.size(if (isCompact) 18.dp else 20.dp)
                         )
                     }
-                    Slider(
+                    CompactPlayerSlider(
                         value = if (isMuted) 0f else volume,
                         onValueChange = onVolumeChange,
                         onValueChangeFinished = onVolumeChangeFinished,
                         valueRange = 0f..1f,
-                        modifier = Modifier.width(sliderWidth)
+                        modifier = Modifier.width(sliderWidth).height(28.dp)
                     )
                     Text(
                         text = "${(if (isMuted) 0f else volume * 100).toInt()}%",
@@ -1722,3 +1746,40 @@ internal fun Separator() {
     )
 }
 
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CompactPlayerSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    onValueChangeFinished: (() -> Unit)? = null
+) {
+    val sliderState = remember(valueRange) { SliderState(value = value, trackRange = valueRange) }
+    sliderState.value = value
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+        Slider(
+            state = sliderState,
+            onValueChange = onValueChange,
+            modifier = modifier,
+            enabled = enabled,
+            onValueChangeFinished = onValueChangeFinished,
+            thumb = {
+                Box(Modifier.size(width = 4.dp, height = 14.dp)
+                    .background(if (enabled) Color.White else Color.White.copy(alpha = 0.38f), CircleShape))
+            },
+            track = { state ->
+                SliderDefaults.Track(
+                    sliderState = state,
+                    modifier = Modifier.height(4.dp),
+                    enabled = enabled,
+                    drawStopIndicator = null,
+                    thumbTrackGapSize = 3.dp,
+                    trackInsideCornerSize = 0.dp
+                )
+            }
+        )
+    }
+}

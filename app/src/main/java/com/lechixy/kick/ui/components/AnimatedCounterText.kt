@@ -57,8 +57,9 @@ fun AnimatedCounterText(
     color: Color = MaterialTheme.colorScheme.primary,
     formatViewers: Boolean = true
 ) {
-    val formatted = remember(count, formatViewers) {
-        if (formatViewers) FormatUtils.formatViewersCount(count) else count.toString()
+    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
+    val formatted = remember(count, formatViewers, locale) {
+        if (formatViewers) FormatUtils.formatViewersCount(count, locale) else java.text.NumberFormat.getIntegerInstance(locale).format(count)
     }
 
     val tracker = remember { CountTracker() }
@@ -101,7 +102,8 @@ fun AnimatedCounterText(
             key(placeFromRight) {
                 if (char.isDigit()) {
                     OdometerDigit(
-                        digit = char - '0',
+                        digit = char.digitToInt(),
+                        zeroDigit = (char.code - char.digitToInt()).toChar(),
                         spinGeneration = spinGeneration,
                         isIncreasing = isIncreasing,
                         initialEntrance = initialEntrance,
@@ -119,6 +121,7 @@ fun AnimatedCounterText(
 @Composable
 private fun OdometerDigit(
     digit: Int,
+    zeroDigit: Char,
     spinGeneration: Int,
     isIncreasing: Boolean,
     initialEntrance: Boolean,
@@ -155,7 +158,7 @@ private fun OdometerDigit(
 
     Box(Modifier.clipToBounds()) {
         Text(
-            text = base.mod(10).toString(),
+            text = (zeroDigit.code + base.mod(10)).toChar().toString(),
             style = style,
             modifier = Modifier.graphicsLayer {
                 val p = position.value
@@ -163,7 +166,7 @@ private fun OdometerDigit(
             }
         )
         Text(
-            text = (base + 1).mod(10).toString(),
+            text = (zeroDigit.code + (base + 1).mod(10)).toChar().toString(),
             style = style,
             modifier = Modifier.graphicsLayer {
                 val p = position.value

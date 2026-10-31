@@ -74,6 +74,7 @@ class ChannelViewModel(
     private val _emotes = MutableStateFlow(com.lechixy.kick.data.model.chat.EmotePickerUiState(isLoading = true))
     val emotes = _emotes.asStateFlow()
     private var emotesJob: Job? = null
+    private var livePlaybackRefreshJob: Job? = null
     private val emoteCache = mutableMapOf<String, List<com.lechixy.kick.data.model.chat.EmoteCategory>>()
 
     fun loadEmotes(retry: Boolean = false) {
@@ -323,6 +324,9 @@ class ChannelViewModel(
                 // Clip loading must not delay live playback or channel metadata.
                 startLeaderboardPolling(channel.id)
                 loadClips(slug)
+                channel.chatroom?.id?.let { chatroomId ->
+                    repository.chatWebSocketClient.seedHistory(channel.id, chatroomId, history?.messages.orEmpty())
+                }
                 if (autoConnectChat) {
                     connectChat()
                 }
@@ -433,14 +437,35 @@ class ChannelViewModel(
         }
     }
 
+    fun refreshLivePlayback(onReady: (ChannelDetail) -> Unit) {
+        val requested = _uiState.value.channel ?: return
+        livePlaybackRefreshJob?.cancel()
+        livePlaybackRefreshJob = viewModelScope.launch {
+            // The live HLS URL may have expired or the broadcast may have changed while watching a recording.
+            val fresh = try {
+                repository.getChannel(requested.slug)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                requested
+            }
+            if (_uiState.value.channel?.id != requested.id) return@launch
+            _uiState.update { it.copy(channel = fresh) }
+            if (fresh.livestream != null && !fresh.playbackUrl.isNullOrBlank()) onReady(fresh)
+        }
+    }
+
     fun connectChat() {
         val channel = _uiState.value.channel ?: return
         val chatroomId = channel.chatroom?.id ?: return
+        val existingHistory = _uiState.value.chatHistory
+        if (existingHistory != null) {
+            repository.chatWebSocketClient.seedHistory(channel.id, chatroomId, existingHistory.messages)
+        }
         repository.chatWebSocketClient.connect(
             channelId = channel.id,
             chatroomId = chatroomId
         )
-        val existingHistory = _uiState.value.chatHistory
         if (existingHistory != null) {
             if (repository.chatWebSocketClient.pinnedMessage.value == null && existingHistory.pinnedMessage != null) {
                 repository.chatWebSocketClient.updatePinnedMessage(existingHistory.pinnedMessage)
@@ -450,6 +475,8 @@ class ChannelViewModel(
             viewModelScope.launch {
                 try {
                     val history = repository.getChatHistory(channel.id)
+                    if (_uiState.value.channel?.id != channel.id) return@launch
+                    repository.chatWebSocketClient.seedHistory(channel.id, chatroomId, history?.messages.orEmpty())
                     repository.chatWebSocketClient.updatePinnedMessage(history?.pinnedMessage)
                     repository.chatWebSocketClient.cacheUserColorsFromMessages(history?.messages.orEmpty())
                     if (history != null) {

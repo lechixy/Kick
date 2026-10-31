@@ -134,26 +134,26 @@ class ChatBadgeTest {
     }
 
     @Test
-    fun resolveBadges_subscriberMonths_localizedTurkish() {
+    fun resolveBadges_subscriberMonths_withoutContextUsesDefaultNames() {
         val identity16 = ChatIdentity(
             badges = listOf(ChatSenderBadge(type = "subscriber", count = 16))
         )
         val resolved16 = ChatTextParser.resolveBadges(identity16, emptyList(), locale = Locale.forLanguageTag("tr"))
         assertEquals(1, resolved16.size)
-        assertEquals("16 Aylık Abone", resolved16.first().name)
+        assertEquals("16-Months Subscriber", resolved16.first().name)
         assertEquals(16, resolved16.first().months)
 
         val identity1 = ChatIdentity(
             badges = listOf(ChatSenderBadge(type = "subscriber", count = 1))
         )
         val resolved1 = ChatTextParser.resolveBadges(identity1, emptyList(), locale = Locale.forLanguageTag("tr"))
-        assertEquals("1 Aylık Abone", resolved1.first().name)
+        assertEquals("1-Month Subscriber", resolved1.first().name)
 
         val identityNoCount = ChatIdentity(
             badges = listOf(ChatSenderBadge(type = "subscriber"))
         )
         val resolvedNoCount = ChatTextParser.resolveBadges(identityNoCount, emptyList(), locale = Locale.forLanguageTag("tr"))
-        assertEquals("Abone", resolvedNoCount.first().name)
+        assertEquals("Subscriber", resolvedNoCount.first().name)
     }
 
     @Test
@@ -180,30 +180,30 @@ class ChatBadgeTest {
     }
 
     @Test
-    fun resolveBadges_gifterCount_localizedTurkish() {
+    fun resolveBadges_gifterCount_withoutContextUsesDefaultNames() {
         val identity5 = ChatIdentity(
             badges = listOf(ChatSenderBadge(type = "sub_gifter", count = 5))
         )
         val resolved5 = ChatTextParser.resolveBadges(identity5, emptyList(), locale = Locale.forLanguageTag("tr"))
         assertEquals(1, resolved5.size)
-        assertEquals("5 abone hediye etti", resolved5.first().name)
+        assertEquals("Gifted 5 sub", resolved5.first().name)
         assertEquals(5, resolved5.first().count)
 
         val identity1 = ChatIdentity(
             badges = listOf(ChatSenderBadge(type = "gifter", count = 1))
         )
         val resolved1 = ChatTextParser.resolveBadges(identity1, emptyList(), locale = Locale.forLanguageTag("tr"))
-        assertEquals("1 abone hediye etti", resolved1.first().name)
+        assertEquals("Gifted 1 sub", resolved1.first().name)
 
         val identityNoCount = ChatIdentity(
             badges = listOf(ChatSenderBadge(type = "subgifter"))
         )
         val resolvedNoCount = ChatTextParser.resolveBadges(identityNoCount, emptyList(), locale = Locale.forLanguageTag("tr"))
-        assertEquals("Abonelik hediye eden", resolvedNoCount.first().name)
+        assertEquals("Sub Gifter", resolvedNoCount.first().name)
     }
 
     @Test
-    fun resolveBadges_localizesAllBadgesToTurkish() {
+    fun resolveBadges_withoutContextDoesNotTranslateBadgesFromLocaleAlone() {
         val identity = ChatIdentity(
             badges = listOf(
                 ChatSenderBadge(type = "broadcaster"),
@@ -216,12 +216,12 @@ class ChatBadgeTest {
         )
         val resolved = ChatTextParser.resolveBadges(identity, emptyList(), locale = Locale.forLanguageTag("tr"))
         assertEquals(6, resolved.size)
-        assertEquals("Yayıncı", resolved[0].name)
-        assertEquals("Doğrulanmış", resolved[1].name)
-        assertEquals("Moderatör", resolved[2].name)
+        assertEquals("Broadcaster", resolved[0].name)
+        assertEquals("Verified", resolved[1].name)
+        assertEquals("Moderator", resolved[2].name)
         assertEquals("OG", resolved[3].name)
         assertEquals("VIP", resolved[4].name)
-        assertEquals("Kurucu", resolved[5].name)
+        assertEquals("Founder", resolved[5].name)
     }
 
     @Test

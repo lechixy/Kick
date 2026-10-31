@@ -157,7 +157,7 @@ internal fun AboutChannelInfoCard(details: ChannelDetail, onLinkClick: (String) 
                 if (details.verified) VerifiedBadge(Modifier.size(18.dp), colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimaryContainer))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(FormatUtils.formatFollowersCount(details.followersCount), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text(FormatUtils.formatFollowersCount(details.followersCount, androidx.compose.ui.platform.LocalConfiguration.current.locales[0]), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 Text(stringResource(R.string.followers), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             val user = details.user
@@ -211,7 +211,7 @@ internal fun SubscriptionGoalCard(goal: KickGoalDto, slug: String, onLinkClick: 
                     }
                 }
                 Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                    Text("${NumberFormat.getIntegerInstance().format(goal.currentValue)} / ${FormatUtils.formatFollowersCount(goal.targetValue.toString())}",
+                    Text("${NumberFormat.getIntegerInstance().format(goal.currentValue)} / ${FormatUtils.formatFollowersCount(goal.targetValue.toString(), androidx.compose.ui.platform.LocalConfiguration.current.locales[0])}",
                         Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium)
                 }
             }

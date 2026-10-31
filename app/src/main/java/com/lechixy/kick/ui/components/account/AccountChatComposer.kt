@@ -284,7 +284,7 @@ private fun ComposerContent(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(painterResource(R.drawable.kicks_color), stringResource(R.string.chat_kicks_balance),
                         tint = Color.Unspecified, modifier = Modifier.size(20.dp))
-                    Text(kicks?.let { FormatUtils.formatFollowersCount(it.toString()) } ?: "—", style = MaterialTheme.typography.labelMedium)
+                    Text(kicks?.let { FormatUtils.formatFollowersCount(it.toString(), androidx.compose.ui.platform.LocalConfiguration.current.locales[0]) } ?: "—", style = MaterialTheme.typography.labelMedium)
                 }
             }
             Spacer(Modifier.weight(1f))
@@ -370,7 +370,7 @@ private fun AnimatedPoints(points: Long?, modifier: Modifier = Modifier, unlimit
         else AnimatedContent(targetState = points, label = "channel points", transitionSpec = {
             (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut())
         }) { balance ->
-            Text(balance?.let { FormatUtils.formatFollowersCount(it.toString()) } ?: "—",
+            Text(balance?.let { FormatUtils.formatFollowersCount(it.toString(), androidx.compose.ui.platform.LocalConfiguration.current.locales[0]) } ?: "—",
                 style = MaterialTheme.typography.labelMedium, maxLines = 1)
         }
     }

@@ -1,6 +1,9 @@
 package com.lechixy.kick.ui.theme
 
 import android.os.Build
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -9,8 +12,11 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import com.lechixy.kick.ui.screens.channel.findActivity
 
 val KickDarkColorScheme: ColorScheme = darkColorScheme(
     primary = KickVoltGreen,
@@ -172,6 +178,17 @@ fun KickTheme(
             // TODO: add other colors
         )
         else -> KickLightColorScheme
+    }
+
+    val activity = LocalContext.current.findActivity() as? ComponentActivity
+    val darkBars = colorScheme.surface.luminance() < 0.5f
+    SideEffect {
+        val transparent = android.graphics.Color.TRANSPARENT
+        activity?.enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(transparent, transparent) { darkBars },
+            navigationBarStyle = SystemBarStyle.auto(transparent, transparent) { darkBars }
+        )
+        activity?.window?.isNavigationBarContrastEnforced = false
     }
 
     MaterialTheme(

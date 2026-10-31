@@ -46,6 +46,7 @@ import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -149,6 +150,9 @@ fun ChatView(
     val mutedUsers by community.mutedUsers.collectAsStateWithLifecycle()
     val visibleMessages = remember(messages, mutedUsers) {
         messages.filter { it.sender?.username?.lowercase(java.util.Locale.ROOT) !in mutedUsers }
+    }
+    val firstNewMessageId = remember(visibleMessages) {
+        if (visibleMessages.any { it.isHistory }) visibleMessages.firstOrNull { !it.isHistory }?.id else null
     }
     androidx.activity.compose.BackHandler(enabled = showChatters && selectedProfile == null) { showChatters = false }
     LaunchedEffect(showChatters, channelId) {
@@ -395,56 +399,69 @@ fun ChatView(
                         items = visibleMessages,
                         key = { it.id }
                     ) { message ->
-                        ChatMessageItem(
-                            message = message,
-                            fontSizeSp = fontSize,
-                            subscriberBadges = subscriberBadges,
-                            userColors = userColors,
-                            streamerUsername = streamerUsername,
-                            streamerSlug = streamerSlug,
-                            isOwnMessage = accountSession.signedIn && isOwnChatMessage(message,
-                                accountSession.profile?.userId, accountSession.profile?.name),
-                            isFavorite = favorites.contains(message.sender?.id ?: message.userId, message.sender?.username, message.sender?.slug),
-                            replyHighlight = if (message.id == highlightedReply) highlightSequence else 0,
-                            onReplyClick = { originalId ->
-                                if (currentVisibleMessages.any { it.id == originalId }) {
-                                    replyNavigationJob?.cancel()
-                                    autoScrollEnabled = false
-                                    navigatingReply = true
-                                    replyNavigationJob = scope.launch {
-                                        try {
-                                            val index = currentVisibleMessages.indexOfFirst { it.id == originalId }
-                                            if (index >= 0) {
-                                                listState.scrollToItem(index)
-                                                // Measure the actual row (replies and emotes can change height)
-                                                // before aligning its center with the chat viewport center.
-                                                withFrameNanos { }
-                                                val layout = listState.layoutInfo
-                                                val target = layout.visibleItemsInfo.firstOrNull { it.key == originalId }
-                                                if (target != null) {
-                                                    val viewportCenter = (layout.viewportStartOffset + layout.viewportEndOffset) / 2f
-                                                    listState.scrollBy(target.offset + target.size / 2f - viewportCenter)
-                                                }
-                                                highlightedReply = originalId
-                                                highlightSequence++
-                                            }
-                                        } finally { navigatingReply = false }
-                                    }
+                        Column {
+                            if (message.id == firstNewMessageId) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    HorizontalDivider(Modifier.weight(1f))
+                                    Text(stringResource(R.string.chat_new_messages),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    HorizontalDivider(Modifier.weight(1f))
                                 }
-                            },
-                            onUserClick = { sender -> streamerSlug?.let { slug ->
-                                community.openProfile(slug, com.lechixy.kick.data.model.chat.ActiveChatter(
-                                    username = sender.username, slug = sender.slug.orEmpty()), sender)
-                            } }
-                        )
+                            }
+                            ChatMessageItem(
+                                message = message,
+                                fontSizeSp = fontSize,
+                                subscriberBadges = subscriberBadges,
+                                userColors = userColors,
+                                streamerUsername = streamerUsername,
+                                streamerSlug = streamerSlug,
+                                isOwnMessage = accountSession.signedIn && isOwnChatMessage(message,
+                                    accountSession.profile?.userId, accountSession.profile?.name),
+                                isFavorite = favorites.contains(message.sender?.id ?: message.userId, message.sender?.username, message.sender?.slug),
+                                replyHighlight = if (message.id == highlightedReply) highlightSequence else 0,
+                                onReplyClick = { originalId ->
+                                    if (currentVisibleMessages.any { it.id == originalId }) {
+                                        replyNavigationJob?.cancel()
+                                        autoScrollEnabled = false
+                                        navigatingReply = true
+                                        replyNavigationJob = scope.launch {
+                                            try {
+                                                val index = currentVisibleMessages.indexOfFirst { it.id == originalId }
+                                                if (index >= 0) {
+                                                    listState.scrollToItem(index)
+                                                    // Measure the actual row (replies and emotes can change height)
+                                                    // before aligning its center with the chat viewport center.
+                                                    withFrameNanos { }
+                                                    val layout = listState.layoutInfo
+                                                    val target = layout.visibleItemsInfo.firstOrNull { it.key == originalId }
+                                                    if (target != null) {
+                                                        val viewportCenter = (layout.viewportStartOffset + layout.viewportEndOffset) / 2f
+                                                        listState.scrollBy(target.offset + target.size / 2f - viewportCenter)
+                                                    }
+                                                    highlightedReply = originalId
+                                                    highlightSequence++
+                                                }
+                                            } finally { navigatingReply = false }
+                                        }
+                                    }
+                                },
+                                onUserClick = { sender -> streamerSlug?.let { slug ->
+                                    community.openProfile(slug, com.lechixy.kick.data.model.chat.ActiveChatter(
+                                        username = sender.username, slug = sender.slug.orEmpty()), sender)
+                                } }
+                            )
+                        }
                     }
                 }
             }
 
+
             val currentPrimaryColor by rememberUpdatedState(MaterialTheme.colorScheme.primary)
-            val raidContext = androidx.compose.ui.platform.LocalContext.current
-            val currentRaidContext by rememberUpdatedState(raidContext)
-            val currentUserColors by rememberUpdatedState(userColors)
             val tickerEventQueue = remember {
                 mutableStateListOf<ChatTickerOverlayItem>()
             }
@@ -464,12 +481,6 @@ fun ChatView(
                             ChatTickerOverlayItem(
                                 id = "raid_${raid.message.id}",
                                 iconRes = R.drawable.swords_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
-                                segments = listOf(
-                                    ChatTextParser.EventTextSegment(raid.user.username, isBold = true,
-                                        username = raid.user.username,
-                                        color = ChatTextParser.parseHexColor(currentUserColors[raid.user.username.lowercase()], currentPrimaryColor)),
-                                    ChatTextParser.EventTextSegment(currentRaidContext.getString(R.string.chat_raid_suffix, raid.message.numberOfViewers), isBold = false)
-                                ),
                                 accentColor = currentPrimaryColor,
                                 durationMillis = durationDependingOnRaidCount,
                                 source = ChatTickerEventSource.Raid(raid)
@@ -478,7 +489,6 @@ fun ChatView(
                         is ChatWebSocketEvent.GiftedSubscriptions -> {
                             buildGiftedSubscriptionsTickerItem(
                                 event = wsEvent.event,
-                                userColors = currentUserColors,
                                 primaryColor = currentPrimaryColor
                             )
                         }
@@ -486,7 +496,6 @@ fun ChatView(
                         is ChatWebSocketEvent.ChannelSubscribed -> {
                             buildChannelSubscriptionTickerItem(
                                 event = wsEvent.event,
-                                userColors = currentUserColors,
                                 primaryColor = currentPrimaryColor
                             )
                         }
@@ -497,7 +506,6 @@ fun ChatView(
                                 senderUsername = wsEvent.event.sender?.username
                                     ?: wsEvent.event.username,
                                 senderColorHex = wsEvent.event.sender?.identity?.color,
-                                userColors = currentUserColors,
                                 primaryColor = currentPrimaryColor
                             )
                         }
@@ -511,7 +519,6 @@ fun ChatView(
                                     celebration = celebration,
                                     senderUsername = msg.sender?.username,
                                     senderColorHex = msg.sender?.identity?.color,
-                                    userColors = currentUserColors,
                                     primaryColor = currentPrimaryColor
                                 )
                             } else {
@@ -546,6 +553,7 @@ fun ChatView(
             // Event Ticker Overlay above PinnedMessageOverlay
             ChatEventTickerOverlay(
                 queue = tickerEventQueue,
+                userColors = userColors,
                 fontSizeSp = fontSize,
                 onActiveHeightChanged = { tickerOverlayHeightPx = it },
                 onUsernameClick = { username -> streamerSlug?.let { slug ->
@@ -960,8 +968,8 @@ private fun ChatHeader(
 
             IconButton(onClick = onToggleChatters, enabled = chattersEnabled, modifier = Modifier.size(32.dp)) {
                 Icon(painterResource(if (showChatters) R.drawable.group_24dp_e3e3e3_fill1_wght400_grad0_opsz24
-                    else R.drawable.group_24dp_e3e3e3_fill0_wght400_grad0_opsz24), stringResource(R.string.active_chatters_title), Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.primary)
+                    else R.drawable.group_24dp_e3e3e3_fill0_wght400_grad0_opsz24), stringResource(R.string.active_chatters_title), Modifier.size(20.dp)
+                )
             }
             if (!showChatters) IconButton(
                 onClick = onToggleOptions,
@@ -980,7 +988,7 @@ private fun ChatHeader(
 sealed interface ChatTickerEventSource {
     data class Raid(val event: com.lechixy.kick.data.model.chat.StreamHostedEvent) : ChatTickerEventSource
     data class GiftedSubscriptions(val event: GiftedSubscriptionsEvent) : ChatTickerEventSource
-    data class Celebration(val event: ChatCelebration, val username: String = "") :
+    data class Celebration(val event: ChatCelebration, val username: String = "", val colorHex: String? = null) :
         ChatTickerEventSource
 
     data class ChannelSubscription(val event: ChannelSubscriptionEvent) : ChatTickerEventSource
@@ -989,7 +997,6 @@ sealed interface ChatTickerEventSource {
 data class ChatTickerOverlayItem(
     val id: String,
     @DrawableRes val iconRes: Int,
-    val segments: List<ChatTextParser.EventTextSegment>,
     val accentColor: Color? = null,
     val durationMillis: Long = 7_000L,
     val isInfinite: Boolean = false,
@@ -1000,196 +1007,45 @@ private fun buildCelebrationTickerItem(
     celebration: ChatCelebration,
     senderUsername: String?,
     senderColorHex: String?,
-    userColors: Map<String, String>,
     primaryColor: Color
 ): ChatTickerOverlayItem {
     val username = senderUsername?.takeIf { it.isNotBlank() }
-        ?: celebration.sender?.username?.takeIf { it.isNotBlank() }
-        ?: celebration.username.takeIf { it.isNotBlank() }
-        ?: "Someone"
-    val rawColor = senderColorHex
-        ?: celebration.sender?.identity?.color
-        ?: userColors[username.lowercase()]
-    val userColor = ChatTextParser.parseHexColor(rawColor, primaryColor)
-    val months = celebration.totalMonths
-
-    val segments = buildList {
-        add(
-            ChatTextParser.EventTextSegment(
-                text = username,
-                isBold = true,
-                color = userColor,
-                username = username
-            )
-        )
-        if (months != null && months > 0) {
-            add(
-                ChatTextParser.EventTextSegment(
-                    text = " has subscribed for ",
-                    isBold = false
-                )
-            )
-            val monthLabel = if (months == 1) "1 month" else "$months months"
-            add(
-                ChatTextParser.EventTextSegment(
-                    text = monthLabel,
-                    isBold = true,
-                    color = primaryColor
-                )
-            )
-        } else {
-            add(
-                ChatTextParser.EventTextSegment(
-                    text = " has subscribed",
-                    isBold = false
-                )
-            )
-        }
-    }
-
+        ?: celebration.sender?.username?.takeIf { it.isNotBlank() } ?: celebration.username
     return ChatTickerOverlayItem(
         id = "celebration_${celebration.id.ifBlank { username }}_${System.nanoTime()}",
         iconRes = R.drawable.celebration_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
-        segments = segments,
         accentColor = primaryColor,
         durationMillis = 12_000L,
-        isInfinite = false,
-        source = ChatTickerEventSource.Celebration(celebration, username)
+        source = ChatTickerEventSource.Celebration(celebration, username, senderColorHex)
     )
 }
 
 private fun buildChannelSubscriptionTickerItem(
     event: ChannelSubscriptionEvent,
-    userColors: Map<String, String>,
     primaryColor: Color
-): ChatTickerOverlayItem {
-    val username = event.username.ifBlank { "Someone" }
-    val userColor = ChatTextParser.parseHexColor(userColors[username.lowercase()], primaryColor)
-    val months = event.totalMonths ?: event.months
-
-    val segments = buildList {
-        add(
-            ChatTextParser.EventTextSegment(
-                text = username,
-                isBold = true,
-                color = userColor,
-                username = username
-            )
-        )
-        if (months != null && months > 0) {
-            add(
-                ChatTextParser.EventTextSegment(
-                    text = " has subscribed for ",
-                    isBold = false
-                )
-            )
-            val monthLabel = if (months == 1) "1 month" else "$months months"
-            add(
-                ChatTextParser.EventTextSegment(
-                    text = monthLabel,
-                    isBold = true,
-                    color = primaryColor
-                )
-            )
-        } else {
-            add(
-                ChatTextParser.EventTextSegment(
-                    text = " has subscribed",
-                    isBold = false
-                )
-            )
-        }
-    }
-
-    return ChatTickerOverlayItem(
-        id = "sub_${username}_${System.nanoTime()}",
-        iconRes = R.drawable.star_shine_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
-        segments = segments,
-        accentColor = primaryColor,
-        durationMillis = 12_000L,
-        isInfinite = false,
-        source = ChatTickerEventSource.ChannelSubscription(event)
-    )
-}
+) = ChatTickerOverlayItem(
+    id = "sub_${event.username}_${System.nanoTime()}",
+    iconRes = R.drawable.star_shine_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
+    accentColor = primaryColor,
+    durationMillis = 12_000L,
+    source = ChatTickerEventSource.ChannelSubscription(event)
+)
 
 private fun buildGiftedSubscriptionsTickerItem(
     event: GiftedSubscriptionsEvent,
-    userColors: Map<String, String>,
     primaryColor: Color
-): ChatTickerOverlayItem {
-    val gifterName = event.gifterUsername.ifBlank { "Anonymous" }
-    val gifterColor = ChatTextParser.parseHexColor(userColors[gifterName.lowercase()], primaryColor)
-    val recipients = event.giftedUsernames.filter { it.isNotBlank() }
-    val giftedCount = event.giftedTotal?.takeIf { it > 0 } ?: recipients.size
-
-    val segments = buildList {
-        add(
-            ChatTextParser.EventTextSegment(
-                text = gifterName,
-                isBold = true,
-                color = gifterColor,
-                username = event.gifterUsername.takeIf { it.isNotBlank() }
-            )
-        )
-        if (giftedCount > 1) {
-            add(ChatTextParser.EventTextSegment(text = " gifted ", isBold = false))
-            add(
-                ChatTextParser.EventTextSegment(
-                    text = "$giftedCount subs",
-                    isBold = true,
-                    color = primaryColor
-                )
-            )
-            add(ChatTextParser.EventTextSegment(text = " to ", isBold = false))
-        } else {
-            add(ChatTextParser.EventTextSegment(text = " gifted a sub", isBold = false))
-        }
-
-        if (recipients.isEmpty() || giftedCount < 5) {
-            add(
-                ChatTextParser.EventTextSegment(
-                    text = "the community",
-                    isBold = true,
-                    color = primaryColor
-                )
-            )
-        } else {
-            // If there is less than 5 people being gifted show their names
-            recipients.forEachIndexed { index, recipient ->
-                if (index > 0) {
-                    add(ChatTextParser.EventTextSegment(text = ", ", isBold = false))
-                }
-                val recipientColor = ChatTextParser.parseHexColor(
-                    userColors[recipient.lowercase()],
-                    primaryColor
-                )
-                add(
-                    ChatTextParser.EventTextSegment(
-                        text = recipient,
-                        isBold = true,
-                        color = recipientColor,
-                        username = recipient
-                    )
-                )
-
-            }
-        }
-    }
-
-    return ChatTickerOverlayItem(
-        id = "gift_${event.correlationId ?: gifterName}_${System.nanoTime()}",
-        iconRes = R.drawable.featured_seasonal_and_gifts_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
-        segments = segments,
-        accentColor = primaryColor,
-        durationMillis = 15_000L,
-        isInfinite = false,
-        source = ChatTickerEventSource.GiftedSubscriptions(event)
-    )
-}
+) = ChatTickerOverlayItem(
+    id = "gift_${event.correlationId ?: event.gifterUsername}_${System.nanoTime()}",
+    iconRes = R.drawable.featured_seasonal_and_gifts_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
+    accentColor = primaryColor,
+    durationMillis = 15_000L,
+    source = ChatTickerEventSource.GiftedSubscriptions(event)
+)
 
 @Composable
 private fun ChatEventTickerOverlay(
     queue: MutableList<ChatTickerOverlayItem>,
+    userColors: Map<String, String>,
     fontSizeSp: Int,
     onActiveHeightChanged: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -1289,6 +1145,23 @@ private fun ChatEventTickerOverlay(
     val active = displayedItem ?: return
     val defaultAccent = MaterialTheme.colorScheme.primary
     val accentColor = active.accentColor ?: defaultAccent
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.ui.platform.LocalConfiguration.current
+    val segments = when (val source = active.source) {
+        is ChatTickerEventSource.GiftedSubscriptions -> giftedEventSegments(context, source.event, userColors, accentColor)
+        is ChatTickerEventSource.Celebration -> subscriptionEventSegments(context, source.username,
+            source.event.totalMonths,
+            userColor = ChatTextParser.parseHexColor(source.colorHex ?: source.event.sender?.identity?.color
+                ?: userColors[source.username.lowercase()], accentColor), primaryColor = accentColor)
+        is ChatTickerEventSource.ChannelSubscription -> subscriptionEventSegments(context, source.event.username,
+            source.event.totalMonths ?: source.event.months,
+            (source.event.userIds.size - 1).coerceAtLeast(0),
+            userColor = ChatTextParser.parseHexColor(userColors[source.event.username.lowercase()], accentColor),
+            primaryColor = accentColor)
+        is ChatTickerEventSource.Raid -> raidEventSegments(context, source.event.user.username,
+            source.event.message.numberOfViewers,
+            ChatTextParser.parseHexColor(userColors[source.event.user.username.lowercase()], accentColor))
+    }
 
     Box(
         modifier = modifier.onSizeChanged { size ->
@@ -1326,7 +1199,7 @@ private fun ChatEventTickerOverlay(
                         ContinuousTickerRow(
                             iconRes = active.iconRes,
                             iconTint = accentColor,
-                            segments = active.segments,
+                            segments = segments,
                             fontSizeSp = fontSizeSp,
                             defaultBoldColor = accentColor,
                             defaultTextColor = MaterialTheme.colorScheme.onSurface,

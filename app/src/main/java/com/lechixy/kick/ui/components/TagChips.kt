@@ -100,7 +100,7 @@ fun resolveLanguageChipColors(
     defaultContentColor: Color
 ): Pair<Color, Color> {
     return when (language?.trim()?.lowercase()) {
-        "Turkish" -> resolveFlagChipColors(
+        "turkish" -> resolveFlagChipColors(
             containerHex = "#E30A17",
             contentHex = "#FFFFFF",
             defaultContainerColor = defaultContainerColor,

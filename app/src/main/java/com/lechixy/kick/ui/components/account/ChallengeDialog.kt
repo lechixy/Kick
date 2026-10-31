@@ -60,7 +60,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import coil3.gif.AnimatedImageDecoder
-import com.lechixy.kick.ui.components.StreakBatteryAnimation
 import com.lechixy.kick.R
 import com.lechixy.kick.data.account.AccountGraph
 import com.lechixy.kick.data.account.Challenge
@@ -73,6 +72,7 @@ import com.lechixy.kick.data.account.challengeCountdown
 import com.lechixy.kick.data.account.formatDropChance
 import com.lechixy.kick.data.account.orderChallenges
 import com.lechixy.kick.data.account.rewardAnimationImageUrl
+import com.lechixy.kick.ui.components.StreakBatteryAnimation
 import com.lechixy.kick.ui.theme.KickTheme
 import com.lechixy.kick.ui.theme.Theme
 import kotlinx.coroutines.delay
@@ -91,7 +91,7 @@ fun ChallengesButton() {
         modifier = Modifier.size(46.dp)) {
         Box(contentAlignment = Alignment.Center) {
             Icon(painterResource(R.drawable.rewarded_ads_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                contentDescription = stringResource(R.string.challenges_title), tint = MaterialTheme.colorScheme.secondary)
+                contentDescription = stringResource(R.string.challenges_title))
         }
     }
     if (open) {

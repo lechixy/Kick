@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
@@ -147,7 +148,7 @@ fun ChannelScreen(
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val initialIsWide = configuration.screenWidthDp >= WIDE_BREAKPOINT_DP
-    var selectedTab by remember {
+    var selectedTab by remember(channelSlug) {
         mutableStateOf(if (initialIsWide) ChannelTab.HOME else ChannelTab.CHAT)
     }
 
@@ -178,25 +179,8 @@ fun ChannelScreen(
         viewModel.loadChannel(channelSlug, autoConnectChat = autoConnect)
     }
 
-    var previousLivestreamId by remember(channelSlug) { mutableStateOf<Long?>(null) }
-    var hasInitializedChannel by remember(channelSlug) { mutableStateOf(false) }
-
     LaunchedEffect(state.channel) {
-        state.channel?.let { channel ->
-            onChannelLoaded(channel)
-            val currentLivestreamId = channel.livestream?.id
-            if (!hasInitializedChannel) {
-                hasInitializedChannel = true
-                if (currentLivestreamId == null && selectedTab == ChannelTab.CHAT) {
-                    selectedTab = ChannelTab.HOME
-                }
-            } else if (previousLivestreamId == null && currentLivestreamId != null && !initialIsWide && playerHost?.recording == null) {
-                selectedTab = ChannelTab.CHAT
-            } else if (previousLivestreamId != null && currentLivestreamId == null && selectedTab == ChannelTab.CHAT) {
-                selectedTab = ChannelTab.HOME
-            }
-            previousLivestreamId = currentLivestreamId
-        }
+        state.channel?.let(onChannelLoaded)
     }
 
     LaunchedEffect(state.liveAnnouncementId) {
@@ -205,7 +189,9 @@ fun ChannelScreen(
         viewModel.consumeLiveAnnouncement(announcementId)
     }
 
-    val inlineInsets = WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+    val isFullScreen = playerHost?.mode == PlayerMode.Fullscreen
+    val inlineInsets = (if (isFullScreen) WindowInsets.systemBars else WindowInsets.systemBarsIgnoringVisibility)
+        .union(WindowInsets.displayCutout)
     val density = LocalDensity.current
 
     val channel = state.channel
@@ -279,9 +265,8 @@ fun ChannelScreen(
                 }
 
                 LaunchedEffect(isWide) {
-                    if (isWide && selectedTab == ChannelTab.CHAT) {
-                        selectedTab = ChannelTab.HOME
-                    }
+                    if (isWide && selectedTab == ChannelTab.CHAT) selectedTab = ChannelTab.HOME
+                    else if (!isWide) selectedTab = ChannelTab.CHAT
                 }
                 val bannerWidthPx = remember(screenWidthDp, density) {
                     with(density) { screenWidthDp.toPx().toInt() }
@@ -291,7 +276,6 @@ fun ChannelScreen(
                 var dragAccumulatedPx by remember { mutableFloatStateOf(0f) }
                 var dragStartFraction by remember { mutableFloatStateOf(chatWidthFraction) }
 
-                val isFullScreen = playerHost?.mode == PlayerMode.Fullscreen
                 val hasSideChat = isWide || isFullScreen
                 val isChatActuallyVisible =
                     playerHost?.isSideChatOpen(isWide) ?: (isWide && isChatVisible)
@@ -375,69 +359,77 @@ fun ChannelScreen(
                                         )
                                     }
 
-                                    // ChannelHeaderInfo: geniş ekranda (tablet) theater mod dahil her zaman görünür, mobilde kontrollerle senkronize
-                                    AnimatedVisibility(
-                                        visible = isProfilePhotoExpanded || if (isWide || !hasPlayback) true else isControlsVisible,
-                                        enter = expandVertically(tween(300)) + fadeIn(tween(300)),
-                                        exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
-                                    ) {
-                                        ChannelHeaderInfo(
-                                            channel = channel,
-                                            event = state.event,
-                                            lastHourGiftedSubsRank = state.lastHourGiftedSubsRank,
-                                            recording = playerHost?.recording,
-                                            onPlayLive = { playerHost?.playLive() },
-                                            onProfilePhotoExpandedChange = { isProfilePhotoExpanded = it },
-                                            isLive = isLive,
-                                            lastLiveText = lastLiveText,
-                                            isFollowing = followAction.following,
-                                            followLabel = followAction.label,
-                                            followEnabled = followAction.enabled,
-                                            onFollowClick = followAction.onClick,
-                                            context = context,
-                                            onHeightMeasured = { heightPx ->
-                                                if (heightPx > 0 && playerHost?.channelHeaderHeightPx != heightPx) {
-                                                    playerHost?.channelHeaderHeightPx = heightPx
-                                                }
-                                            }
-                                        )
-                                    }
-
-                                    // ChannelTabsRow: geniş ekranda theater modda gizlenir, mobilde kontrollerle senkronize
-                                    AnimatedVisibility(
-                                        visible = if (isWide) (!isTheaterMode || !hasPlayback) else (!hasPlayback || isControlsVisible),
-                                        enter = expandVertically(tween(300)) + fadeIn(tween(300)),
-                                        exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
-                                    ) {
-                                        ChannelTabsRow(
-                                            tabs = visibleTabs,
-                                            selectedTab = effectiveSelectedTab,
-                                            onTabSelected = { selectedTab = it }
-                                        )
-                                    }
-
-                                    if (effectiveSelectedTab == ChannelTab.CHAT && !hasSideChat) {
-                                        sharedChat(
-                                            channel,
-                                            null,
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .weight(1f)
-                                        )
-                                    } else {
+                                    @Composable
+                                    fun Header() {
+                                        // ChannelHeaderInfo: geniş ekranda (tablet) theater mod dahil her zaman görünür, mobilde kontrollerle senkronize
                                         AnimatedVisibility(
-                                            visible = if (isWide) (!isTheaterMode || !hasPlayback) else true,
+                                            visible = isProfilePhotoExpanded || if (isWide || !hasPlayback) true else isControlsVisible,
                                             enter = expandVertically(tween(300)) + fadeIn(tween(300)),
-                                            exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .weight(1f)
+                                            exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
                                         ) {
-                                            LazyColumn(
-                                                state = channelContentState,
-                                                modifier = Modifier.fillMaxSize()
-                                            ) {
-                                                item {
+                                            ChannelHeaderInfo(
+                                                channel = channel,
+                                                event = state.event,
+                                                lastHourGiftedSubsRank = state.lastHourGiftedSubsRank,
+                                                recording = playerHost?.recording,
+                                                onPlayLive = {
+                                                    val requestedRecording = playerHost?.recording?.id
+                                                    viewModel.refreshLivePlayback { fresh ->
+                                                        if (playerHost?.recording?.id == requestedRecording) {
+                                                            playerHost?.onChannelLoaded(channelSlug, fresh)
+                                                            playerHost?.playLive()
+                                                        }
+                                                    }
+                                                },
+                                                onProfilePhotoExpandedChange = { isProfilePhotoExpanded = it },
+                                                isLive = isLive,
+                                                lastLiveText = lastLiveText,
+                                                isFollowing = followAction.following,
+                                                followLabel = followAction.label,
+                                                followEnabled = followAction.enabled,
+                                                onFollowClick = followAction.onClick,
+                                                context = context,
+                                                onHeightMeasured = { heightPx ->
+                                                    if (heightPx > 0 && playerHost?.channelHeaderHeightPx != heightPx) {
+                                                        playerHost?.channelHeaderHeightPx = heightPx
+                                                    }
+                                                }
+                                            )
+                                        }
+
+                                    }
+                                    @Composable
+                                    fun Tabs() {
+                                        // Tabs remain available while scrolling; wide theater mode shows only the header.
+                                        AnimatedVisibility(
+                                            visible = !isWide || !isTheaterMode || !hasPlayback,
+                                            enter = expandVertically(tween(300)) + fadeIn(tween(300)),
+                                            exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
+                                        ) {
+                                            ChannelTabsRow(
+                                                tabs = visibleTabs,
+                                                selectedTab = effectiveSelectedTab,
+                                                onTabSelected = { selectedTab = it }
+                                            )
+                                        }
+
+                                    }
+                                    if (effectiveSelectedTab == ChannelTab.CHAT && !hasSideChat) {
+                                        Header()
+                                        Tabs()
+                                        sharedChat(channel, null, Modifier.fillMaxWidth().weight(1f))
+                                    } else if (isWide && isTheaterMode && hasPlayback) {
+                                        Header()
+                                    } else {
+                                        LazyColumn(
+                                            state = channelContentState,
+                                            modifier = Modifier.fillMaxWidth().weight(1f)
+                                        ) {
+                                            item(key = "channel_header") { Header() }
+                                            stickyHeader(key = "channel_tabs") {
+                                                Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) { Tabs() }
+                                            }
+                                            item(key = "channel_content") {
                                                     ChannelTabContent(
                                                         tab = effectiveSelectedTab,
                                                         channel = channel,
@@ -454,7 +446,6 @@ fun ChannelScreen(
                                                             selectedTab = ChannelTab.VIDEOS
                                                         }
                                                     )
-                                                }
                                             }
                                         }
                                     }
@@ -798,8 +789,13 @@ private fun ChannelHeaderInfo(
                                     defaultContentColor = defaultContentColor
                                 )
                             }
+                            val translatedLabel = when (languageLabel) {
+                                "English" -> stringResource(R.string.language_english)
+                                "Turkish" -> stringResource(R.string.language_turkish)
+                                else -> languageLabel
+                            }
                             TagChip(
-                                tag = languageLabel,
+                                tag = translatedLabel,
                                 containerColor = langContainerColor,
                                 contentColor = langContentColor
                             )
@@ -845,7 +841,7 @@ private fun ChannelHeaderInfo(
                 .fillMaxWidth()
                 .padding(16.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             com.lechixy.kick.ui.components.ExpandableProfilePhoto(
                 url = channel.user?.profilePic,
@@ -856,7 +852,7 @@ private fun ChannelHeaderInfo(
 
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -873,7 +869,7 @@ private fun ChannelHeaderInfo(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = FormatUtils.formatFollowersCount(channel.followersCount),
+                        text = FormatUtils.formatFollowersCount(channel.followersCount, context.resources.configuration.locales[0]),
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -912,6 +908,9 @@ private fun ChannelHeaderInfo(
                 }
             }
 
+            com.lechixy.kick.ui.components.FavoriteUserButton(
+                channel.userId ?: channel.user?.id, channel.user?.username ?: channel.slug, channel.slug)
+
             Button(
                 onClick = onFollowClick,
                 enabled = followEnabled,
@@ -935,9 +934,6 @@ private fun ChannelHeaderInfo(
                     fontWeight = FontWeight.Bold
                 )
             }
-            com.lechixy.kick.ui.components.FavoriteUserButton(
-                channel.userId ?: channel.user?.id, channel.user?.username ?: channel.slug, channel.slug)
-
         }
     }
 }

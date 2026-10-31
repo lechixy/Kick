@@ -31,6 +31,8 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,6 +67,9 @@ fun ChatMessageItem(
     replyHighlight: Int = 0,
     onReplyClick: ((String) -> Unit)? = null,
 ) {
+    val eventContext = LocalContext.current
+    // Read configuration so in-place app language changes rebuild every event sentence.
+    LocalConfiguration.current
     val onEventUserClick: ((String) -> Unit)? = onUserClick?.let { callback -> { username ->
         callback(message.sender?.takeIf { it.username.equals(username, ignoreCase = true) }
             ?: com.lechixy.kick.data.model.chat.ChatSender(username = username))
@@ -76,24 +81,10 @@ fun ChatMessageItem(
         val rewardColor = remember(rewardEvent.rewardBackgroundColor, defaultPrimaryColor) {
             ChatTextParser.parseHexColor(rewardEvent.rewardBackgroundColor, defaultPrimaryColor)
         }
-        val segments = remember(rewardEvent.username, rewardEvent.rewardTitle, rewardColor) {
-            listOf(
-                ChatTextParser.EventTextSegment(
-                    text = rewardEvent.username.ifBlank { "User" },
-                    isBold = true,
-                    color = rewardColor
-                ),
-                ChatTextParser.EventTextSegment(
-                    text = " has redeemed ",
-                    isBold = false
-                ),
-                ChatTextParser.EventTextSegment(
-                    text = rewardEvent.rewardTitle,
-                    isBold = true,
-                    color = rewardColor
-                )
-            )
-        }
+        val segments = eventTextSegments(eventContext.getString(R.string.chat_event_reward_redeemed),
+            eventUser(rewardEvent.username.ifBlank { eventContext.getString(R.string.chat_event_user) }, rewardColor,
+                rewardEvent.username.takeIf { it.isNotBlank() }),
+            eventUser(rewardEvent.rewardTitle, rewardColor, username = null))
         ChatEventBaseItem(
             iconRes = R.drawable.bubble_chart_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
             segments = segments,
@@ -113,61 +104,12 @@ fun ChatMessageItem(
     val giftedEvent = message.giftedSubscriptions
     if (message.isGiftedSubscriptions && giftedEvent != null) {
         val defaultPrimaryColor = MaterialTheme.colorScheme.primary
-        val gifterName = giftedEvent.gifterUsername.ifBlank { "Anonymous" }
+        val gifterName = giftedEvent.gifterUsername.ifBlank { eventContext.getString(R.string.chat_event_anonymous) }
         val gifterRawColor = userColors[gifterName.lowercase()]
         val gifterColor = remember(gifterRawColor, defaultPrimaryColor) {
             ChatTextParser.parseHexColor(gifterRawColor, defaultPrimaryColor)
         }
-        val recipientColorKey = remember(giftedEvent.giftedUsernames, userColors) {
-            giftedEvent.giftedUsernames.map { userColors[it.lowercase()] }
-        }
-        val segments = remember(
-            giftedEvent.gifterUsername,
-            giftedEvent.giftedUsernames,
-            giftedEvent.giftedTotal,
-            giftedEvent.gifterTotal,
-            gifterColor,
-            recipientColorKey,
-            defaultPrimaryColor
-        ) {
-            val recipients = giftedEvent.giftedUsernames.filter { it.isNotBlank() }
-            val giftedCount = giftedEvent.giftedTotal?.takeIf { it > 0 } ?: recipients.size.coerceAtLeast(1)
-            buildList {
-                add(ChatTextParser.EventTextSegment(gifterName, isBold = true, color = gifterColor))
-                if (giftedCount > 1) {
-                    add(ChatTextParser.EventTextSegment(" gifted ", isBold = false))
-                    add(ChatTextParser.EventTextSegment("$giftedCount subs", isBold = true, color = defaultPrimaryColor))
-                    add(ChatTextParser.EventTextSegment(" to ", isBold = false))
-                } else {
-                    add(ChatTextParser.EventTextSegment(" gifted a sub to ", isBold = false))
-                }
-                if (recipients.isEmpty()) {
-                    add(ChatTextParser.EventTextSegment("the community", isBold = true, color = defaultPrimaryColor))
-                } else if (recipients.size == 1) {
-                    val recipientColor = ChatTextParser.parseHexColor(
-                        userColors[recipients.first().lowercase()],
-                        defaultPrimaryColor
-                    )
-                    add(ChatTextParser.EventTextSegment(recipients.first(), isBold = true, color = recipientColor))
-                }
-                else {
-                    recipients.forEachIndexed { index, recipient ->
-                        if (index > 0) {
-                            add(ChatTextParser.EventTextSegment(", ", isBold = false))
-                        }
-                        val recipientColor = ChatTextParser.parseHexColor(
-                            userColors[recipient.lowercase()],
-                            defaultPrimaryColor
-                        )
-                        add(ChatTextParser.EventTextSegment(recipient, isBold = true, color = recipientColor))
-                    }
-                }
-                val totalByGifter = giftedEvent.gifterTotal
-                if (totalByGifter != null && totalByGifter > 1) {
-                    add(ChatTextParser.EventTextSegment(" ($totalByGifter total)", isBold = false))
-                }
-            }
-        }
+        val segments = giftedEventSegments(eventContext, giftedEvent, userColors, defaultPrimaryColor)
         ChatEventBaseItem(
             iconRes = R.drawable.featured_seasonal_and_gifts_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
             segments = segments,
@@ -190,7 +132,7 @@ fun ChatMessageItem(
         val senderName = message.sender?.username?.takeIf { it.isNotBlank() }
             ?: celebration?.sender?.username?.takeIf { it.isNotBlank() }
             ?: celebration?.username?.takeIf { it.isNotBlank() }
-            ?: "Someone"
+            ?: eventContext.getString(R.string.chat_event_someone)
         val rawColor = message.sender?.identity?.color
             ?: celebration?.sender?.identity?.color
             ?: userColors[senderName.lowercase()]
@@ -199,18 +141,8 @@ fun ChatMessageItem(
         }
         val months = celebration?.totalMonths
 
-        val segments = remember(senderName, months, userColor, defaultPrimaryColor) {
-            buildList {
-                add(ChatTextParser.EventTextSegment(senderName, isBold = true, color = userColor))
-                if (months != null && months > 0) {
-                    add(ChatTextParser.EventTextSegment(" has subscribed for ", isBold = false))
-                    val monthLabel = if (months == 1) "1 month" else "$months months"
-                    add(ChatTextParser.EventTextSegment(monthLabel, isBold = true, color = defaultPrimaryColor))
-                } else {
-                    add(ChatTextParser.EventTextSegment(" has subscribed!", isBold = false))
-                }
-            }
-        }
+        val segments = subscriptionEventSegments(eventContext, senderName, months,
+            userColor = userColor, primaryColor = defaultPrimaryColor)
         ChatEventBaseItem(
             iconRes = R.drawable.celebration_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
             segments = segments,
@@ -230,7 +162,7 @@ fun ChatMessageItem(
     val subEvent = message.channelSubscription
     if (message.isChannelSubscription && subEvent != null) {
         val defaultPrimaryColor = MaterialTheme.colorScheme.primary
-        val subUsername = subEvent.username.ifBlank { "Someone" }
+        val subUsername = subEvent.username.ifBlank { eventContext.getString(R.string.chat_event_someone) }
         val subRawColor = userColors[subUsername.lowercase()]
         val userColor = remember(subRawColor, defaultPrimaryColor) {
             ChatTextParser.parseHexColor(subRawColor, defaultPrimaryColor)
@@ -238,23 +170,8 @@ fun ChatMessageItem(
         val months = subEvent.totalMonths ?: subEvent.months
         val extraSubscribers = (subEvent.userIds.size - 1).coerceAtLeast(0)
 
-        val segments = remember(subUsername, months, extraSubscribers, userColor, defaultPrimaryColor) {
-            buildList {
-                add(ChatTextParser.EventTextSegment(subUsername, isBold = true, color = userColor))
-                if (months != null && months > 0) {
-                    add(ChatTextParser.EventTextSegment(" has subscribed for ", isBold = false))
-                    val monthLabel = if (months == 1) "1 month" else "$months months"
-                    add(ChatTextParser.EventTextSegment(monthLabel, isBold = true, color = defaultPrimaryColor))
-                } else if (extraSubscribers > 0) {
-                    add(ChatTextParser.EventTextSegment(" and ", isBold = false))
-                    val othersLabel = if (extraSubscribers == 1) "1 other" else "$extraSubscribers others"
-                    add(ChatTextParser.EventTextSegment(othersLabel, isBold = true, color = defaultPrimaryColor))
-                    add(ChatTextParser.EventTextSegment(" just subscribed!", isBold = false))
-                } else {
-                    add(ChatTextParser.EventTextSegment(" just subscribed!", isBold = false))
-                }
-            }
-        }
+        val segments = subscriptionEventSegments(eventContext, subUsername, months, extraSubscribers,
+            userColor = userColor, primaryColor = defaultPrimaryColor)
         ChatEventBaseItem(
             iconRes = R.drawable.star_shine_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
             segments = segments,
@@ -270,7 +187,7 @@ fun ChatMessageItem(
         return
     }
 
-    val senderName = message.sender?.username ?: "User"
+    val senderName = message.sender?.username ?: eventContext.getString(R.string.chat_event_user)
     val defaultUsernameColor = MaterialTheme.colorScheme.primary
     val rawSenderColor = message.sender?.identity?.color ?: userColors[senderName.lowercase()]
     val usernameColor = remember(rawSenderColor, defaultUsernameColor) {
@@ -374,7 +291,7 @@ fun ChatMessageItem(
             val originalSenderName = message.metadata.originalSender?.username
                 ?.takeIf { it.isNotBlank() }
                 ?: originalMessage.sender?.username
-                ?: "User"
+                ?: eventContext.getString(R.string.chat_event_user)
 
             val rawOriginalColor = message.metadata.originalSender?.identity?.color
                 ?: originalMessage.sender?.identity?.color
@@ -546,7 +463,8 @@ fun ChatEventBaseItem(
         segments = segments,
         boldColor = boldColor,
         mutedColor = mutedColor,
-        fontSizeSp = headerFontSizeSp
+        fontSizeSp = headerFontSizeSp,
+        onUsernameClick = onUsernameClick
     )
 
     Column(
@@ -567,20 +485,7 @@ fun ChatEventBaseItem(
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Text(
-            text = androidx.compose.ui.text.buildAnnotatedString {
-                append(parsedHeader.annotatedString)
-                val username = segments.firstOrNull()?.text.orEmpty()
-                val start = parsedHeader.annotatedString.text.indexOf(username)
-                if (onUsernameClick != null && username.isNotBlank() && start >= 0) {
-                    addLink(androidx.compose.ui.text.LinkAnnotation.Clickable("event-chatter",
-                        styles = chatterLinkStyles(androidx.compose.ui.text.SpanStyle(color = segments.firstOrNull()?.color ?: boldColor,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)),
-                        linkInteractionListener = {
-                        onUsernameClick(username)
-                    }), start, start + username.length)
-                }
-            },
-
+            text = parsedHeader.annotatedString,
             inlineContent = parsedHeader.inlineContent,
             fontSize = headerFontSizeSp.sp,
             lineHeight = (headerFontSizeSp + 4).sp,

@@ -132,4 +132,7 @@
     <string name="no_recent_broadcasts">No recent broadcasts yet</string>
     <string name="views_count">%1$s views</string>
     <string name="viewers_count">%1$s viewers</string>
+    <string name="language_english">English</string>
+    <string name="language_turkish">Turkish</string>
+    <string name="chat_new_messages">New messages</string>
 </resources>

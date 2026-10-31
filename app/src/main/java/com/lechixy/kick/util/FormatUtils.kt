@@ -1,6 +1,9 @@
 package com.lechixy.kick.util
 
 import android.text.format.DateUtils
+import android.icu.number.NumberFormatter
+import android.icu.number.Notation
+import android.icu.number.Precision
 import com.lechixy.kick.data.model.VideoThumbnail
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -9,18 +12,16 @@ import java.util.TimeZone
 
 object FormatUtils {
 
-    fun formatViewersCount(count: Int?): String {
-        if (count == null) return "0"
-        // show 24895 like 24.895
-        return NumberFormat.getNumberInstance(Locale.US).format(count)
+    private val compactNumbers by lazy {
+        NumberFormatter.with().notation(Notation.compactShort()).precision(Precision.maxFraction(1))
     }
-    fun formatFollowersCount(countStr: String?): String {
-        val count = countStr?.toDoubleOrNull() ?: return "0"
-        return when {
-            count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000)
-            count >= 1_000 -> String.format(Locale.US, "%.1fK", count / 1_000)
-            else -> count.toLong().toString()
-        }
+
+    fun formatViewersCount(count: Int?, locale: Locale = Locale.getDefault()): String =
+        NumberFormat.getIntegerInstance(locale).format(count ?: 0)
+
+    fun formatFollowersCount(countStr: String?, locale: Locale = Locale.getDefault()): String {
+        val count = countStr?.toBigDecimalOrNull() ?: return NumberFormat.getIntegerInstance(locale).format(0)
+        return compactNumbers.locale(locale).format(count).toString()
     }
 
     // Tarihi UTC olarak parse eder ve Epoch millis döndürür

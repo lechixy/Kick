@@ -11,10 +11,11 @@ import kotlinx.coroutines.flow.asStateFlow
 
 object NetworkMonitor {
     private val handler = Handler(Looper.getMainLooper())
-    private val state = ConnectionNoticeState()
+    private val state = ConnectionNoticeState().apply { setForeground(false) }
     private val mutableNotice = MutableStateFlow<ConnectionNotice?>(null)
     val notice = mutableNotice.asStateFlow()
     private var initialized = false
+    private lateinit var connectivityManager: ConnectivityManager
     private var defaultNetwork: Network? = null
     private var capabilities: NetworkCapabilities? = null
     private var playbackStalled = false
@@ -38,6 +39,7 @@ object NetworkMonitor {
         if (initialized) return
         initialized = true
         val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
+        connectivityManager = manager
         defaultNetwork = manager.activeNetwork
         capabilities = defaultNetwork?.let(manager::getNetworkCapabilities)
         updateQuality()
@@ -65,6 +67,23 @@ object NetworkMonitor {
                 handler.postDelayed(lostNetwork, 800)
             }
         }, handler)
+    }
+
+    fun setForeground(visible: Boolean) {
+        if (!initialized) return
+        handler.removeCallbacks(expireRestored)
+        if (visible) {
+            // Resample before enabling notices so a resume is a fresh baseline.
+            defaultNetwork = connectivityManager.activeNetwork
+            capabilities = defaultNetwork?.let(connectivityManager::getNetworkCapabilities)
+            blocked = false
+            updateQuality()
+        } else {
+            handler.removeCallbacks(weakPlayback)
+            playbackStalled = false
+        }
+        state.setForeground(visible)
+        mutableNotice.value = state.notice
     }
 
     fun reportPlaybackBuffering(buffering: Boolean) {

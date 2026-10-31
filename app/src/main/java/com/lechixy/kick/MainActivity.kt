@@ -109,6 +109,16 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var settingsRepository: SettingsRepository
 
+    override fun onStart() {
+        super.onStart()
+        com.lechixy.kick.data.remote.NetworkMonitor.setForeground(true)
+    }
+
+    override fun onStop() {
+        com.lechixy.kick.data.remote.NetworkMonitor.setForeground(false)
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         syncLanguageWithDataStore()

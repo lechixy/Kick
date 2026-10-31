@@ -7,6 +7,7 @@ import com.lechixy.kick.data.model.chat.CentrifugoSubscribeFrame
 import com.lechixy.kick.data.model.chat.ChannelSubscriptionEvent
 import com.lechixy.kick.data.model.chat.ChatCelebration
 import com.lechixy.kick.data.model.chat.ChatMessage
+import com.lechixy.kick.data.model.chat.mergeChatHistory
 import com.lechixy.kick.data.model.chat.ChatMessageMetadata
 import com.lechixy.kick.data.model.chat.ChatMessageType
 import com.lechixy.kick.data.model.chat.ChatWebSocketEvent
@@ -112,6 +113,16 @@ class KickChatWebSocketClient(
 
     fun updatePinnedMessage(pinned: PinnedMessageInfo?) {
         _pinnedMessage.value = pinned?.takeIf { it.message != null }?.withSelectedBadgesOnly()
+    }
+
+    fun seedHistory(channelId: Long, chatroomId: Long, messages: List<ChatMessage>) {
+        if (currentChannelId != channelId || currentChatroomId != chatroomId) {
+            disconnectInternal(clearMessages = true)
+            currentChannelId = channelId
+            currentChatroomId = chatroomId
+        }
+        _messages.update { current -> mergeChatHistory(messages, current, maxMessagesBuffer) }
+        cacheUserColorsFromMessages(messages)
     }
 
     fun cacheUserColorsFromMessages(messages: List<ChatMessage>) {

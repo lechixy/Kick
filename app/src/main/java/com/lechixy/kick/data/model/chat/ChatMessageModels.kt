@@ -47,7 +47,9 @@ data class ChatMessage(
     val rewardRedeemed: RewardRedeemedEvent? = null,
     val giftedSubscriptions: GiftedSubscriptionsEvent? = null,
     val channelSubscription: ChannelSubscriptionEvent? = null,
-    val messageDeleted: MessageDeletedEvent? = null
+    val messageDeleted: MessageDeletedEvent? = null,
+    @kotlinx.serialization.Transient
+    val isHistory: Boolean = false
 ) {
     val isDeleted: Boolean
         get() = messageDeleted != null

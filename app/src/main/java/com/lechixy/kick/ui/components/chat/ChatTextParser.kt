@@ -35,12 +35,12 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.lechixy.kick.R
 import com.lechixy.kick.data.model.SubscriberBadge
-import com.lechixy.kick.data.model.chat.ChatIdentity
 import com.lechixy.kick.data.model.chat.ChatBadge
-import java.util.Locale
+import com.lechixy.kick.data.model.chat.ChatIdentity
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
+import java.util.Locale
 
 data class ParsedChatMessage(
     val annotatedString: AnnotatedString,
@@ -90,10 +90,6 @@ object ChatTextParser {
             context.createConfigurationContext(config)
         } else context
 
-        val isTurkish = locale?.language?.equals("tr", ignoreCase = true)
-            ?: resContext?.resources?.configuration?.locales?.get(0)?.language?.equals("tr", ignoreCase = true)
-            ?: Locale.getDefault().language.equals("tr", ignoreCase = true)
-
         val result = mutableListOf<ResolvedChatBadge>()
 
         identity.badgesV2.forEachIndexed { index, badge ->
@@ -103,11 +99,11 @@ object ChatTextParser {
                 val level = badge.levelNumber()
                 val badgeName = if (level != null) {
                     resContext?.getString(R.string.badge_level, level.toString())
-                        ?: if (isTurkish) "Seviye $level" else "Level $level"
+                        ?: "Level $level"
                 } else {
                     val standardType = badge.name.lowercase()
                     if (standardType in listOf("broadcaster", "verified", "moderator", "og", "vip", "founder", "subscriber", "sub_gifter", "subgifter", "gifter")) {
-                        resolveBadgeName(standardType, count = null, isTurkish = isTurkish, context = resContext)
+                        resolveBadgeName(standardType, count = null, context = resContext)
                     } else {
                         badge.name.ifBlank { "badge" }
                     }
@@ -139,7 +135,7 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_broadcaster",
-                            name = resolveBadgeName("broadcaster", null, isTurkish, resContext),
+                            name = resolveBadgeName("broadcaster", null, resContext),
                             drawableRes = R.drawable.broadcaster_badge,
                             sortOrder = badgeInfo.sortOrder ?: 1
                         )
@@ -150,7 +146,7 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_verified",
-                            name = resolveBadgeName("verified", null, isTurkish, resContext),
+                            name = resolveBadgeName("verified", null, resContext),
                             drawableRes = R.drawable.verified_badge,
                             sortOrder = badgeInfo.sortOrder ?: 2
                         )
@@ -161,7 +157,7 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_moderator",
-                            name = resolveBadgeName("moderator", null, isTurkish, resContext),
+                            name = resolveBadgeName("moderator", null, resContext),
                             drawableRes = R.drawable.moderator_badge,
                             sortOrder = badgeInfo.sortOrder ?: 3
                         )
@@ -172,7 +168,7 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_og",
-                            name = resolveBadgeName("og", null, isTurkish, resContext),
+                            name = resolveBadgeName("og", null, resContext),
                             drawableRes = R.drawable.og_badge,
                             sortOrder = badgeInfo.sortOrder ?: 4
                         )
@@ -183,7 +179,7 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_vip",
-                            name = resolveBadgeName("vip", null, isTurkish, resContext),
+                            name = resolveBadgeName("vip", null, resContext),
                             drawableRes = R.drawable.vip_badge,
                             sortOrder = badgeInfo.sortOrder ?: 5
                         )
@@ -194,7 +190,7 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_founder",
-                            name = resolveBadgeName("founder", null, isTurkish, resContext),
+                            name = resolveBadgeName("founder", null, resContext),
                             drawableRes = R.drawable.founder_badge,
                             sortOrder = badgeInfo.sortOrder ?: 6
                         )
@@ -214,7 +210,7 @@ object ChatTextParser {
                     result.add(
                         ResolvedChatBadge(
                             key = "badge_local_gifter_$count",
-                            name = resolveBadgeName("sub_gifter", badgeInfo.count, isTurkish, resContext),
+                            name = resolveBadgeName("sub_gifter", badgeInfo.count, resContext),
                             drawableRes = drawableRes,
                             sortOrder = badgeInfo.sortOrder ?: 8,
                             count = count
@@ -238,7 +234,7 @@ object ChatTextParser {
                         result.add(
                             ResolvedChatBadge(
                                 key = if (matchedChannelBadge != null) "badge_sub_${matchedChannelBadge.id}_$months" else "badge_sub_$months",
-                                name = resolveBadgeName("subscriber", badgeInfo.count, isTurkish, resContext),
+                                name = resolveBadgeName("subscriber", badgeInfo.count, resContext),
                                 imageUrl = subImageUrl,
                                 sortOrder = badgeInfo.sortOrder ?: 9,
                                 months = months
@@ -255,48 +251,47 @@ object ChatTextParser {
     fun resolveBadgeName(
         type: String,
         count: Int?,
-        isTurkish: Boolean,
         context: Context? = null
     ): String {
         return when (type.lowercase()) {
             "broadcaster" -> context?.getString(R.string.badge_broadcaster)
-                ?: if (isTurkish) "Yayıncı" else "Broadcaster"
+                ?: "Broadcaster"
             "verified" -> context?.getString(R.string.badge_verified)
-                ?: if (isTurkish) "Doğrulanmış" else "Verified"
+                ?: "Verified"
             "moderator" -> context?.getString(R.string.badge_moderator)
-                ?: if (isTurkish) "Moderatör" else "Moderator"
+                ?: "Moderator"
             "og" -> context?.getString(R.string.badge_og)
                 ?: "OG"
             "vip" -> context?.getString(R.string.badge_vip)
                 ?: "VIP"
             "founder" -> context?.getString(R.string.badge_founder)
-                ?: if (isTurkish) "Kurucu" else "Founder"
+                ?: "Founder"
             "subscriber" -> {
                 if (count != null && count > 0) {
                     if (count == 1) {
                         context?.getString(R.string.badge_subscriber_month, count)
-                            ?: if (isTurkish) "1 Aylık Abone" else "1-Month Subscriber"
+                            ?: "1-Month Subscriber"
                     } else {
                         context?.getString(R.string.badge_subscriber_months, count)
-                            ?: if (isTurkish) "$count Aylık Abone" else "$count-Months Subscriber"
+                            ?: "$count-Months Subscriber"
                     }
                 } else {
                     context?.getString(R.string.badge_subscriber)
-                        ?: if (isTurkish) "Abone" else "Subscriber"
+                        ?: "Subscriber"
                 }
             }
             "sub_gifter", "subgifter", "gifter" -> {
                 if (count != null && count > 0) {
                     if (count == 1) {
                         context?.getString(R.string.badge_gifter_count_single, count)
-                            ?: if (isTurkish) "1 abone hediye etti" else "Gifted 1 sub"
+                            ?: "Gifted 1 sub"
                     } else {
                         context?.getString(R.string.badge_gifter_count, count)
-                            ?: if (isTurkish) "$count abone hediye etti" else "Gifted $count sub"
+                            ?: "Gifted $count sub"
                     }
                 } else {
                     context?.getString(R.string.badge_gifter)
-                        ?: if (isTurkish) "Abonelik hediye eden" else "Sub Gifter"
+                        ?: "Sub Gifter"
                 }
             }
             else -> type
@@ -736,10 +731,11 @@ object ChatTextParser {
         segments: List<EventTextSegment>,
         boldColor: Color,
         mutedColor: Color,
-        fontSizeSp: Int
+        fontSizeSp: Int,
+        onUsernameClick: ((String) -> Unit)? = null
     ): ParsedChatMessage {
         val safeFontSizeSp = fontSizeSp.coerceAtLeast(10)
-        return remember(iconRes, iconTint, segments, boldColor, mutedColor, safeFontSizeSp) {
+        return remember(iconRes, iconTint, segments, boldColor, mutedColor, safeFontSizeSp, onUsernameClick) {
             val inlineContentMap = mutableMapOf<String, InlineTextContent>()
             val iconSizeSp = (safeFontSizeSp + 2).sp
             val iconWidthSp = (safeFontSizeSp + 5).sp
@@ -769,17 +765,7 @@ object ChatTextParser {
                 }
                 appendSafeInlineContent(iconId, alternateText = "[icon]")
 
-                for (segment in segments) {
-                    if (segment.text.isEmpty()) continue
-                    val resolvedColor = segment.color ?: if (segment.isBold) boldColor else mutedColor
-                    val style = SpanStyle(
-                        color = resolvedColor,
-                        fontWeight = if (segment.isBold) FontWeight.Bold else FontWeight.Normal
-                    )
-                    withStyle(style) {
-                        append(segment.text)
-                    }
-                }
+                append(buildEventAnnotatedString(segments, boldColor, mutedColor, onUsernameClick))
             }
 
             ParsedChatMessage(annotatedString, inlineContentMap)
