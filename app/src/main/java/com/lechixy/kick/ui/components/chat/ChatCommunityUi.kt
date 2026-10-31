@@ -32,6 +32,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -75,9 +76,9 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.lechixy.kick.R
-import com.lechixy.kick.ui.components.StreakBatteryAnimation
 import com.lechixy.kick.data.model.chat.ActiveChatter
 import com.lechixy.kick.data.model.chat.ActiveChatters
+import com.lechixy.kick.ui.components.StreakBatteryAnimation
 
 @Composable
 internal fun ActiveChattersContent(
@@ -183,14 +184,13 @@ internal fun LevelAvatarAnimation(level: Int?, modifier: Modifier = Modifier) {
 internal fun KickUserProfileDialog(state: UserProfileCardUiState, onClose: () -> Unit, onFollow: () -> Unit, onMute: () -> Unit, onChannelClick: () -> Unit = {}) {
     ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         sheetMaxWidth = 440.dp, containerColor = Color(0xFF131517), dragHandle = null) {
-        KickUserProfileCard(state, onClose, onFollow, onMute, Modifier.navigationBarsPadding(), onChannelClick)
+        KickUserProfileCard(state, onFollow, onMute, Modifier.navigationBarsPadding(), onChannelClick)
     }
 }
 
 @Composable
 fun KickUserProfileCard(
     uiState: UserProfileCardUiState,
-    onClose: () -> Unit = {},
     onFollowClick: () -> Unit = {},
     onMuteClick: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -226,7 +226,7 @@ fun KickUserProfileCard(
                         Modifier.size(64.dp).clip(CircleShape).background(Color(0xFF181B1E)).then(LevelBorderModifier(accent, CircleShape, 2.dp)))
                 }
                 Text(uiState.username, Modifier.offset(y = (-28).dp), fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                KickBadgeRow(uiState.level, uiState.badges, Modifier.offset(y = (-16).dp), uiState.streakDays)
+                KickBadgeRow(uiState.level, uiState.badges, Modifier.offset(y = (-16).dp))
                 if (uiState.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(bottom = 12.dp), color = accent)
                 Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                     ProfileMetric(stringResource(R.string.chatter_joined), localizedProfileDate(uiState.createdAt), Modifier.weight(1f))
@@ -235,16 +235,18 @@ fun KickUserProfileCard(
                         pluralStringResource(R.plurals.chatter_subscription_months, it, it) } ?: "—", Modifier.weight(1f))
                 }
                 uiState.error?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    FilledTonalIconButton(onFollowClick, enabled = uiState.isFollowing != null && !uiState.actionLoading, shape = RoundedCornerShape(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    FilledTonalButton(onFollowClick, enabled = uiState.isFollowing != null && !uiState.actionLoading,
+                        modifier = Modifier.size(48.dp), contentPadding = PaddingValues(0.dp), shape = RoundedCornerShape(8.dp)) {
                         Icon(painterResource(if (uiState.isFollowing == true) R.drawable.favorite_24dp_e3e3e3_fill1_wght400_grad0_opsz24
                             else R.drawable.favorite_24dp_e3e3e3_fill0_wght400_grad0_opsz24), stringResource(if (uiState.isFollowing == true) R.string.chatter_unfollow else R.string.follow))
                     }
-                    com.lechixy.kick.ui.components.FavoriteUserButton(uiState.userId, uiState.username, uiState.slug)
-                    FilledTonalButton(onClick = onChannelClick, enabled = uiState.slug.isNotBlank(), shape = RoundedCornerShape(8.dp)) {
+                    com.lechixy.kick.ui.components.FavoriteUserButton(uiState.userId, uiState.username, uiState.slug,
+                        colors = IconButtonDefaults.filledTonalIconButtonColors())
+                    FilledTonalButton(onClick = onChannelClick, enabled = uiState.slug.isNotBlank(), modifier = Modifier.height(48.dp), shape = RoundedCornerShape(8.dp)) {
                         Text(stringResource(R.string.chatter_channel))
                     }
-                    FilledTonalIconButton(onMuteClick, shape = RoundedCornerShape(8.dp)) {
+                    FilledTonalButton(onMuteClick, modifier = Modifier.size(48.dp), contentPadding = PaddingValues(0.dp), shape = RoundedCornerShape(8.dp)) {
                         Icon(painterResource(if (uiState.isMuted) R.drawable.volume_off_24dp_e3e3e3_fill0_wght400_grad0_opsz24
                             else R.drawable.volume_up_24dp_e3e3e3_fill0_wght400_grad0_opsz24), stringResource(if (uiState.isMuted) R.string.chatter_unmute else R.string.chatter_mute))
                     }
@@ -259,12 +261,14 @@ fun LevelBorderModifier(accentColor: Color, shape: Shape, strokeWidth: Dp = 1.5.
     Modifier.border(strokeWidth, Brush.linearGradient(listOf(accentColor.copy(alpha = .65f), accentColor)), shape)
 
 @Composable
-fun KickBadgeRow(level: Int?, badges: List<ResolvedChatBadge>, modifier: Modifier = Modifier, streakDays: Int? = null) {
+fun KickBadgeRow(level: Int?, badges: List<ResolvedChatBadge>, modifier: Modifier = Modifier) {
     Row(modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         level?.let { Surface(color = KickLevelTier.fromLevel(it).accentColor, shape = RoundedCornerShape(6.dp)) {
             Text("$it", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = Color.Black, fontWeight = FontWeight.Bold)
         } }
-        Spacer(Modifier.size(4.dp))
+        if (badges.isNotEmpty()) {
+            Spacer(Modifier.size(4.dp))
+        }
         badges.sortedBy { it.sortOrder }.forEach { badge ->
             if (badge.level == null) BadgeTooltip(badge) {
                 val label = badgeLabel(badge)
@@ -287,5 +291,5 @@ private fun ProfileMetric(label: String, value: String, modifier: Modifier) {
 @Composable
 private fun KickUserProfileCardPreview() {
     MaterialTheme { KickUserProfileCard(UserProfileCardUiState(username = "Lazonaaa", level = 40, streakDays = 1,
-        createdAt = "Feb 16, 2024", followingSince = "Mar 4, 2024", subscribedMonths = 26, isFollowing = true, isLoading = false), {}, {}, {}) }
+        createdAt = "Feb 16, 2024", followingSince = "Mar 4, 2024", subscribedMonths = 26, isFollowing = true, isLoading = false), {}, {}) }
 }

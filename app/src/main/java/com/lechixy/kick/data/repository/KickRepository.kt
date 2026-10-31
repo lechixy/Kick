@@ -63,6 +63,9 @@ class KickRepository(
             ?: error("Kayıt için VOD kimliği bulunamadı")
     }
 
+    suspend fun getPopularChannelClips(channelId: Long) = api.getPopularChannelClips(channelId).data.clips
+    suspend fun getRecentChannelCategories(channelId: Long) = api.getRecentChannelCategories(channelId).data
+
     suspend fun getClip(id: String) = api.getClip(id).clip
 
     suspend fun getChannelClips(slug: String) =

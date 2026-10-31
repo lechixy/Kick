@@ -74,6 +74,8 @@ fun DeveloperToolsScreen(onBackClick: () -> Unit, onTriggerLive: () -> Unit, can
 
 @Composable
 private fun DeveloperToolsContent(onTriggerLive: () -> Unit, canTriggerLive: Boolean) {
+    PlayerDiagnosticsContent()
+    HorizontalDivider()
     val state by ViewerTrackingDiagnostics.state.collectAsStateWithLifecycle()
     fun time(value: Long?) = value?.let { DateFormat.getTimeInstance().format(Date(it)) } ?: "—"
     Button(onClick = onTriggerLive, enabled = canTriggerLive) { Text(stringResource(R.string.developer_trigger_live)) }
@@ -93,6 +95,52 @@ private fun DeveloperToolsContent(onTriggerLive: () -> Unit, canTriggerLive: Boo
     Text(stringResource(R.string.developer_socket_times, time(state.connectedAt), time(state.lastPing), time(state.lastPong),
         state.latencyMs?.toString() ?: "—", time(state.lastHandshake), time(state.lastWatchEvent), state.reconnects), style = MaterialTheme.typography.bodySmall)
     state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+}
+
+@Composable
+private fun PlayerDiagnosticsContent() {
+    val state by com.lechixy.kick.service.PlaybackDiagnostics.state.collectAsStateWithLifecycle()
+    fun number(value: Number?, digits: Int = 1): String = value?.let {
+        String.format(java.util.Locale.getDefault(), "%.${digits}f", it.toDouble()).trim()
+    } ?: "—"
+    Text(stringResource(R.string.developer_player), style = MaterialTheme.typography.titleMedium)
+    if (!state.active) {
+        Text(stringResource(R.string.developer_player_idle), style = MaterialTheme.typography.bodySmall)
+        state.errorCode?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        return
+    }
+    val mode = when {
+        state.buffering -> R.string.developer_player_buffering
+        !state.playing -> R.string.developer_player_paused
+        !state.live -> R.string.developer_player_recording
+        state.requestedSpeed != 1f -> R.string.developer_player_manual
+        state.speed > 1.001f -> R.string.developer_player_catching_up
+        state.speed < .999f -> R.string.developer_player_slowing
+        else -> R.string.developer_player_steady
+    }
+    Text(stringResource(mode), color = MaterialTheme.colorScheme.primary)
+    Text(stringResource(R.string.developer_player_speed, number(state.speed, 3), number(state.requestedSpeed, 3)),
+        style = MaterialTheme.typography.bodySmall)
+    if (state.live) {
+        Text(stringResource(R.string.developer_player_offsets, number(state.liveOffsetMs?.div(1000.0)),
+            number(state.targetOffsetMs?.div(1000.0)), number(state.behindTargetMs?.div(1000.0))),
+            style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.developer_player_offset_note), style = MaterialTheme.typography.bodySmall)
+    }
+    Text(stringResource(R.string.developer_player_buffer, number(state.bufferedMs / 1000.0), state.rebuffers,
+        number(state.bufferingMs / 1000.0)), style = MaterialTheme.typography.bodySmall)
+    Text(stringResource(R.string.developer_player_frames, state.droppedFrames, state.skippedFrames, state.renderedFrames),
+        style = MaterialTheme.typography.bodySmall)
+    state.lastDropAgeMs?.let { age ->
+        Text(stringResource(R.string.developer_player_last_drop, state.lastDropCount, number(age / 1000.0)),
+            style = MaterialTheme.typography.bodySmall)
+    }
+    Text(stringResource(R.string.developer_player_processing, number(state.processingOffsetMs), state.audioUnderruns),
+        style = MaterialTheme.typography.bodySmall)
+    Text(stringResource(R.string.developer_player_format, state.width?.toString() ?: "—", state.height?.toString() ?: "—",
+        number(state.frameRate), number(state.videoBitrate?.div(1000000.0)), number(state.bandwidthBps?.div(1000000.0))),
+        style = MaterialTheme.typography.bodySmall)
+    state.errorCode?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 }
 
 /** A bounded, non-focusable application subwindow. It never participates in screen measurement,

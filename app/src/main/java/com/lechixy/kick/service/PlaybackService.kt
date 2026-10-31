@@ -57,6 +57,7 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var progressTracker: PlaybackProgressTracker? = null
+    private var diagnosticTracker: PlaybackDiagnosticTracker? = null
     private val viewerTracking = com.lechixy.kick.data.remote.ViewerTrackingClient(
         // Keep metadata decoding and websocket work off the player/UI thread.
         // A serial dispatcher also keeps the tracking heartbeat state confined.
@@ -99,13 +100,13 @@ class PlaybackService : MediaSessionService() {
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
-        val liveSpeedControl = DefaultLivePlaybackSpeedControl.Builder()
+        val liveSpeedControl = DiagnosticLiveSpeedControl(DefaultLivePlaybackSpeedControl.Builder()
             .setFallbackMinPlaybackSpeed(0.95f)
             .setFallbackMaxPlaybackSpeed(1.10f)
             // The controller still estimates a safe offset from available buffer. Avoid
             // adding a permanent 200ms penalty for every stall in the same broadcast.
             .setTargetLiveOffsetIncrementOnRebufferMs(0L)
-            .build()
+            .build())
 
         val hlsParserFactory = KickHlsPlaylistParserFactory {
             lowLatencyEnabled
@@ -198,6 +199,7 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         })
+        diagnosticTracker = PlaybackDiagnosticTracker(player, liveSpeedControl, serviceScope)
         SleepTimer.attach(this, player, serviceScope)
         progressTracker = PlaybackProgressTracker(player)
         mediaSession = MediaSession.Builder(this, LiveAwarePlayer(player)).build()
@@ -209,6 +211,8 @@ class PlaybackService : MediaSessionService() {
         SleepTimer.detach(this)
         viewerTracking.close()
         com.lechixy.kick.data.remote.NetworkMonitor.reportPlaybackBuffering(false)
+        diagnosticTracker?.close()
+        diagnosticTracker = null
         progressTracker?.close()
         progressTracker = null
         serviceScope.cancel()

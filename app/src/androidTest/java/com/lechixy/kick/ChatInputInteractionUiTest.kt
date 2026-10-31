@@ -90,7 +90,7 @@ class ChatInputInteractionUiTest {
         compose.onAllNodesWithText("0").assertCountEquals(0)
         compose.onAllNodesWithContentDescription(compose.activity.getString(R.string.points_disabled)).assertCountEquals(1)
     }
-    @Test fun tabPagesFollowTheFingerAndSettleAtTheClosestPage() {
+    @Test fun tabPagesFollowTheFingerAndRespondToShortDragsAndFlicks() {
         lateinit var pager: PagerState
         show {
             pager = rememberPagerState { 2 }
@@ -107,10 +107,19 @@ class ChatInputInteractionUiTest {
         // Semantics bounds are clipped by the pager; the outgoing page gets narrower while the next enters.
         assertTrue("Outgoing page should be partially visible: $home / $width", home.width > 0f && home.width < width)
         assertTrue("Incoming page should enter before release: $video / $width", video.left > 0f && video.left < width)
-        compose.onNodeWithTag("pager").performTouchInput { up() }
+        // Holding before release removes fling velocity, so this checks the lower distance threshold.
+        compose.onNodeWithTag("pager").performTouchInput { advanceEventTime(250); up() }
+        compose.mainClock.advanceTimeBy(1000)
+        compose.runOnIdle { assertEquals(1, pager.settledPage) }
+        compose.onNodeWithTag("pager").performTouchInput {
+            down(center); moveBy(Offset(width * .3f, 0f)); advanceEventTime(250); up()
+        }
         compose.mainClock.advanceTimeBy(1000)
         compose.runOnIdle { assertEquals(0, pager.settledPage) }
-        compose.onNodeWithTag("pager").performTouchInput { down(center); moveBy(Offset(-width * .7f, 0f)); up() }
+        // A quick flick can advance even below the positional threshold.
+        compose.onNodeWithTag("pager").performTouchInput {
+            swipe(center, center + Offset(-width * .18f, 0f), durationMillis = 80)
+        }
         compose.mainClock.advanceTimeBy(1000)
         compose.runOnIdle { assertEquals(1, pager.settledPage) }
         compose.mainClock.autoAdvance = true

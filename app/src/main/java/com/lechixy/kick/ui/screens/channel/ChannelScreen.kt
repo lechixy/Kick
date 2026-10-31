@@ -15,10 +15,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerDefaults
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -43,21 +39,19 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -69,6 +63,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -90,9 +85,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lechixy.kick.PlayerHostState
 import com.lechixy.kick.PlayerMode
-import com.lechixy.kick.ui.components.CardSection
-import com.lechixy.kick.ui.components.ContentState
-import com.lechixy.kick.ui.components.LocalContentNavigation
 import com.lechixy.kick.R
 import com.lechixy.kick.data.model.ChannelClip
 import com.lechixy.kick.data.model.ChannelDetail
@@ -106,8 +98,11 @@ import com.lechixy.kick.data.settings.LocalSettingsRepository
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.components.AnimatedCounterText
 import com.lechixy.kick.ui.components.CHAT_WIDTH_FRACTION
+import com.lechixy.kick.ui.components.CardSection
 import com.lechixy.kick.ui.components.ChannelCardSkeleton
+import com.lechixy.kick.ui.components.ContentState
 import com.lechixy.kick.ui.components.LiveBadge
+import com.lechixy.kick.ui.components.LocalContentNavigation
 import com.lechixy.kick.ui.components.SkeletonBlock
 import com.lechixy.kick.ui.components.SkeletonLoadingScope
 import com.lechixy.kick.ui.components.TagChip
@@ -131,7 +126,8 @@ enum class ChannelTab(
     HOME(R.string.home),
     ABOUT(R.string.about),
     VIDEOS(R.string.videos),
-    CLIPS(R.string.clips);
+    CLIPS(R.string.clips),
+    CATEGORIES(R.string.channel_categories);
 
     fun getLabel(context: Context): String {
         return context.getString(this.label)
@@ -156,9 +152,9 @@ fun ChannelScreen(
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val initialIsWide = configuration.screenWidthDp >= WIDE_BREAKPOINT_DP
-    var selectedTab by remember(channelSlug) {
-        mutableStateOf(if (initialIsWide) ChannelTab.HOME else ChannelTab.CHAT)
-    }
+    var compactSelectedTab by remember(channelSlug) { mutableStateOf(ChannelTab.CHAT) }
+    var wideSelectedTab by remember(channelSlug) { mutableStateOf(ChannelTab.HOME) }
+    val selectedTab = if (initialIsWide) wideSelectedTab else compactSelectedTab
 
     val followAction = rememberAccountFollowAction(channelSlug)
 
@@ -267,25 +263,21 @@ fun ChannelScreen(
                     if (isWide) ChannelTab.entries.filter { it != ChannelTab.CHAT }
                     else ChannelTab.entries
                 }
-                val effectiveSelectedTab = if (isWide && selectedTab == ChannelTab.CHAT) {
-                    ChannelTab.HOME
-                } else {
-                    selectedTab
-                }
+                val effectiveSelectedTab = if (isWide) wideSelectedTab else compactSelectedTab
 
-                val pagerState = key(channelSlug, isWide) {
+                val pagerState = key(channelSlug, isWide, isFullScreen) {
                     rememberPagerState(initialPage = visibleTabs.indexOf(effectiveSelectedTab).coerceAtLeast(0)) { visibleTabs.size }
                 }
-                LaunchedEffect(pagerState) {
-                    snapshotFlow { pagerState.settledPage }.collect { selectedTab = visibleTabs[it] }
+                LaunchedEffect(pagerState, isFullScreen) {
+                    snapshotFlow { pagerState.settledPage }.collect {
+                        if (!isFullScreen) {
+                            if (isWide) wideSelectedTab = visibleTabs[it]
+                            else compactSelectedTab = visibleTabs[it]
+                        }
+                    }
                 }
                 LaunchedEffect(pagerState.currentPage, channel?.id) {
                     if (visibleTabs[pagerState.currentPage] == ChannelTab.ABOUT) viewModel.loadAbout()
-                }
-                LaunchedEffect(isWide) {
-                    val target = if (isWide) ChannelTab.HOME else ChannelTab.CHAT
-                    selectedTab = target
-                    pagerState.scrollToPage(visibleTabs.indexOf(target).coerceAtLeast(0))
                 }
                 val bannerWidthPx = remember(screenWidthDp, density) {
                     with(density) { screenWidthDp.toPx().toInt() }
@@ -448,11 +440,13 @@ fun ChannelScreen(
                                                             linksState = state.links, goalState = state.goals,
                                                             onRetryAbout = { viewModel.loadAbout(retry = true) },
                                                             videos = state.videos, clips = state.clips,
+                                                            popularClips = state.popularClips, recentCategories = state.recentCategories,
+                                                            onRetryHome = viewModel::loadHomeSections,
                                                             clipsError = state.clipsError, isClipsLoading = state.isClipsLoading,
                                                             onRetryClips = viewModel::retryClips,
                                                             onPlayRecording = { playerHost?.playRecording(it) },
-                                                            onNavigateToVideos = { scope.launch {
-                                                                pagerState.animateScrollToPage(visibleTabs.indexOf(ChannelTab.VIDEOS))
+                                                            onNavigateToTab = { target -> scope.launch {
+                                                                pagerState.animateScrollToPage(visibleTabs.indexOf(target))
                                                             } }
                                                         )
                                                     }
@@ -780,7 +774,7 @@ private fun ChannelHeaderInfo(
                             }
                             TagChip(
                                 tag = eventTitle,
-                                icon = R.drawable.stars_2_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
+                                icon = R.drawable.local_activity_24dp_e3e3e3_fill0_wght400_grad0_opsz24,
                                 containerColor = eventContainerColor,
                                 contentColor = eventContentColor
                             )
@@ -966,7 +960,8 @@ private fun ChannelTabsRow(
     onTabSelected: (ChannelTab) -> Unit
 ) {
     val selectedIndex = tabs.indexOf(selectedTab).coerceAtLeast(0)
-    PrimaryTabRow(
+    PrimaryScrollableTabRow(
+        edgePadding = 8.dp,
         selectedTabIndex = selectedIndex,
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.primary
@@ -1000,21 +995,39 @@ private fun ChannelTabContent(
     isClipsLoading: Boolean,
     onRetryClips: () -> Unit,
     onPlayRecording: (RecordedPlayback) -> Unit,
-    onNavigateToVideos: () -> Unit
+    popularClips: com.lechixy.kick.data.model.ChannelSectionState<List<ChannelClip>>,
+    recentCategories: com.lechixy.kick.data.model.ChannelSectionState<List<com.lechixy.kick.data.model.BrowseCategory>>,
+    onRetryHome: () -> Unit,
+    onNavigateToTab: (ChannelTab) -> Unit
 ) {
     when (tab) {
         ChannelTab.CHAT -> {
             // Managed in ChannelScreen main layout when selected
         }
 
-        ChannelTab.HOME -> {
+        ChannelTab.HOME -> Column {
             if (videos.isNotEmpty()) CardSection(
                 title = stringResource(R.string.recent_broadcasts), data = videos,
-                modifier = Modifier.padding(16.dp), previewRows = if (LocalConfiguration.current.screenWidthDp < 600) 1 else 2,
-                onMore = onNavigateToVideos) { video ->
+                modifier = Modifier.padding(16.dp), previewRows = 1,
+                onMore = { onNavigateToTab(ChannelTab.VIDEOS) }) { video ->
                 VideoCard(video = video, onClick = { video.toRecording()?.let(onPlayRecording) })
             } else ContentState(stringResource(R.string.no_recent_broadcasts))
+
+            Column(Modifier.padding(16.dp)) {
+                com.lechixy.kick.ui.components.SectionHeader(stringResource(R.string.channel_popular_clips),
+                    onMore = { onNavigateToTab(ChannelTab.CLIPS) })
+                when {
+                    popularClips.failed -> ContentState(stringResource(R.string.channel_section_error), onRetryHome)
+                    popularClips.loaded && popularClips.value.orEmpty().isEmpty() -> ContentState(stringResource(R.string.media_no_clips))
+                    else -> CardSection(title = null, data = popularClips.value.orEmpty(), previewRows = 1,
+                        loading = popularClips.loading) { clip -> ChannelClipCard(clip, onPlayRecording) }
+                }
+            }
+            ChannelCategoriesSection(recentCategories, onRetryHome, preview = true,
+                onMore = { onNavigateToTab(ChannelTab.CATEGORIES) })
         }
+
+        ChannelTab.CATEGORIES -> ChannelCategoriesSection(recentCategories, onRetryHome)
 
         ChannelTab.ABOUT -> ChannelAboutTabContent(channel, linksState, goalState, onRetryAbout)
 
@@ -1026,14 +1039,42 @@ private fun ChannelTabContent(
         }
         ChannelTab.CLIPS -> {
             when {
-                clipsError != null -> ContentState(clipsError, onRetryClips)
+                clipsError != null -> ContentState(stringResource(R.string.channel_clips_error), onRetryClips)
                 !isClipsLoading && clips.isEmpty() -> ContentState(stringResource(R.string.media_no_clips))
                 else -> CardSection(title = null, data = clips, modifier = Modifier.padding(16.dp),
                     loading = isClipsLoading, skeleton = { com.lechixy.kick.ui.components.VideoCardSkeleton() }) { clip ->
-                    VideoCard(video = ChannelVideo(id = 0, sessionTitle = clip.title, duration = (clip.duration * 1000).toLong(),
-                        views = clip.views, thumbnail = VideoThumbnail(src = clip.thumbnailUrl)), progressId = clip.id,
-                        onClick = { onPlayRecording(clip.toRecording()) })
+                    ChannelClipCard(clip, onPlayRecording)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelClipCard(clip: ChannelClip, onPlayRecording: (RecordedPlayback) -> Unit) {
+    VideoCard(video = ChannelVideo(id = 0, sessionTitle = clip.title, duration = (clip.duration * 1000).toLong(),
+        views = clip.views, thumbnail = VideoThumbnail(src = clip.thumbnailUrl)), progressId = clip.id,
+        onClick = { onPlayRecording(clip.toRecording()) })
+}
+
+@Composable
+private fun ChannelCategoriesSection(
+    state: com.lechixy.kick.data.model.ChannelSectionState<List<com.lechixy.kick.data.model.BrowseCategory>>,
+    onRetry: () -> Unit, preview: Boolean = false, onMore: (() -> Unit)? = null
+) {
+    val navigation = LocalContentNavigation.current
+    Column(Modifier.padding(16.dp)) {
+        if (preview) com.lechixy.kick.ui.components.SectionHeader(
+            stringResource(R.string.channel_recent_categories), onMore)
+        when {
+            state.failed -> ContentState(stringResource(R.string.channel_section_error), onRetry)
+            state.loaded && state.value.orEmpty().isEmpty() -> ContentState(stringResource(R.string.channel_no_categories))
+            else -> CardSection(title = null, data = state.value.orEmpty(), previewRows = if (preview) 1 else null,
+                loading = state.loading, skeleton = {
+                    com.lechixy.kick.ui.components.CategoryCard(
+                        com.lechixy.kick.data.model.BrowseCategory(name = "", slug = ""), {}, loading = true)
+                }) { category ->
+                com.lechixy.kick.ui.components.CategoryCard(category, { navigation.category(category.slug) })
             }
         }
     }

@@ -26,6 +26,15 @@ import retrofit2.http.Query
 import retrofit2.http.Url
 
 interface KickApi {
+    @GET("https://web.kick.com/api/v1/channels/{channelId}/clips")
+    suspend fun getPopularChannelClips(@Path("channelId") channelId: Long,
+        @Query("sort") sort: String = "views", @Query("time") time: String = "all"
+    ): com.lechixy.kick.data.model.PopularClipsResponse
+
+    @GET("https://web.kick.com/api/v1/channels/{channelId}/recent-categories")
+    suspend fun getRecentChannelCategories(@Path("channelId") channelId: Long
+    ): com.lechixy.kick.data.model.RecentCategoriesResponse
+
     @GET("https://kick.com/api/v1/subcategories")
     suspend fun getCategories(@Query("page") page: Int = 1, @Query("limit") limit: Int = 32): com.lechixy.kick.data.model.CategoriesResponse
 

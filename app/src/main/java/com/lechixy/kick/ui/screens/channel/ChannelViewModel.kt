@@ -40,6 +40,8 @@ data class ChannelUiState(
     val clips: List<ChannelClip> = emptyList(),
     val links: ChannelSectionState<List<KickChannelLinkDto>> = ChannelSectionState(),
     val goals: ChannelSectionState<List<KickGoalDto>> = ChannelSectionState(),
+    val popularClips: ChannelSectionState<List<ChannelClip>> = ChannelSectionState(loading = true),
+    val recentCategories: ChannelSectionState<List<com.lechixy.kick.data.model.BrowseCategory>> = ChannelSectionState(loading = true),
     val clipsError: String? = null,
     val isClipsLoading: Boolean = true,
     val chatHistory: ChatHistoryData? = null,
@@ -328,6 +330,7 @@ class ChannelViewModel(
                 // Clip loading must not delay live playback or channel metadata.
                 startLeaderboardPolling(channel.id)
                 loadClips(slug)
+                loadHomeSections()
                 channel.chatroom?.id?.let { chatroomId ->
                     repository.chatWebSocketClient.seedHistory(channel.id, chatroomId, history?.messages.orEmpty())
                 }
@@ -376,6 +379,26 @@ class ChannelViewModel(
         }
     }
 
+    fun loadHomeSections() {
+        val channel = _uiState.value.channel ?: return
+        viewModelScope.launch {
+            launch {
+                _uiState.update { it.copy(popularClips = ChannelSectionState(loading = true)) }
+                val result = try { ChannelSectionState(value = repository.getPopularChannelClips(channel.id), loaded = true) }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { ChannelSectionState<List<ChannelClip>>(failed = true) }
+                _uiState.update { if (it.channel?.id == channel.id) it.copy(popularClips = result) else it }
+            }
+            launch {
+                _uiState.update { it.copy(recentCategories = ChannelSectionState(loading = true)) }
+                val result = try { ChannelSectionState(value = repository.getRecentChannelCategories(channel.id), loaded = true) }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { ChannelSectionState<List<com.lechixy.kick.data.model.BrowseCategory>>(failed = true) }
+                _uiState.update { if (it.channel?.id == channel.id) it.copy(recentCategories = result) else it }
+            }
+        }
+    }
+
     fun retryClips() {
         loadedSlug?.let { loadClips(it) }
     }
@@ -390,7 +413,7 @@ class ChannelViewModel(
                 throw cancelled
             } catch (_: Exception) {
                 if (loadedSlug == slug) _uiState.update {
-                    it.copy(isClipsLoading = false, clipsError = "Klipler yüklenemedi")
+                    it.copy(isClipsLoading = false, clipsError = "load_failed")
                 }
             }
         }
