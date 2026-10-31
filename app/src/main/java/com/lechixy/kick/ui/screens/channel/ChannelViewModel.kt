@@ -79,7 +79,7 @@ class ChannelViewModel(
 
     fun loadEmotes(retry: Boolean = false) {
         val slug = loadedSlug ?: return
-        val cached = emoteCache[slug]
+        val cached = emoteCache[slug].takeUnless { retry }
         if (cached != null) {
             _emotes.value = com.lechixy.kick.data.model.chat.EmotePickerUiState(categories = cached)
             return
@@ -89,7 +89,8 @@ class ChannelViewModel(
         _emotes.value = com.lechixy.kick.data.model.chat.EmotePickerUiState(isLoading = true)
         emotesJob = viewModelScope.launch {
             try {
-                val categories = repository.getEmotes(slug)
+                val categories = if (com.lechixy.kick.data.account.AccountGraph.auth.session.value.signedIn)
+                    com.lechixy.kick.data.account.AccountGraph.chat.emotes(slug) else repository.getEmotes(slug)
                 emoteCache[slug] = categories
                 if (loadedSlug == slug) _emotes.value = com.lechixy.kick.data.model.chat.EmotePickerUiState(categories = categories)
             } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
@@ -117,6 +118,9 @@ class ChannelViewModel(
                 .collect { session ->
                     if (observedAccount != (session.generation to session.profile?.userId)) {
                         observedAccount = session.generation to session.profile?.userId
+                        emotesJob?.cancel()
+                        emoteCache.clear()
+                        loadEmotes(retry = true)
                         repository.chatWebSocketClient.refreshAccountConnection()
                     }
                 }

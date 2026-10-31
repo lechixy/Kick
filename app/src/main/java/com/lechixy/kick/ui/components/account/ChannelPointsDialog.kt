@@ -38,22 +38,27 @@ internal fun ChannelPointsDialog(
     kicks: Long?,
     onDismiss: () -> Unit,
     ownChannel: Boolean = false,
+    pointsEnabled: Boolean? = null,
     lastPointUpdate: java.time.Instant? = null,
     nextPointAward: java.time.Instant? = null
 ) {
+    var enabled by remember(channel.slug) { mutableStateOf(pointsEnabled) }
     var rewards by remember(channel.slug) { mutableStateOf<List<ChannelReward>?>(null) }
     var failed by remember(channel.slug) { mutableStateOf(false) }
     var retry by remember { mutableIntStateOf(0) }
     LaunchedEffect(channel.slug, retry) {
         failed = false
-        try { rewards = AccountGraph.chat.rewards(channel) }
+        try {
+            enabled = AccountGraph.chat.channelPointSettings(channel).enabled
+            rewards = if (enabled == true) AccountGraph.chat.rewards(channel) else emptyList()
+        }
         catch (failure: Exception) {
             if (failure is CancellationException) throw failure
             failed = true
         }
     }
     ChannelPointsPanel(channel.user?.username ?: channel.slug, rewards, failed, points, kicks,
-        onRetry = { retry++ }, onDismiss = onDismiss, ownChannel = ownChannel,
+        onRetry = { retry++ }, onDismiss = onDismiss, ownChannel = ownChannel, pointsEnabled = enabled,
         lastPointUpdate = lastPointUpdate, nextPointAward = nextPointAward)
 }
 
@@ -67,6 +72,7 @@ internal fun ChannelPointsPanel(
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
     ownChannel: Boolean = false,
+    pointsEnabled: Boolean? = null,
     lastPointUpdate: java.time.Instant? = null,
     nextPointAward: java.time.Instant? = null
 ) {
@@ -91,6 +97,7 @@ internal fun ChannelPointsPanel(
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Box(Modifier.fillMaxWidth().weight(1f, fill = false), contentAlignment = Alignment.Center) {
                     when {
+                        pointsEnabled == false -> com.lechixy.kick.ui.components.ContentState(stringResource(R.string.points_disabled))
                         failed -> Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(stringResource(R.string.channel_rewards_failed), textAlign = TextAlign.Center)
                             TextButton(onClick = onRetry) { Text(stringResource(R.string.chat_retry)) }
@@ -114,9 +121,9 @@ internal fun ChannelPointsPanel(
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    BalancePill(points, isKicks = false, unlimited = ownChannel)
+                    BalancePill(points, isKicks = false, unlimited = ownChannel, unavailable = pointsEnabled == false)
                     BalancePill(kicks, isKicks = true)
-                    if (!ownChannel) PointsUpdateTime(lastPointUpdate, nextPointAward, Modifier.weight(1f))
+                    if (!ownChannel && pointsEnabled != false) PointsUpdateTime(lastPointUpdate, nextPointAward, Modifier.weight(1f))
                 }
             }
         }
@@ -155,24 +162,26 @@ private fun RewardItemCard(reward: ChannelReward) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun BalanceTooltip(balance: Long?, isKicks: Boolean = false, unlimited: Boolean = false, content: @Composable () -> Unit) {
+internal fun BalanceTooltip(balance: Long?, isKicks: Boolean = false, unlimited: Boolean = false, unavailable: Boolean = false, content: @Composable () -> Unit) {
     val exactBalance = remember(balance) { balance?.let(::formatExactBalance) ?: "—" }
-    val label = if (unlimited) stringResource(R.string.points_unlimited) else stringResource(if (isKicks) R.string.channel_kicks_exact else R.string.channel_points_exact,
+    val label = if (unavailable) stringResource(R.string.points_disabled) else if (unlimited) stringResource(R.string.points_unlimited) else stringResource(if (isKicks) R.string.channel_kicks_exact else R.string.channel_points_exact,
         exactBalance)
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
         tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) { content() }
 }
 
 @Composable
-private fun BalancePill(balance: Long?, isKicks: Boolean, unlimited: Boolean = false) {
-    BalanceTooltip(balance, isKicks, unlimited) {
+private fun BalancePill(balance: Long?, isKicks: Boolean, unlimited: Boolean = false, unavailable: Boolean = false) {
+    BalanceTooltip(balance, isKicks, unlimited, unavailable) {
         Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(painterResource(if (isKicks) R.drawable.channel_kicks_badge else R.drawable.bubble_chart_24dp_e3e3e3_fill1_wght400_grad0_opsz24),
                     stringResource(if (isKicks) R.string.chat_kicks_balance else R.string.chat_channel_points),
                     Modifier.size(22.dp), tint = if (isKicks) Color.Unspecified else MaterialTheme.colorScheme.primary)
-                if (unlimited) Icon(painterResource(R.drawable.all_inclusive_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+                if (unavailable) Icon(painterResource(R.drawable.points_unavailable), stringResource(R.string.points_disabled),
+                    Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                else if (unlimited) Icon(painterResource(R.drawable.all_inclusive_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                     stringResource(R.string.points_unlimited), Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                 else Text(balance?.let(::formatExactBalance) ?: "—", fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.labelLarge)

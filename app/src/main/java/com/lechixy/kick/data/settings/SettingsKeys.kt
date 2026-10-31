@@ -105,9 +105,9 @@ object SettingsKeys {
     )
     val MINI_PLAYER_WIDTH_DP = SettingKey(
         key = floatPreferencesKey("mini_player_width_dp"),
-        defaultValue = 240f,
+        defaultValue = MiniPlayerSize.DEFAULT_WIDTH_DP,
         type = SettingType.FloatType,
-        validator = { it in 140f..500f }
+        validator = { it in MiniPlayerSize.MIN_WIDTH_DP..MiniPlayerSize.MAX_WIDTH_DP }
     )
 
     val RECOMMENDED_LIVESTREAM_LANGUAGE = SettingKey(

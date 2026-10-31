@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.settings.SettingDropdown
 import com.lechixy.kick.ui.settings.SettingSection
+import com.lechixy.kick.ui.settings.SettingFloatSlider
 import com.lechixy.kick.ui.settings.SettingSlider
 import com.lechixy.kick.ui.settings.SettingSwitch
 import com.lechixy.kick.ui.settings.SettingsTopBar
@@ -44,6 +45,12 @@ fun PlayerPlaybackSettingsScreen(
                         title = stringResource(R.string.player_section),
                         description = stringResource(R.string.player_section_description)
                     ) {
+                        SettingSwitch(key = SettingsKeys.AUTOPLAY, title = stringResource(R.string.player_autoplay))
+                        SettingSwitch(key = SettingsKeys.SYNC_PLAYER_VOLUME_WITH_DEVICE,
+                            title = stringResource(R.string.settings_volume_sync),
+                            description = stringResource(R.string.settings_volume_sync_description), enabled = false)
+                        SettingFloatSlider(key = SettingsKeys.MINI_PLAYER_WIDTH_DP, title = stringResource(R.string.settings_mini_width),
+                            valueRange = com.lechixy.kick.data.settings.MiniPlayerSize.MIN_WIDTH_DP..com.lechixy.kick.data.settings.MiniPlayerSize.MAX_WIDTH_DP, steps = 24, valueFormatter = { "${it.toInt()} dp" })
                         SettingSwitch(
                             key = SettingsKeys.PIP_ENABLED,
                             title = stringResource(R.string.player_pip),
@@ -72,14 +79,7 @@ fun PlayerPlaybackSettingsScreen(
                                 1080 to "1080p (FHD)"
                             )
                         )
-                        SettingSlider(
-                            key = SettingsKeys.CHAT_FONT_SIZE,
-                            title = stringResource(R.string.player_chat_font),
-                            description = stringResource(R.string.player_chat_font_description),
-                            valueRange = 10f..24f,
-                            steps = 13,
-                            valueFormatter = { "${it}sp" }
-                        )
+
                     }
                 }
             }

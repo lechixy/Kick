@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.lechixy.kick.data.account.*
+import com.lechixy.kick.ui.components.SectionHeader
 
 @Composable
 fun FollowedChannelCard(channel: FollowedChannel, modifier: Modifier = Modifier, onClick: () -> Unit) {
@@ -34,7 +35,9 @@ fun AccountFollowingSection(onChannelClick: (String) -> Unit) {
     val state by AccountGraph.following.state.collectAsStateWithLifecycle()
     if (!session.signedIn) return
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Takip edilen kanallar", style = MaterialTheme.typography.titleMedium)
+        SectionHeader("Takip edilen kanallar",
+            onMore = if (state.nextCursor != null) AccountGraph.following::loadMore else null,
+            moreEnabled = !state.loading)
         if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         state.error?.let {
             Text(it, color = MaterialTheme.colorScheme.error)
@@ -46,6 +49,5 @@ fun AccountFollowingSection(onChannelClick: (String) -> Unit) {
                 FollowedChannelCard(channel, Modifier.width(280.dp)) { onChannelClick(channel.slug) }
             }
         }
-        if (state.nextCursor != null) TextButton(onClick = AccountGraph.following::loadMore, enabled = !state.loading) { Text("Daha fazla yükle") }
     }
 }

@@ -49,6 +49,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -80,18 +82,32 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun ChallengesButton() {
     val session by AccountGraph.auth.session.collectAsStateWithLifecycle()
     var open by remember { mutableStateOf(false) }
     if (!session.signedIn) return
+    val availability by AccountGraph.challenges.state.collectAsStateWithLifecycle()
+    var availabilityNow by remember { mutableStateOf(Instant.now()) }
+    val availabilityLifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(session.generation, availabilityLifecycle) {
+        availabilityLifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                availabilityNow = Instant.now()
+                AccountGraph.challenges.refresh()
+                delay(60_000.milliseconds)
+            }
+        }
+    }
+    val available = availability.challenges.any { it.canClaim(availabilityNow) }
+    val accessibilityLabel = stringResource(R.string.challenges_title)
     Surface(onClick = { open = true }, shape = CircleShape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 2.dp,
-        modifier = Modifier.size(46.dp)) {
+        modifier = Modifier.size(46.dp).semantics { contentDescription = accessibilityLabel }) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(painterResource(R.drawable.rewarded_ads_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                contentDescription = stringResource(R.string.challenges_title))
+            RewardAvailability(available)
         }
     }
     if (open) {
@@ -103,9 +119,9 @@ fun ChallengesButton() {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     AccountGraph.dashboard.refresh()
-                    while (true) { AccountGraph.challenges.refresh(); delay(60_000) }
+                    while (true) { AccountGraph.challenges.refresh(); delay(60_000.milliseconds) }
                 }
-                while (true) { now = Instant.now(); delay(1_000) }
+                while (true) { now = Instant.now(); delay(1_000.milliseconds) }
             }
         }
         ChallengeDialog(state, dashboard.streak?.days, now, onRefresh = AccountGraph.challenges::refresh,
@@ -325,13 +341,13 @@ private fun previewChallenge(featured: Boolean) = Challenge(
     featured = featured, window = Window("2026-10-28T00:00:00Z", "2026-10-29T00:00:00Z"),
     activePeriod = if (featured) Window("2026-10-24T00:00:00Z", "2026-11-01T00:00:00Z") else null
 )
-@Preview(name = "Daily reward · phone", widthDp = 360, heightDp = 780, showBackground = true)
+@Preview(name = "Daily reward Â· phone", widthDp = 360, heightDp = 780, showBackground = true)
 @Composable
 private fun DailyRewardPreview() {
     KickTheme(theme = Theme.DARK, dynamicColor = false) { Surface { ChallengeDialogContent(ChallengesState(listOf(previewChallenge(false)), loaded = true),
         0, Instant.parse("2026-10-28T12:00:00Z"), {}, {}, {}) } }
 }
-@Preview(name = "Featured event · tablet sheet", widthDp = 480, heightDp = 900, showBackground = true)
+@Preview(name = "Featured event Â· tablet sheet", widthDp = 480, heightDp = 900, showBackground = true)
 @Composable
 private fun FeaturedRewardPreview() {
     KickTheme(theme = Theme.DARK, dynamicColor = false) { Surface { ChallengeDialogContent(ChallengesState(listOf(previewChallenge(true)), loaded = true),

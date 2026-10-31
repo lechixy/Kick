@@ -6,26 +6,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -46,17 +33,21 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.lechixy.kick.R
+import com.lechixy.kick.ui.components.CategoryRow
+import com.lechixy.kick.ui.components.ContentGrid
+import com.lechixy.kick.ui.components.ContentState
 import com.lechixy.kick.ui.components.ExpansionSource
 import com.lechixy.kick.ui.components.HomeTopBar
 import com.lechixy.kick.ui.components.LiveTotalsButton
+import com.lechixy.kick.ui.components.LocalContentNavigation
+import com.lechixy.kick.ui.components.SectionHeader
 import com.lechixy.kick.ui.components.SkeletonLoadingScope
 import com.lechixy.kick.ui.components.StreamCard
 import com.lechixy.kick.ui.components.StreamCardSkeleton
+import com.lechixy.kick.ui.components.cardSection
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,9 +55,13 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
     onStreamClick: (channelSlug: String, source: ExpansionSource?) -> Unit,
-    onSettingsClick: () -> Unit,
+    onCategoryClick: (String) -> Unit = com.lechixy.kick.ui.components.LocalContentNavigation.current.category,
     onFollowingClick: () -> Unit
 ) {
+    val followingTitle = stringResource(R.string.home_following_live)
+    val recommendedTitle = stringResource(R.string.home_recommended_live)
+    val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 600
+    val navigation = LocalContentNavigation.current
     val state by viewModel.uiState.collectAsState()
     val pullState = rememberPullToRefreshState()
     val gridState = rememberLazyGridState()
@@ -89,15 +84,12 @@ fun HomeScreen(
         }
     }
 
-    val isDataSaverActive = false
-
-    SkeletonLoadingScope(active = (state.isLoading && state.streams.isEmpty()) ||
+    SkeletonLoadingScope(active = state.isLoading || state.isRefreshing ||
         (state.following.signedIn && state.following.loading && state.following.streams.isEmpty())) {
         Scaffold(
             topBar = {
                 HomeTopBar(
-                    onSearchClick = {},
-                    onSettingsClick = onSettingsClick,
+                    onSearchClick = { navigation.browse("") },
                     onChannelClick = { onStreamClick(it, null) }
                 )
             }
@@ -120,79 +112,35 @@ fun HomeScreen(
                 }
             ) {
                 val streams = remember(state.streams) { state.streams.distinctBy { it.id } }
-                val categories = remember(streams) {
-                    streams.mapNotNull { it.category }.distinctBy { it.id }
-                        .sortedByDescending { category -> streams.count { it.category?.id == category.id } }
-                        .take(10)
-                }
-                LazyVerticalGrid(
-                    state = gridState,
-                    columns = GridCells.Adaptive(minSize = 280.dp),
-                    modifier = Modifier.fillMaxSize().nestedScroll(totalsScrollConnection),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp,
-                        bottom = if (state.liveTotals != null) 100.dp else 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
+                ContentGrid(state = gridState, modifier = Modifier.fillMaxSize().nestedScroll(totalsScrollConnection)) { columns ->
+                    val loading = state.isLoading || state.isRefreshing
                     if (state.following.signedIn) {
-                        item(key = "following_header", span = { GridItemSpan(maxLineSpan) }) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(stringResource(R.string.home_following_live), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                                    TextButton(onClick = onFollowingClick) { Text(stringResource(R.string.home_more)) }
-                                }
-                                state.following.error?.let {
-                                    Text(it, color = MaterialTheme.colorScheme.error)
-                                    TextButton(onClick = viewModel::loadFollowing) { Text(stringResource(R.string.chat_retry)) }
-                                }
-                                if (state.following.loaded && state.following.streams.isEmpty()) {
-                                    Text(stringResource(R.string.home_no_following_live), style = MaterialTheme.typography.bodyMedium)
-                                }
-                            }
+                        cardSection("following", followingTitle, state.following.streams,
+                            columns, loading = state.following.loading, previewRows = if (wide) 2 else 1,
+                            onMore = onFollowingClick, itemKey = { it.id }, skeleton = { StreamCardSkeleton() }) { stream ->
+                            StreamCard(stream, onClick = { stream.channel?.slug?.let { onStreamClick(it, null) } },
+                                onClickWithSource = { source -> stream.channel?.slug?.let { onStreamClick(it, source) } },
+                                onCategoryClick = onCategoryClick)
                         }
-                        if (state.following.loading && state.following.streams.isEmpty()) {
-                            items(2, key = { "following_skeleton_$it" }) { StreamCardSkeleton() }
-                        }
-                        items(state.following.streams, key = { "following_${it.id}" }) { stream ->
-                            StreamCard(
-                                stream = stream,
-                                isDataSaverActive = isDataSaverActive,
-                                onClick = { stream.channel?.slug?.let { onStreamClick(it, null) } },
-                                onClickWithSource = { source -> stream.channel?.slug?.let { onStreamClick(it, source) } }
-                            )
+                        if (!state.following.loading) {
+                            state.following.error?.let { message -> item(span = { GridItemSpan(maxLineSpan) }) {
+                                ContentState(message, viewModel::loadFollowing)
+                            } }
+                            if (state.following.loaded && state.following.streams.isEmpty() && state.following.error == null)
+                                item(span = { GridItemSpan(maxLineSpan) }) { ContentState(stringResource(R.string.home_no_following_live)) }
                         }
                     }
-                    state.error?.let { error ->
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            Text(error, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
-                        }
+                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(stringResource(R.string.section_categories), onMore = { onCategoryClick("") }) }
+                    item(span = { GridItemSpan(maxLineSpan) }) { CategoryRow(state.categories, loading, onCategoryClick) }
+                    state.categoriesError?.let { message -> item(span = { GridItemSpan(maxLineSpan) }) { ContentState(message, viewModel::loadStreams) } }
+                    state.error?.let { message -> item(span = { GridItemSpan(maxLineSpan) }) { ContentState(message, viewModel::loadStreams) } }
+                    cardSection("recommended", recommendedTitle, streams, columns,
+                        loading = loading, itemKey = { it.id }, skeleton = { StreamCardSkeleton() }) { stream ->
+                        StreamCard(stream, onClick = { stream.channel?.slug?.let { onStreamClick(it, null) } },
+                            onClickWithSource = { source -> stream.channel?.slug?.let { onStreamClick(it, source) } },
+                            onCategoryClick = onCategoryClick)
                     }
-                    if (categories.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(stringResource(R.string.home_popular_categories), style = MaterialTheme.typography.titleSmall)
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    items(categories, key = { it.id }) { category ->
-                                        AssistChip(onClick = {}, label = { Text(category.name) })
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text(stringResource(R.string.home_recommended_live), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    }
-                    if (state.isLoading && streams.isEmpty()) {
-                        items(6, key = { "recommended_skeleton_$it" }) { StreamCardSkeleton() }
-                    }
-                    items(streams, key = { "recommended_${it.id}" }) { stream ->
-                        StreamCard(
-                            stream = stream,
-                            isDataSaverActive = isDataSaverActive,
-                            onClick = { stream.channel?.slug?.let { onStreamClick(it, null) } },
-                            onClickWithSource = { source -> stream.channel?.slug?.let { onStreamClick(it, source) } }
-                        )
-                    }
+                    item(span = { GridItemSpan(maxLineSpan) }) { androidx.compose.foundation.layout.Spacer(Modifier.padding(bottom = 80.dp)) }
                 }
                 AnimatedVisibility(
                     visible = state.liveTotals != null && (totalsVisible || atTop),

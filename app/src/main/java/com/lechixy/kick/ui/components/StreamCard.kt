@@ -1,6 +1,7 @@
 package com.lechixy.kick.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,7 +56,8 @@ fun StreamCard(
     isDataSaverActive: Boolean = false,
     onClick: () -> Unit = {},
     onClickWithSource: ((ExpansionSource) -> Unit)? = null,
-    recordingId: String? = null
+    recordingId: String? = null,
+    onCategoryClick: (String) -> Unit = com.lechixy.kick.ui.components.LocalContentNavigation.current.category
 ) {
     val context = LocalContext.current
     var cardCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -201,6 +203,7 @@ fun StreamCard(
                     stream.category?.let { cat ->
                         Text(
                             text = cat.name,
+                            modifier = Modifier.clickable { onCategoryClick(cat.slug) },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,

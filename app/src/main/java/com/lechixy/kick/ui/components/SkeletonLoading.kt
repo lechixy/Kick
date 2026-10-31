@@ -120,8 +120,6 @@ fun BrowseStreamCardSkeleton(modifier: Modifier = Modifier) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun VideoSkeletonGrid(modifier: Modifier = Modifier) {
-    FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp), maxItemsInEachRow = 3) {
-        repeat(4) { VideoCardSkeleton(Modifier.weight(1f, fill = false).widthIn(min = 280.dp)) }
-    }
+    CardSection<Unit>(title = null, data = emptyList(), modifier = modifier,
+        loading = true, skeleton = { VideoCardSkeleton() }) { }
 }

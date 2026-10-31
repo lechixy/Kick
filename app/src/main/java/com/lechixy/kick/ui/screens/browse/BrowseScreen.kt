@@ -1,414 +1,85 @@
 package com.lechixy.kick.ui.screens.browse
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil3.compose.AsyncImage
-import com.lechixy.kick.ui.components.BrowseStreamCardSkeleton
-import com.lechixy.kick.ui.components.ChannelCard
-import com.lechixy.kick.ui.components.ChannelCardSkeleton
-import com.lechixy.kick.ui.components.ExpansionSource
-import com.lechixy.kick.ui.components.SkeletonBlock
-import com.lechixy.kick.ui.components.SkeletonLoadingScope
 import com.lechixy.kick.R
-import com.lechixy.kick.data.model.toChannelDetail
-import com.lechixy.kick.util.buildOptimizedImageRequest
+import com.lechixy.kick.data.model.*
+import com.lechixy.kick.ui.components.*
 
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
-
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrowseScreen(
-    viewModel: BrowseViewModel = viewModel(),
-    onChannelClick: (channelSlug: String, source: ExpansionSource?) -> Unit
-) {
+fun BrowseScreen(viewModel: BrowseViewModel = viewModel(), onCategoryClick: (String) -> Unit = com.lechixy.kick.ui.components.LocalContentNavigation.current.category,
+    initialQuery: String = "",
+    onChannelClick: (channelSlug: String, source: ExpansionSource?) -> Unit) {
     val state by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
-
-    SkeletonLoadingScope(active = state.isLoading) {
-        Scaffold(
-            topBar = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = state.query,
-                        onValueChange = viewModel::onQueryChange,
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = {
-                            Text(
-                                text = stringResource(id = R.string.search_placeholder),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                painter = painterResource(id = R.drawable.search_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                                contentDescription = "Search"
-                            )
-                        },
-                        trailingIcon = {
-                            if (state.query.isNotEmpty()) {
-                                IconButton(onClick = { viewModel.onQueryChange("") }) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                                        contentDescription = "Clear"
-                                    )
-                                }
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true
-                    )
-                }
+    val wide = LocalConfiguration.current.screenWidthDp >= 600
+    LaunchedEffect(initialQuery) { if (initialQuery.isNotBlank()) viewModel.onQueryChange(initialQuery) }
+    val channelsTitle = stringResource(R.string.section_channels)
+    val streamsTitle = stringResource(R.string.section_livestreams)
+    SkeletonLoadingScope(state.isLoading) {
+        Scaffold(topBar = {
+            Column {
+                HomeTopBar(onChannelClick = { onChannelClick(it, null) }, centerContent = if (wide) ({ BrowseSearchBar(viewModel) }) else null)
+                if (!wide) Box(Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp)) { BrowseSearchBar(viewModel) }
             }
-        ) { paddingValues ->
-            when {
-                state.isLoading -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize().padding(paddingValues),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        item { SkeletonBlock(Modifier.width(110.dp).height(20.dp)) }
-                        item {
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp), maxItemsInEachRow = 3) {
-                                repeat(3) { ChannelCardSkeleton(Modifier.weight(1f, fill = false).widthIn(min = 280.dp)) }
-                            }
-                        }
-                        item { SkeletonBlock(Modifier.padding(top = 12.dp).width(130.dp).height(20.dp)) }
-                        item {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                items(6) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        SkeletonBlock(Modifier.width(130.dp).height(160.dp), RoundedCornerShape(8.dp))
-                                        SkeletonBlock(Modifier.width(95.dp).height(14.dp))
-                                    }
-                                }
-                            }
-                        }
-                        item { SkeletonBlock(Modifier.padding(top = 12.dp).width(140.dp).height(20.dp)) }
-                        items(3) { BrowseStreamCardSkeleton() }
+        }) { padding ->
+            ContentGrid(Modifier.padding(padding)) { columns ->
+                val data = state.searchData
+                if (state.isLoading || data?.channels?.isNotEmpty() == true) {
+                    cardSection("channels", channelsTitle, data?.channels.orEmpty(), columns, loading = state.isLoading,
+                        itemSpan = if (wide) 1 else columns, itemKey = { it.slug }, skeleton = { ChannelCardSkeleton() }) { channel ->
+                        ChannelCard(channel.toChannelDetail(), onChannelClick = { onChannelClick(it, null) },
+                            onChannelClickWithSource = onChannelClick)
                     }
                 }
-
-                state.error != null -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = state.error ?: "Search error",
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center
-                        )
+                if (state.isLoading || data?.categories?.isNotEmpty() == true) {
+                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(stringResource(R.string.section_categories)) }
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        CategoryRow(data?.categories.orEmpty().map { BrowseCategory(name = it.name, slug = it.slug,
+                            banner = CategoryBanner(it.thumbnail?.src)) }, state.isLoading, onCategoryClick, showTag = false)
                     }
                 }
-
-                state.searchData != null -> {
-                    val data = state.searchData!!
-                    val hasChannels = data.channels.isNotEmpty()
-                    val hasCategories = data.categories.isNotEmpty()
-                    val hasStreams = data.livestreams.isNotEmpty()
-
-                    if (!hasChannels && !hasCategories && !hasStreams) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(paddingValues),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Sonuç bulunamadı",
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(paddingValues),
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(24.dp)
-                        ) {
-                            // 1. CHANNELS (Responsive Grid / Flow)
-                            if (hasChannels) {
-                                item {
-                                    Text(
-                                        text = "CHANNELS",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                item {
-                                    FlowRow(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                                        maxItemsInEachRow = 3
-                                    ) {
-                                        data.channels.forEach { ch ->
-                                            ChannelCard(
-                                                channel = ch.toChannelDetail(),
-                                                onChannelClick = { slug -> onChannelClick(slug, null) },
-                                                onChannelClickWithSource = { slug, source -> onChannelClick(slug, source) }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 2. CATEGORIES
-                            if (hasCategories) {
-                                item {
-                                    Text(
-                                        text = "CATEGORIES",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                item {
-                                    LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        items(data.categories, key = { "cat_${it.slug}" }) { cat ->
-                                            Card(
-                                                modifier = Modifier
-                                                    .width(130.dp)
-                                                    .clickable { /* İleride category filter */ },
-                                                shape = RoundedCornerShape(8.dp),
-                                                colors = CardDefaults.cardColors(
-                                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
-                                                        alpha = 0.3f
-                                                    )
-                                                )
-                                            ) {
-                                                Column {
-                                                    AsyncImage(
-                                                        model = remember(cat.thumbnail?.src) {
-                                                            buildOptimizedImageRequest(
-                                                                context = context,
-                                                                data = cat.thumbnail?.src,
-                                                                targetWidthDp = 130,
-                                                                targetHeightDp = 170
-                                                            )
-                                                        },
-                                                        contentDescription = cat.name,
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .height(160.dp),
-                                                        contentScale = ContentScale.Crop
-                                                    )
-                                                    Text(
-                                                        text = cat.name,
-                                                        style = MaterialTheme.typography.labelMedium,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        modifier = Modifier.padding(8.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 3. LIVESTREAMS (Responsive Grid / Flow)
-                            if (hasStreams) {
-                                item {
-                                    Text(
-                                        text = "LIVESTREAMS",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                item {
-                                    FlowRow(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                                        maxItemsInEachRow = 3
-                                    ) {
-                                        data.livestreams.forEach { stream ->
-                                            BrowseLivestreamCard(
-                                                stream = stream,
-                                                onChannelClick = onChannelClick,
-                                                modifier = Modifier
-                                                    .weight(1f, fill = false)
-                                                    .widthIn(min = 280.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                if (state.isLoading || data?.livestreams?.isNotEmpty() == true) {
+                    cardSection("streams", streamsTitle, data?.livestreams.orEmpty(), columns, loading = state.isLoading,
+                        itemKey = { it.slug }, skeleton = { StreamCardSkeleton() }) { stream ->
+                        StreamCard(Livestream(id = stream.slug, title = stream.title,
+                            thumbnail = Thumbnail(stream.thumbnail?.src), showViewCount = false,
+                            channel = Channel(0, slug = stream.slug, username = stream.slug)),
+                            onClick = { onChannelClick(stream.slug, null) },
+                            onClickWithSource = { onChannelClick(stream.slug, it) }, onCategoryClick = onCategoryClick)
                     }
                 }
-
-                else -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Aramak istediğin kanalı veya içeriği yaz",
-                            color = MaterialTheme.colorScheme.outline
-                        )
+                if (!state.isLoading) item(span = { GridItemSpan(maxLineSpan) }) {
+                    when {
+                        state.error != null -> ContentState(stringResource(R.string.search_failed), { viewModel.onQueryChange(state.query) })
+                        data == null -> ContentState(stringResource(R.string.search_hint))
+                        data.channels.isEmpty() && data.categories.isEmpty() && data.livestreams.isEmpty() -> ContentState(stringResource(R.string.search_empty))
                     }
                 }
             }
         }
     }
-
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BrowseLivestreamCard(
-    stream: com.lechixy.kick.data.model.SearchLivestream,
-    onChannelClick: (channelSlug: String, source: ExpansionSource?) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    var cardCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
-    var thumbCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
-
-    val handleCardClick = {
-        val cRect = cardCoords?.takeIf { it.isAttached }?.boundsInRoot()
-        val tRect = thumbCoords?.takeIf { it.isAttached }?.boundsInRoot()
-        val source = if (cRect != null) {
-            ExpansionSource(
-                cardRect = cRect,
-                mediaRect = tRect,
-                cornerRadius = 12.dp,
-                thumbnailUrl = stream.thumbnail?.src,
-                avatarUrl = null,
-                title = stream.title,
-                username = stream.slug,
-                isLive = true,
-                isStreamCard = true
-            )
-        } else null
-        onChannelClick(stream.slug, source)
+fun BrowseSearchBar(viewModel: BrowseViewModel) {
+    val state by viewModel.uiState.collectAsState()
+        SearchBar(inputField = {
+            SearchBarDefaults.InputField(query = state.query, onQueryChange = viewModel::onQueryChange,
+                onSearch = {}, expanded = false, onExpandedChange = {},
+                placeholder = { Text(stringResource(R.string.search_placeholder)) },
+                leadingIcon = { Icon(painterResource(R.drawable.search_24dp_e3e3e3_fill0_wght400_grad0_opsz24), null) },
+                trailingIcon = { if (state.query.isNotEmpty()) IconButton(onClick = { viewModel.onQueryChange("") }) {
+                    Icon(painterResource(R.drawable.close_24dp_e3e3e3_fill0_wght400_grad0_opsz24), stringResource(R.string.search_clear))
+                } })
+        }, expanded = false, onExpandedChange = {}, modifier = Modifier.widthIn(max = 400.dp).fillMaxWidth(), windowInsets = WindowInsets(0)) {}
     }
-
-    Card(
-        modifier = modifier
-            .clickable(onClick = handleCardClick)
-            .onGloballyPositioned { cardCoords = it },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
-                alpha = 0.3f
-            )
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(120.dp)
-                    .aspectRatio(16f / 9f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .onGloballyPositioned { thumbCoords = it }
-            ) {
-                AsyncImage(
-                    model = remember(stream.thumbnail?.src) {
-                        buildOptimizedImageRequest(
-                            context = context,
-                            data = stream.thumbnail?.src,
-                            targetWidthDp = 120,
-                            targetHeightDp = 68
-                        )
-                    },
-                    contentDescription = stream.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = stream.title ?: "No Title",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = stream.slug,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-        }
-    }
-}

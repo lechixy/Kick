@@ -3,6 +3,7 @@ package com.lechixy.kick.ui.components
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.view.WindowManager
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
@@ -43,6 +44,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,9 +104,9 @@ import kotlinx.coroutines.launch
 internal const val WIDE_BREAKPOINT_DP = 700
 internal const val CHAT_WIDTH_FRACTION = 0.35f
 
-private const val MINI_DEFAULT_WIDTH_DP = 240f
-private const val MINI_MIN_WIDTH_DP = 140f
-private const val MINI_MAX_WIDTH_DP = 500f
+private const val MINI_DEFAULT_WIDTH_DP = com.lechixy.kick.data.settings.MiniPlayerSize.DEFAULT_WIDTH_DP
+private const val MINI_MIN_WIDTH_DP = com.lechixy.kick.data.settings.MiniPlayerSize.MIN_WIDTH_DP
+private const val MINI_MAX_WIDTH_DP = com.lechixy.kick.data.settings.MiniPlayerSize.MAX_WIDTH_DP
 private const val MINI_PADDING_DP = 16f
 
 private const val NORM_THRESHOLD = 0.0005f
@@ -188,6 +190,34 @@ fun PlayerHost(
         derivedStateOf {
             host.mode == PlayerMode.Expanded || host.mode == PlayerMode.Fullscreen || pageAlpha > 0.01f
         }
+    }
+    var backProgress by remember { mutableFloatStateOf(0f) }
+    var backEdge by remember { mutableIntStateOf(0) }
+    PredictiveBackHandler(enabled = !isInPipMode && !host.isExiting &&
+        (mode == PlayerMode.Expanded || mode == PlayerMode.Fullscreen)) { events ->
+        val startFrame = frameT.value
+        val startAlpha = pageAlpha
+        try {
+            frameT.stop()
+            events.collect { event ->
+                backProgress = event.progress
+                backEdge = event.swipeEdge
+                if (mode == PlayerMode.Fullscreen) frameT.snapTo(1f - event.progress)
+                else {
+                    frameT.snapTo(-event.progress)
+                    pageAlpha = 1f - event.progress
+                }
+            }
+            if (mode == PlayerMode.Fullscreen) host.setFullscreen(false) else host.minimize()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                kotlinx.coroutines.coroutineScope {
+                    launch { frameT.animateTo(startFrame, tween(200)) }
+                    launch { animate(pageAlpha, startAlpha, animationSpec = tween(200)) { v, _ -> pageAlpha = v } }
+                    launch { animate(backProgress, 0f, animationSpec = tween(200)) { v, _ -> backProgress = v } }
+                }
+            }
+        } finally { backProgress = 0f }
     }
     val loaded = host.channel
     val playerVisible =
@@ -429,8 +459,9 @@ fun PlayerHost(
     }
 
     fun miniWidthPx(safeArea: IntRect): Float {
-        val minW = px(MINI_MIN_WIDTH_DP)
-        val maxW = max(minW, min(safeArea.width * 0.7f, px(MINI_MAX_WIDTH_DP)))
+        val availableW = (safeArea.width - 2 * px(MINI_PADDING_DP)).coerceAtLeast(1f)
+        val minW = min(px(MINI_MIN_WIDTH_DP), availableW)
+        val maxW = max(minW, min(availableW, px(MINI_MAX_WIDTH_DP)))
         return px(miniWidthDp).coerceIn(minW, maxW)
     }
 
@@ -554,6 +585,9 @@ fun PlayerHost(
                     // on every frame reflows chat and changes the adaptive layout mid-flight.
                     .graphicsLayer {
                         translationY = playerDy
+                        scaleX = 1f - .04f * backProgress
+                        scaleY = 1f - .04f * backProgress
+                        translationX = (if (backEdge == 0) 1f else -1f) * 36.dp.toPx() * backProgress
                         alpha = pageAlpha
                         if (isExpanding) {
                             val p = expandProgress.value

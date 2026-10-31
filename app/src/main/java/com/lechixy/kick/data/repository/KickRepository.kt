@@ -13,10 +13,13 @@ import com.lechixy.kick.data.model.chat.withSelectedBadgesOnly
 import com.lechixy.kick.data.remote.KickApi
 import com.lechixy.kick.data.remote.KickChatWebSocketClient
 import retrofit2.HttpException
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 class KickRepository(
     private val api: KickApi
 ) {
+    suspend fun getCategories(page: Int = 1) = api.getCategories(page = page)
+
     suspend fun getEmotes(slug: String) = com.lechixy.kick.data.model.chat.parseEmoteCategories(api.getEmotes(slug))
     suspend fun getChannelLinks(slug: String) = com.lechixy.kick.data.model.parseChannelLinks(api.getChannelLinks(slug))
     suspend fun getChannelGoals(slug: String) = com.lechixy.kick.data.model.parseChannelGoals(api.getChannelGoals(slug))
@@ -103,7 +106,8 @@ class KickRepository(
     }
 
     suspend fun search(query: String): SearchData {
-        val fullUrl = "https://search.kick.com/api/v1/search?query=$query"
+        val fullUrl = "https://search.kick.com/api/v1/search".toHttpUrl().newBuilder()
+            .addQueryParameter("query", query).build().toString()
         return api.search(fullUrl).data
     }
 

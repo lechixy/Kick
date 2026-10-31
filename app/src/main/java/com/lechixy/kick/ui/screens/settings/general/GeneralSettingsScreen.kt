@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.lechixy.kick.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -14,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.lechixy.kick.data.settings.SettingsKeys
 import com.lechixy.kick.ui.settings.SettingDropdown
 import com.lechixy.kick.ui.settings.SettingSection
+import com.lechixy.kick.ui.settings.SettingFloatSlider
 import com.lechixy.kick.ui.settings.SettingSlider
 import com.lechixy.kick.ui.settings.SettingSwitch
 import com.lechixy.kick.ui.settings.SettingTextField
@@ -27,7 +30,7 @@ fun GeneralSettingsScreen(
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        topBar = { SettingsTopBar(title = "General", onBackClick = onBackClick) }
+        topBar = { SettingsTopBar(title = stringResource(R.string.settings_general), onBackClick = onBackClick) }
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -42,15 +45,15 @@ fun GeneralSettingsScreen(
             ) {
                 item {
                     SettingSection(
-                        title = "Sohbet ve Arayüz",
-                        description = "Görünüm ve font yapılandırması"
+                        title = stringResource(R.string.settings_chat_interface),
+                        description = stringResource(R.string.settings_chat_description)
                     ) {
                         val context = LocalContext.current
                         SettingDropdown(
                             key = SettingsKeys.APP_LANGUAGE,
-                            title = "Uygulama Dili",
+                            title = stringResource(R.string.settings_app_language),
                             options = listOf(
-                                "system" to "Sistem Varsayılanı",
+                                "system" to stringResource(R.string.settings_system),
                                 "en" to "English",
                                 "tr" to "Türkçe"
                             ),
@@ -59,27 +62,15 @@ fun GeneralSettingsScreen(
                             }
                         )
 
-                        SettingDropdown(
-                            key = SettingsKeys.THEME,
-                            title = "Uygulama Teması",
-                            options = listOf(
-                                "system" to "Sistem Varsayılanı",
-                                "light" to "Açık Tema",
-                                "dark" to "Koyu Tema",
-                                "amoled" to "Amoled Tema"
-                            )
-                        )
-
-                        SettingSwitch(
-                            key = SettingsKeys.DYNAMIC_COLOR,
-                            title = "Dinamik Renkler",
-                            description = "Sistem renk paletine göre uygulama renklerini değiştir"
-                        )
-
+                        SettingSwitch(key = SettingsKeys.AUTO_CONNECT_CHAT, title = stringResource(R.string.settings_chat_connection))
+                        SettingSlider(key = SettingsKeys.CHAT_MESSAGE_SPACING, title = stringResource(R.string.settings_chat_spacing),
+                            valueRange = 0f..25f, steps = 24, valueFormatter = { "${it.toInt()} dp" })
+                        SettingFloatSlider(key = SettingsKeys.CHAT_WIDTH_FRACTION, title = stringResource(R.string.settings_chat_width),
+                            valueRange = .18f.. .60f, steps = 41, valueFormatter = { "${(it * 100).toInt()}%" })
                         SettingSlider(
                             key = SettingsKeys.CHAT_FONT_SIZE,
-                            title = "Sohbet Yazı Boyutu",
-                            description = "Yayın içi sohbet mesajlarının yazı tipi boyutu",
+                            title = stringResource(R.string.player_chat_font),
+                            description = stringResource(R.string.player_chat_font_description),
                             valueRange = 10f..24f,
                             steps = 13,
                             valueFormatter = { "${it}sp" }
@@ -89,39 +80,13 @@ fun GeneralSettingsScreen(
 
                 item {
                     SettingSection(
-                        title = "Yayınlar ve Oynatıcı",
-                        description = "Canlı yayın akışı ve video oynatıcı tercihleri"
+                        title = stringResource(R.string.settings_recommendations),
+                        description = stringResource(R.string.settings_recommendations_description)
                     ) {
-                        SettingSwitch(
-                            key = SettingsKeys.AUTOPLAY,
-                            title = "Otomatik Oynatma",
-                            description = "Önerilen yayınları otomatik başlat"
-                        )
-
-                        SettingSwitch(
-                            key = SettingsKeys.AUTO_FULLSCREEN_LIVE,
-                            title = "Otomatik Tam Ekran",
-                            description = "Kanala girildiğinde yayın canlıysa ve oynatıcı yüklendiyse hemen tam ekrana geç"
-                        )
-
-                        SettingDropdown(
-                            key = SettingsKeys.VIDEO_QUALITY,
-                            title = "Varsayılan Video Kalitesi",
-                            description = "Mobil ve Wi-Fi üzerindeki başlangıç çözünürlüğü",
-                            options = listOf(
-                                -1 to "Auto",
-                                160 to "160p",
-                                360 to "360p",
-                                480 to "480p",
-                                720 to "720p (HD)",
-                                1080 to "1080p (FHD)"
-                            )
-                        )
-
                         SettingTextField(
                             key = SettingsKeys.RECOMMENDED_LIVESTREAM_LANGUAGE,
-                            title = "Önerilen Yayın Dili",
-                            description = "Akışta öne çıkarılacak yayıncıların birincil dili (örn. tr, en)",
+                            title = stringResource(R.string.settings_recommended_language),
+                            description = stringResource(R.string.settings_recommended_language_description),
                             placeholder = "tr"
                         )
                     }

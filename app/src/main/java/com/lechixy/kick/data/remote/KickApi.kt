@@ -26,6 +26,9 @@ import retrofit2.http.Query
 import retrofit2.http.Url
 
 interface KickApi {
+    @GET("https://kick.com/api/v1/subcategories")
+    suspend fun getCategories(@Query("page") page: Int = 1, @Query("limit") limit: Int = 32): com.lechixy.kick.data.model.CategoriesResponse
+
     @GET("https://kick.com/emotes/{slug}")
     suspend fun getEmotes(@Path("slug") slug: String): kotlinx.serialization.json.JsonElement
 

@@ -33,10 +33,11 @@ private val emoteJson = Json { ignoreUnknownKeys = true; coerceInputValues = tru
 fun parseEmoteCategories(payload: JsonElement): List<EmoteCategory> =
     (payload as? JsonArray).orEmpty().mapNotNull { element ->
         val category = element as? JsonObject ?: return@mapNotNull null
-        val id = (category["id"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
-        val kind = when (id.lowercase()) {
+        val name = (category["name"] as? JsonPrimitive)?.contentOrNull
+        val id = (category["id"] as? JsonPrimitive)?.contentOrNull ?: name?.lowercase() ?: return@mapNotNull null
+        val kind = when (name?.lowercase()?.takeIf { it in listOf("collectibles", "global", "emoji", "emojis", "emotes") } ?: id.lowercase()) {
             "global" -> EmoteCategoryKind.GLOBAL
-            "emoji", "emojis" -> EmoteCategoryKind.EMOJIS
+            "emoji", "emojis", "emotes" -> EmoteCategoryKind.EMOJIS
             "collectibles" -> EmoteCategoryKind.COLLECTIBLES
             else -> EmoteCategoryKind.CHANNEL
         }

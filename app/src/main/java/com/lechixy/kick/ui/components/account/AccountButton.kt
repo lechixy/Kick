@@ -50,7 +50,7 @@ internal fun AccountAvatar(avatar: String?, name: String, modifier: Modifier = M
 }
 
 @Composable
-fun AccountButton(onChannelClick: (String) -> Unit = {}, modifier: Modifier = Modifier) {
+fun AccountButton(onChannelClick: (String) -> Unit = com.lechixy.kick.ui.components.LocalContentNavigation.current.channel, modifier: Modifier = Modifier) {
     val session by AccountGraph.auth.session.collectAsStateWithLifecycle()
     val dashboard by AccountGraph.dashboard.state.collectAsStateWithLifecycle()
     var open by remember { mutableStateOf(false) }

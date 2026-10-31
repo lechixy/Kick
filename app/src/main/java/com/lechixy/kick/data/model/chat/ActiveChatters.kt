@@ -19,7 +19,12 @@ data class ActiveChatters(
     val chatters: List<ActiveChatter> = emptyList(),
     val bots: List<ActiveChatter> = emptyList(),
     @SerialName("total_count") val totalCount: Int = 0
-)
+) {
+    val users: List<ActiveChatter> get() = (moderators + ogs + vips + chatters + bots)
+        .distinctBy { it.username.lowercase(java.util.Locale.ROOT) }
+    val listedCount: Int get() = users.size
+    val isPartial: Boolean get() = totalCount > listedCount
+}
 
 private val activeChattersJson = Json { ignoreUnknownKeys = true; coerceInputValues = true }
 

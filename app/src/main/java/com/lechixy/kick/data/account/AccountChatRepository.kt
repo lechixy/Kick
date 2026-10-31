@@ -79,6 +79,17 @@ class AccountChatRepository(private val auth: AuthRepository) {
         return ChatAccess(policy, membership, identity)
     }
 
+    suspend fun emotes(slug: String): List<com.lechixy.kick.data.model.chat.EmoteCategory> {
+        require(slug.matches(Regex("[A-Za-z0-9_-]+")))
+        return com.lechixy.kick.data.model.chat.parseEmoteCategories(auth.requestElement("https://kick.com/emotes/$slug"))
+    }
+
+    suspend fun channelPointSettings(channel: ChannelDetail): ChannelPointsSettings {
+        require(channel.slug.matches(Regex("[A-Za-z0-9_-]+")))
+        return json.decodeFromJsonElement(auth.request(
+            "https://kick.com/api/v2/channels/${channel.slug}/channel-points/channel-settings")["data"]!!)
+    }
+
     suspend fun points(channel: ChannelDetail): Long = auth.request(
         "https://kick.com/api/v2/channels/${channel.slug}/points")["data"]!!.jsonObject["points"]!!.jsonPrimitive.long
 
@@ -123,20 +134,28 @@ class AccountChatRepository(private val auth: AuthRepository) {
             now, lastSent[key], content)
     }
 
-    suspend fun send(channel: ChannelDetail, content: String): String? {
+    suspend fun send(channel: ChannelDetail, content: String, reply: com.lechixy.kick.data.model.chat.ChatMessage? = null): String? {
         val generation = auth.session.value.generation
         return sendMutex.withLock {
             check(auth.session.value.signedIn && generation == auth.session.value.generation) { "Session changed" }
             ChatPolicy.messageIssue(content)?.let { throw ChatPolicyException(ChatRestriction(it)) }
             val access = access(channel) // Fresh settings and membership before every send.
+            if (reply == null && content.trimStart().startsWith("/")) {
+                val action = ChatCommands.parse(channel, content, access.member.privileged,
+                    ChannelPointsPolicy.isOwnChannel(channel, auth.session.value.profile?.userId))
+                require(action is ChatCommandAction.Request) { "This command is handled by the composer" }
+                check(auth.session.value.signedIn && generation == auth.session.value.generation) { "Session changed" }
+                val response = auth.request(action.url, action.method, action.body)
+                check((response["status"] as? JsonObject)?.get("error")?.jsonPrimitive?.booleanOrNull != true) { "Command was rejected" }
+                return@withLock null
+            }
             restrictionIssue(channel.id, access, content)?.let { throw ChatPolicyException(it) }
             val chatroomId = channel.chatroom?.id?.takeIf { it > 0 }
                 ?: throw IllegalArgumentException("Sohbet odası doğrulanamadı. Kanalı yeniden açın.")
             check(auth.session.value.signedIn && generation == auth.session.value.generation)
             try {
-                val response = auth.request("https://kick.com/api/v2/messages/send/$chatroomId", "POST", buildJsonObject {
-                    put("content", content); put("type", "message")
-                })
+                if (reply?.chatroomId != null) require(reply.chatroomId == chatroomId) { "Reply belongs to a different chatroom" }
+                val response = auth.request("https://kick.com/api/v2/messages/send/$chatroomId", "POST", chatSendPayload(content, reply))
                 val status = response["status"] as? JsonObject
                 check(status?.get("error")?.jsonPrimitive?.booleanOrNull != true) { "Message not sent" }
                 val data = response["data"] as? JsonObject

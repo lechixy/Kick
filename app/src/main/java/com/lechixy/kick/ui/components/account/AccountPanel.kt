@@ -41,14 +41,7 @@ fun AccountPanel(showTitle: Boolean = true) {
                 }) { Text(stringResource(R.string.account_reload_profile)) }
                 Button(onClick = { scope.launch { auth.signOut() } }) { Text(stringResource(R.string.account_logout)) }
             }
-            SessionStatus.Connecting -> {
-                Text(stringResource(R.string.account_waiting_login))
-                TextButton(onClick = { auth.cancelLogin() }) { Text(stringResource(R.string.account_cancel_login)) }
-            }
-            else -> {
-                Text(stringResource(R.string.account_login_optional))
-                Button(onClick = { auth.beginLogin(context) }) { Text(stringResource(R.string.account_login)) }
-            }
+            else -> AccountSignInState()
         }
     }
 }

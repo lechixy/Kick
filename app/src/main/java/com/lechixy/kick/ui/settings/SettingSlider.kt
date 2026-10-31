@@ -30,25 +30,42 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @Composable
-fun SettingSlider(
-    key: SettingKey<Int>,
+fun SettingSlider(key: SettingKey<Int>, title: String, valueRange: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier, steps: Int = 0, description: String? = null,
+    valueFormatter: (Int) -> String = { it.toString() }) {
+    NumberSettingSlider(key, title, { it.toFloat() }, { it.roundToInt() }, valueRange,
+        modifier, steps, description, valueFormatter)
+}
+
+@Composable
+fun SettingFloatSlider(key: SettingKey<Float>, title: String, valueRange: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier, steps: Int = 0, description: String? = null,
+    valueFormatter: (Float) -> String = { it.toString() }) {
+    NumberSettingSlider(key, title, { it }, { it }, valueRange, modifier, steps, description, valueFormatter)
+}
+
+@Composable
+private fun <T> NumberSettingSlider(
+    key: SettingKey<T>,
     title: String,
+    toFloat: (T) -> Float,
+    fromFloat: (Float) -> T,
     valueRange: ClosedFloatingPointRange<Float>,
     modifier: Modifier = Modifier,
     steps: Int = 0,
     description: String? = null,
-    valueFormatter: (Int) -> String = { it.toString() }
+    valueFormatter: (T) -> String = { it.toString() }
 ) {
     val repository = LocalSettingsRepository.current
     val coroutineScope = rememberCoroutineScope()
     val persistentValue by repository.get(key).collectAsStateWithLifecycle(initialValue = key.defaultValue)
 
     var sliderPosition by remember {
-        mutableFloatStateOf(persistentValue.toFloat().coerceIn(valueRange.start, valueRange.endInclusive))
+        mutableFloatStateOf(toFloat(persistentValue).coerceIn(valueRange.start, valueRange.endInclusive))
     }
 
     LaunchedEffect(persistentValue, valueRange.start, valueRange.endInclusive) {
-        sliderPosition = persistentValue.toFloat().coerceIn(valueRange.start, valueRange.endInclusive)
+        sliderPosition = toFloat(persistentValue).coerceIn(valueRange.start, valueRange.endInclusive)
     }
 
     Surface(
@@ -85,7 +102,7 @@ fun SettingSlider(
                     }
                 }
                 Text(
-                    text = valueFormatter(sliderPosition.roundToInt()),
+                    text = valueFormatter(fromFloat(sliderPosition)),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -97,7 +114,7 @@ fun SettingSlider(
                 value = sliderPosition.coerceIn(valueRange.start, valueRange.endInclusive),
                 onValueChange = { sliderPosition = it.coerceIn(valueRange.start, valueRange.endInclusive) },
                 onValueChangeFinished = {
-                    val finalValue = sliderPosition.roundToInt()
+                    val finalValue = fromFloat(sliderPosition)
                     if (finalValue != persistentValue) {
                         coroutineScope.launch {
                             repository.set(key, finalValue)

@@ -44,11 +44,11 @@ fun LiveTotalsButton(totals: LiveTotals, onClick: () -> Unit, modifier: Modifier
     ElevatedButton(
         onClick = onClick,
         modifier = modifier.widthIn(max = if (compact) 280.dp else 340.dp)
-            .then(if (compact) Modifier.wrapContentWidth() else Modifier.fillMaxWidth())
+            .wrapContentWidth()
             .semantics { contentDescription = description },
         contentPadding = PaddingValues(horizontal = if (compact) 16.dp else 20.dp, vertical = if (compact) 8.dp else 10.dp),
         colors = ButtonDefaults.elevatedButtonColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = .78f),
             contentColor = MaterialTheme.colorScheme.onSurface
         ),
         elevation = ButtonDefaults.elevatedButtonElevation(defaultElevation = 6.dp)
@@ -64,7 +64,7 @@ fun LiveTotalsButton(totals: LiveTotals, onClick: () -> Unit, modifier: Modifier
                 Text(streamers, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
             }
         } else {
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically,
+            Row( verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(painterResource(R.drawable.visibility_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                     contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
@@ -74,7 +74,7 @@ fun LiveTotalsButton(totals: LiveTotals, onClick: () -> Unit, modifier: Modifier
                 }
             }
             VerticalDivider(Modifier.height(28.dp).padding(horizontal = 12.dp))
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically,
+            Row( verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(painterResource(R.drawable.play_circle_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
                     contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))

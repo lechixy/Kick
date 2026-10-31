@@ -128,7 +128,8 @@ fun ChatView(
     onDisconnectClick: () -> Unit = {},
     onHideChat: (() -> Unit)? = null,
     composer: @Composable () -> Unit = {},
-    onOpenChannel: (String) -> Unit = {}
+    onOpenChannel: (String) -> Unit = {},
+    onReplyTo: (ChatMessage) -> Unit = {}
 ) {
     val repository = LocalSettingsRepository.current
     val fontSize by repository
@@ -213,6 +214,8 @@ fun ChatView(
         if (lastMessageId != null && visibleMessages.isNotEmpty()) {
             if (autoScrollEnabled && !isUserDragging) {
                 listState.scrollToItem(visibleMessages.lastIndex)
+                withFrameNanos { }
+                listState.scrollToItem(currentVisibleMessages.lastIndex.coerceAtLeast(0))
                 unreadCount = 0
             } else {
                 unreadCount++
@@ -413,6 +416,8 @@ fun ChatView(
                                     HorizontalDivider(Modifier.weight(1f))
                                 }
                             }
+                            SwipeToReply(enabled = accountSession.signedIn && message.sender?.id != null &&
+                                !message.isDeleted && message.type in listOf("message", "reply"), onReply = { onReplyTo(message) }) {
                             ChatMessageItem(
                                 message = message,
                                 fontSizeSp = fontSize,
@@ -455,6 +460,7 @@ fun ChatView(
                                         username = sender.username, slug = sender.slug.orEmpty()), sender)
                                 } }
                             )
+                            }
                         }
                     }
                 }
@@ -579,7 +585,7 @@ fun ChatView(
 
             // Floating "Scroll to bottom" button with unread counter
             androidx.compose.animation.AnimatedVisibility(
-                visible = !isAtBottom && visibleMessages.isNotEmpty(),
+                visible = !autoScrollEnabled && !isAtBottom && visibleMessages.isNotEmpty(),
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier

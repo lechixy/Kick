@@ -40,7 +40,8 @@ fun rememberAccountFollowAction(slug: String): AccountFollowAction {
             unsupported = failure is AccountApiException && failure.status in listOf(401, 403, 404)
         } finally { busy = false }
     }
-    if (dialog) AlertDialog(onDismissRequest = { dialog = false }, title = { Text(stringResource(R.string.channel_follow_title)) },
+    if (dialog && !session.signedIn) AdaptiveModalSheet(onDismiss = { dialog = false }) { _ -> AccountPanel() }
+    if (dialog && session.signedIn) AlertDialog(onDismissRequest = { dialog = false }, title = { Text(stringResource(R.string.channel_follow_title)) },
         text = {
             if (!session.signedIn) AccountPanel()
             else androidx.compose.foundation.layout.Column {

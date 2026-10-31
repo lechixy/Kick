@@ -3,120 +3,69 @@ package com.lechixy.kick.ui.screens.following
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.lechixy.kick.ui.components.ChannelCard
-import com.lechixy.kick.ui.components.ChannelCardSkeleton
-import com.lechixy.kick.ui.components.ExpansionSource
-import com.lechixy.kick.ui.components.SkeletonLoadingScope
-import com.lechixy.kick.ui.components.StreamCard
-import com.lechixy.kick.ui.components.StreamCardSkeleton
 import com.lechixy.kick.R
-import com.lechixy.kick.data.account.AccountGraph
-import com.lechixy.kick.data.account.SessionStatus
 import com.lechixy.kick.data.model.ChannelDetail
 import com.lechixy.kick.data.model.ChannelUser
+import com.lechixy.kick.ui.components.*
+import com.lechixy.kick.ui.components.account.AccountSignInState
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FollowingScreen(
-    viewModel: FollowingViewModel = viewModel(),
-    onStreamClick: (channelSlug: String, source: ExpansionSource?) -> Unit
-) {
+fun FollowingScreen(viewModel: FollowingViewModel = viewModel(),
+    onCategoryClick: (String) -> Unit = com.lechixy.kick.ui.components.LocalContentNavigation.current.category,
+    onStreamClick: (channelSlug: String, source: ExpansionSource?) -> Unit) {
+    val liveTitle = stringResource(R.string.following_online)
+    val offlineTitle = stringResource(R.string.following_offline)
+    val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 600
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val gridState = rememberLazyGridState()
     val offline = remember(state.pageChannels) { state.pageChannels.filterNot { it.live } }
-
-    SkeletonLoadingScope(active = session.signedIn &&
-        ((state.streamsLoading && state.livestreams.isEmpty()) || (state.loading && offline.isEmpty()))) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.following_title), style = MaterialTheme.typography.headlineMedium,
-                    modifier = Modifier.weight(1f).padding(vertical = 12.dp))
-                if (session.signedIn) {
-                    TextButton(onClick = viewModel::refresh, enabled = !state.loading && !state.streamsLoading) {
-                        Text(stringResource(R.string.following_refresh))
-                    }
-                }
-            }
-            if (!session.signedIn) {
-                Text("Takip etmek için giriş yapın.")
-                session.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                if (session.status == SessionStatus.Connecting) {
-                    TextButton(onClick = { AccountGraph.auth.cancelLogin() }) { Text("Girişi iptal et") }
-                } else Button(onClick = { AccountGraph.auth.beginLogin(context) }) { Text("Kick ile giriş yap") }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(280.dp), state = gridState,
-                    modifier = Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    item(key = "online_header", span = { GridItemSpan(maxLineSpan) }) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(stringResource(R.string.following_online), style = MaterialTheme.typography.titleLarge)
-                            state.streamsError?.let { message ->
-                                Text(message, color = MaterialTheme.colorScheme.error)
-                                TextButton(onClick = viewModel::retryStreams) { Text(stringResource(R.string.following_retry)) }
-                            }
-                            if (state.streamsLoaded && state.livestreams.isEmpty() && !state.streamsLoading) {
-                                Text(stringResource(R.string.following_no_online), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+    val refreshing = state.loading || state.streamsLoading
+    SkeletonLoadingScope(session.signedIn && refreshing) {
+        Scaffold(topBar = { HomeTopBar(onChannelClick = { onStreamClick(it, null) }) }) { padding ->
+            PullToRefreshBox(refreshing, viewModel::refresh, Modifier.fillMaxSize().padding(padding)) {
+                ContentGrid { columns ->
+                    if (!session.signedIn) {
+                        item(span = { GridItemSpan(maxLineSpan) }) { AccountSignInState() }
+                    } else {
+                        cardSection("live", liveTitle, state.livestreams, columns,
+                            loading = state.streamsLoading, itemKey = { it.id }, skeleton = { StreamCardSkeleton() }) { stream ->
+                            StreamCard(stream, onClick = { stream.channel?.slug?.let { onStreamClick(it, null) } },
+                                onClickWithSource = { source -> stream.channel?.slug?.let { onStreamClick(it, source) } },
+                                onCategoryClick = onCategoryClick)
                         }
-                    }
-                    if (state.streamsLoading && state.livestreams.isEmpty()) {
-                        items(2, key = { "live_skeleton_$it" }) { StreamCardSkeleton() }
-                    }
-                    items(state.livestreams, key = { "live_${it.id}" }) { stream ->
-                        val slug = stream.channel?.slug.orEmpty()
-                        StreamCard(stream = stream, onClick = { onStreamClick(slug, null) },
-                            onClickWithSource = { source -> onStreamClick(slug, source) })
-                    }
-                    item(key = "offline_header", span = { GridItemSpan(maxLineSpan) }) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) {
-                            Text(stringResource(R.string.following_offline), style = MaterialTheme.typography.titleLarge)
-                            state.error?.let { message ->
-                                Text(message, color = MaterialTheme.colorScheme.error)
-                                TextButton(onClick = viewModel::retryChannels) { Text(stringResource(R.string.following_retry)) }
-                            }
-                            if (state.loaded && offline.isEmpty() && !state.loading) {
-                                Text(stringResource(R.string.following_no_offline), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                        if (!state.streamsLoading) {
+                            state.streamsError?.let { message -> item(span = { GridItemSpan(maxLineSpan) }) { ContentState(message, viewModel::retryStreams) } }
+                            if (state.streamsLoaded && state.livestreams.isEmpty() && state.streamsError == null)
+                                item(span = { GridItemSpan(maxLineSpan) }) { ContentState(stringResource(R.string.following_no_online)) }
                         }
-                    }
-                    if (state.loading && offline.isEmpty()) {
-                        items(6, key = { "offline_skeleton_$it" }) { ChannelCardSkeleton() }
-                    }
-                    items(offline, key = { "offline_${it.slug}" }) { channel ->
-                        val detail = remember(channel) {
-                            ChannelDetail(id = 0, slug = channel.slug,
-                                user = ChannelUser(id = 0, username = channel.username, profilePic = channel.avatar))
+                        cardSection("offline", offlineTitle, offline, columns,
+                            loading = state.loading, itemSpan = if (wide) 1 else columns, itemKey = { it.slug }, skeleton = { ChannelCardSkeleton() }) { channel ->
+                            ChannelCard(ChannelDetail(id = 0, slug = channel.slug,
+                                user = ChannelUser(id = 0, username = channel.username, profilePic = channel.avatar)),
+                                onChannelClick = { onStreamClick(it, null) }, onChannelClickWithSource = onStreamClick)
                         }
-                        ChannelCard(channel = detail, modifier = Modifier.fillMaxWidth(),
-                            onChannelClick = { onStreamClick(it, null) }, onChannelClickWithSource = onStreamClick)
-                    }
-                    if (state.loaded && (state.pageIndex > 0 || state.nextCursor != null)) {
-                        item(key = "pagination", span = { GridItemSpan(maxLineSpan) }) {
-                            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(stringResource(R.string.following_page, state.pageIndex + 1),
-                                    style = MaterialTheme.typography.labelLarge)
-                                val previousLabel = stringResource(R.string.following_previous)
-                                val nextLabel = stringResource(R.string.following_next)
-                                ButtonGroup(overflowIndicator = { menuState ->
-                                    ButtonGroupDefaults.OverflowIndicator(menuState = menuState)
-                                }) {
-                                    clickableItem(onClick = viewModel::previousPage, label = previousLabel,
-                                        enabled = state.pageIndex > 0 && !state.loading)
-                                    clickableItem(onClick = viewModel::loadMore, label = nextLabel,
-                                        enabled = state.nextCursor != null && !state.loading)
+                        if (!state.loading) {
+                            state.error?.let { message -> item(span = { GridItemSpan(maxLineSpan) }) { ContentState(message, viewModel::retryChannels) } }
+                            if (state.loaded && offline.isEmpty() && state.error == null)
+                                item(span = { GridItemSpan(maxLineSpan) }) { ContentState(stringResource(R.string.following_no_offline)) }
+                        }
+                        if (state.loaded && (state.pageIndex > 0 || state.nextCursor != null)) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                val previous = stringResource(R.string.following_previous)
+                                val page = stringResource(R.string.following_page, state.pageIndex + 1)
+                                val next = stringResource(R.string.following_next)
+                                ButtonGroup(overflowIndicator = { ButtonGroupDefaults.OverflowIndicator(menuState = it) }) {
+                                    clickableItem(onClick = viewModel::previousPage, label = previous, enabled = state.pageIndex > 0 && !state.loading)
+                                    clickableItem(onClick = {}, label = page, enabled = false)
+                                    clickableItem(onClick = viewModel::loadMore, label = next, enabled = state.nextCursor != null && !state.loading)
                                 }
                             }
                         }

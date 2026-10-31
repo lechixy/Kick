@@ -95,6 +95,9 @@ internal fun ActiveChattersContent(
         if (data == null && error == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else if (data != null) {
+            if (data.isPartial) Text(stringResource(R.string.chatters_partial, data.listedCount, data.totalCount),
+                Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             val groups = listOf(
                 Triple(R.string.active_chatters_moderators, R.drawable.moderator_badge, data.moderators),
                 Triple(R.string.active_chatters_ogs, R.drawable.og_badge, data.ogs),
@@ -130,8 +133,6 @@ internal fun ActiveChattersContent(
                         }
                     }
                 }
-                item { Text(stringResource(R.string.active_chatters_partial_notice), Modifier.fillMaxWidth().padding(20.dp),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
     }

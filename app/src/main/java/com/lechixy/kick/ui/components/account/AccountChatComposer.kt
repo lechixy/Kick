@@ -30,6 +30,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lechixy.kick.R
 import com.lechixy.kick.data.account.*
 import com.lechixy.kick.data.model.ChannelDetail
+import com.lechixy.kick.data.model.chat.*
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import com.lechixy.kick.data.model.chat.PointsUpdatedEvent
 import com.lechixy.kick.data.remote.ChatConnectionState
 import com.lechixy.kick.util.FormatUtils
@@ -49,11 +52,15 @@ fun AccountChatComposer(
     markRulesSeen: (Long) -> Unit = {},
     emotes: com.lechixy.kick.data.model.chat.EmotePickerUiState = com.lechixy.kick.data.model.chat.EmotePickerUiState(),
     onRetryEmotes: () -> Unit = {},
-    onIdentityPreviewClick: ((com.lechixy.kick.data.model.chat.ChatIdentity) -> Unit)? = null
+    onIdentityPreviewClick: ((com.lechixy.kick.data.model.chat.ChatIdentity) -> Unit)? = null,
+    replyTo: ChatMessage? = null, onCancelReply: () -> Unit = {},
+    recentMessages: List<ChatMessage> = emptyList(), userColors: Map<String, String> = emptyMap(),
+    onUserCommand: (String) -> Unit = {}
 ) {
     val session by AccountGraph.auth.session.collectAsStateWithLifecycle()
     key(session.generation, channel.slug) {
-        ComposerContent(channel, connectionState, session, settingsPatch, pointsUpdated, rulesSeen, markRulesSeen, emotes, onRetryEmotes, onIdentityPreviewClick)
+        ComposerContent(channel, connectionState, session, settingsPatch, pointsUpdated, rulesSeen, markRulesSeen, emotes, onRetryEmotes, onIdentityPreviewClick,
+            replyTo, onCancelReply, recentMessages, userColors, onUserCommand)
     }
 }
 
@@ -63,7 +70,9 @@ private fun ComposerContent(
     settingsPatch: JsonObject, pointsUpdated: PointsUpdatedEvent?,
     rulesSeen: (Long) -> Boolean, markRulesSeen: (Long) -> Unit,
     emotes: com.lechixy.kick.data.model.chat.EmotePickerUiState, onRetryEmotes: () -> Unit,
-    onIdentityPreviewClick: ((com.lechixy.kick.data.model.chat.ChatIdentity) -> Unit)?
+    onIdentityPreviewClick: ((com.lechixy.kick.data.model.chat.ChatIdentity) -> Unit)?,
+    replyTo: ChatMessage?, onCancelReply: () -> Unit, recentMessages: List<ChatMessage>, userColors: Map<String, String>,
+    onUserCommand: (String) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -77,6 +86,7 @@ private fun ComposerContent(
     var refresh by remember { mutableIntStateOf(0) }
     var tick by remember { mutableLongStateOf(0L) }
     var points by remember { mutableStateOf<Long?>(null) }
+    var pointsEnabled by remember { mutableStateOf<Boolean?>(null) }
     var kicks by remember { mutableStateOf<Long?>(null) }
     var showPointsDialog by remember { mutableStateOf(false) }
     var showIdentityDialog by remember { mutableStateOf(false) }
@@ -134,7 +144,9 @@ private fun ComposerContent(
             while (true) {
                 try {
                     val before = currentPointsEvent
-                    val fetched = AccountGraph.chat.points(channel)
+                    val settings = AccountGraph.chat.channelPointSettings(channel)
+                    pointsEnabled = settings.enabled
+                    val fetched = if (settings.enabled) AccountGraph.chat.points(channel) else null
                     val latest = currentPointsEvent
                     if (latest == before || latest == null ||
                         !ChannelPointsPolicy.accepts(latest, channel.id, AccountGraph.auth.session.value.profile?.userId))
@@ -177,6 +189,25 @@ private fun ComposerContent(
             while (true) { delay(100); tick++ }
         }
     }
+    val currentReply by rememberUpdatedState(replyTo)
+    val requester = remember { FocusRequester() }
+    LaunchedEffect(replyTo?.id) { if (replyTo != null && session.signedIn) requester.requestFocus() }
+    LaunchedEffect(showEmotes) { if (showEmotes) onRetryEmotes() }
+    val community: com.lechixy.kick.ui.components.chat.ChatCommunityViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel(key = "community-${channel.slug}")
+    val chatters by community.chatters.collectAsStateWithLifecycle()
+    val token = remember(content, selection) {
+        if (selection.collapsed) chatCompletionToken(content, selection.start) else null
+    }
+    LaunchedEffect(token?.kind, channel.id) {
+        if (token?.kind == CompletionKind.MENTION && chatters == null) community.loadChatters(channel.id)
+    }
+    val mentionUsers = remember(chatters, recentMessages, token?.kind, token?.query) {
+        if (token?.kind != CompletionKind.MENTION) emptyList() else {
+            val recent = recentMessages.takeLast(200).mapNotNull { it.sender }.map { ActiveChatter(it.username, it.slug.orEmpty()) }
+            mentionMatches(chatters?.users.orEmpty() + recent + ActiveChatter(channel.user?.username ?: channel.slug, channel.slug), token.query)
+        }
+    }
     val ownChannel = session.signedIn && ChannelPointsPolicy.isOwnChannel(channel, session.profile?.userId)
     val effectiveAccess = access
     val presentation = remember(effectiveAccess, tick, session.profile) {
@@ -206,11 +237,7 @@ private fun ComposerContent(
     Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (!session.signedIn) {
-            Text(stringResource(R.string.chat_sign_in_required))
-            session.error?.let { Text(stringResource(R.string.chat_auth_error), color = MaterialTheme.colorScheme.error) }
-            if (session.status == SessionStatus.Connecting) {
-                TextButton(onClick = { AccountGraph.auth.cancelLogin() }) { Text(stringResource(R.string.account_cancel_login)) }
-            } else TextButton(onClick = { AccountGraph.auth.beginLogin(context) }) { Text(stringResource(R.string.account_login)) }
+            AccountSignInState(compact = true)
             return@Column
         }
         ChatRulesCard(effectiveAccess?.settings?.rules.orEmpty(), session.generation, rulesSeen, markRulesSeen)
@@ -241,7 +268,22 @@ private fun ComposerContent(
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         val validation = if (inputBlock == null && content.isNotEmpty()) ChatPolicy.messageIssue(content)?.let {
             ChatRestriction(it).localized(context) } else null
-        if (showEmotes) {
+        ChatReplyPreview(replyTo, onCancelReply, channel.subscriberBadges, userColors, channel.user?.username, channel.slug)
+        val availableCommands = ChatCommands.available(effectiveAccess?.member?.privileged == true, ownChannel)
+        val canUseSubscriberEmotes = effectiveAccess?.member?.let { it.subscriber || it.privileged } == true
+        val completionEmotes = remember(pickerCategories, token?.kind, token?.query, canUseSubscriberEmotes) {
+            if (token?.kind != CompletionKind.EMOTE) emptyList() else filterEmotes(pickerCategories, token.query)
+                .filter { !it.subscribersOnly || canUseSubscriberEmotes }.take(20)
+        }
+        ChatCompletionPanel(token.takeIf { inputBlock == null && !sending }, mentionUsers,
+            availableCommands.filter { it.name.startsWith(token?.query.orEmpty(), ignoreCase = true) },
+            completionEmotes) { value ->
+            token?.let {
+                val updated = insertCompletion(content, it, value)
+                if (ChatPolicy.messageIssue(updated.text) == null) { content = updated.text; selection = androidx.compose.ui.text.TextRange(updated.cursor) }
+            }
+        }
+        ComposerAccessory(showEmotes) {
             com.lechixy.kick.ui.components.chat.EmotePickerSheet(
                 uiState = emotes.copy(searchQuery = emoteQuery, selectedCategoryIndex = emoteCategory, categories = pickerCategories),
                 onSearchQueryChange = { emoteQuery = it }, onCategorySelected = { emoteCategory = it },
@@ -265,7 +307,7 @@ private fun ComposerContent(
             }
             ChatComposerTextField(value = if (inputBlock == null) content else "", onValueChange = { content = it },
                 blockedText = inputBlockText,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).focusRequester(requester),
                 enabled = !sending && !loading && effectiveAccess != null && inputBlock == null,
                 validation = validation, selection = selection, onSelectionChange = { selection = it })
             IconButton(enabled = !sending && !loading && effectiveAccess != null && inputBlock == null,
@@ -275,10 +317,10 @@ private fun ComposerContent(
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            BalanceTooltip(points, unlimited = ownChannel) {
+            BalanceTooltip(points, unlimited = ownChannel, unavailable = pointsEnabled == false) {
                 AnimatedPoints(points, Modifier.clip(RoundedCornerShape(8.dp))
                     .clickable(onClickLabel = stringResource(R.string.channel_points_title)) { showPointsDialog = true }
-                    .padding(vertical = 8.dp, horizontal = 4.dp), unlimited = ownChannel)
+                    .padding(vertical = 8.dp, horizontal = 4.dp), unlimited = ownChannel, unavailable = pointsEnabled == false)
             }
             BalanceTooltip(kicks, isKicks = true) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -294,11 +336,26 @@ private fun ComposerContent(
                 onClick = {
                     sending = true; error = null
                     val draft = content
+                    val reply = replyTo
                     scope.launch {
-                        try { AccountGraph.chat.send(channel, draft); content = "" }
+                        try {
+                            val action = if (reply == null && draft.trimStart().startsWith("/"))
+                                ChatCommands.parse(channel, draft, effectiveAccess?.member?.privileged == true, ownChannel) else null
+                            when (action) {
+                                ChatCommandAction.Help -> { content = "/"; selection = androidx.compose.ui.text.TextRange(1) }
+                                is ChatCommandAction.User -> { onUserCommand(action.username); content = ""; selection = androidx.compose.ui.text.TextRange.Zero }
+                                else -> {
+                                    AccountGraph.chat.send(channel, draft, reply)
+                                    if (content == draft) { content = ""; selection = androidx.compose.ui.text.TextRange.Zero }
+                                    if (currentReply?.id == reply?.id) onCancelReply()
+                                }
+                            }
+                        }
                         catch (failure: Exception) {
                             if (failure is CancellationException) throw failure
-                            error = if (failure is java.io.IOException) context.getString(R.string.chat_send_unknown)
+                            error = if (failure is ChatCommandException) failure.usage?.let { context.getString(R.string.command_usage, it) }
+                                ?: context.getString(R.string.command_not_available)
+                                else if (failure is java.io.IOException) context.getString(R.string.chat_send_unknown)
                                 else failure.chatUserMessage(context)
                         } finally { sending = false; refresh++; tick++ }
                     }
@@ -335,7 +392,7 @@ private fun ComposerContent(
         }
     }
     if (showPointsDialog && session.signedIn) {
-        ChannelPointsDialog(channel, points, kicks, onDismiss = { showPointsDialog = false }, ownChannel = ownChannel,
+        ChannelPointsDialog(channel, points, kicks, onDismiss = { showPointsDialog = false }, ownChannel = ownChannel, pointsEnabled = pointsEnabled,
             lastPointUpdate = lastPointUpdate, nextPointAward = lastEarnedAt?.let { earned ->
                 pointInterval?.takeIf { channel.livestream != null }?.let { earned.plusSeconds(it) } })
     }
@@ -350,7 +407,7 @@ private fun ChatMode(icon: Int, label: String) {
 }
 
 @Composable
-private fun AnimatedPoints(points: Long?, modifier: Modifier = Modifier, unlimited: Boolean = false) {
+private fun AnimatedPoints(points: Long?, modifier: Modifier = Modifier, unlimited: Boolean = false, unavailable: Boolean = false) {
     val pulse = remember { Animatable(1f) }
     var previous by remember { mutableStateOf(points) }
     LaunchedEffect(points) {
@@ -365,7 +422,9 @@ private fun AnimatedPoints(points: Long?, modifier: Modifier = Modifier, unlimit
         Icon(painterResource(R.drawable.bubble_chart_24dp_e3e3e3_fill1_wght400_grad0_opsz24),
             stringResource(R.string.chat_channel_points), tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(22.dp).graphicsLayer { scaleX = pulse.value; scaleY = pulse.value; rotationZ = (pulse.value - 1f) * 45f })
-        if (unlimited) Icon(painterResource(R.drawable.all_inclusive_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
+        if (unavailable) Icon(painterResource(R.drawable.points_unavailable), stringResource(R.string.points_disabled),
+            Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        else if (unlimited) Icon(painterResource(R.drawable.all_inclusive_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
             stringResource(R.string.points_unlimited), Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
         else AnimatedContent(targetState = points, label = "channel points", transitionSpec = {
             (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut())

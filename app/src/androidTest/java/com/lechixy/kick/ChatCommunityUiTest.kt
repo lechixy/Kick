@@ -37,7 +37,7 @@ class ChatCommunityUiTest {
         compose.runOnIdle { assertEquals("mod-one", selected?.slug) }
         compose.onNodeWithText(context.getString(R.string.active_chatters_moderators)).performClick()
         compose.onNodeWithText("ModeratorOne").assertDoesNotExist()
-        compose.onNodeWithText(context.getString(R.string.active_chatters_partial_notice)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.chatters_partial, 2, 402)).assertIsDisplayed()
     }
 
     @Test fun usernameLinkOpensSenderWithoutMakingMessageBodyClickable() {

@@ -51,8 +51,17 @@ class HomeViewModel @Inject constructor(
     private fun loadHome(refreshing: Boolean) {
         homeJob?.cancel()
         homeJob = viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = !refreshing, isRefreshing = refreshing, error = null) }
+            _uiState.update { it.copy(isLoading = !refreshing, isRefreshing = refreshing, error = null, categoriesError = null) }
             supervisorScope {
+                launch {
+                    try {
+                        val categories = kickRepository.getCategories().data.sortedByDescending { it.viewers }
+                        _uiState.update { it.copy(categories = categories, categoriesError = null) }
+                    } catch (error: Exception) {
+                        if (error is CancellationException) throw error
+                        _uiState.update { it.copy(categoriesError = error.userMessage()) }
+                    }
+                }
                 launch {
                     try {
                         val language = settingsRepository.get(SettingsKeys.RECOMMENDED_LIVESTREAM_LANGUAGE).first()

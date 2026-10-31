@@ -17,12 +17,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -82,17 +79,8 @@ fun SettingsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(text = "Settings") },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.arrow_back_24dp_e3e3e3_fill0_wght400_grad0_opsz24),
-                            contentDescription = "Back"
-                        )
-                    }
-                }
-            )
+            com.lechixy.kick.ui.components.HomeTopBar(showAccount = false)
+
         }
     ) { innerPadding ->
         Box(
@@ -107,7 +95,15 @@ fun SettingsScreen(
                     .padding(12.dp)
                     .widthIn(max = 840.dp), // WinUI 3 desktop/tablet responsive max width limit
             ) {
-                item { com.lechixy.kick.ui.components.account.AccountPanel() }
+                item {
+                    com.lechixy.kick.ui.components.SectionHeader(stringResource(R.string.settings))
+                    androidx.compose.material3.ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            com.lechixy.kick.ui.components.SectionHeader(stringResource(R.string.account_title))
+                            com.lechixy.kick.ui.components.account.AccountButton(modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
                 item {
                     FlowRow(
                         modifier = Modifier
@@ -119,8 +115,16 @@ fun SettingsScreen(
                     ) {
                         SettingsDestinations.entries.filter { it != SettingsDestinations.DEVELOPER || BuildConfig.DEBUG || unlocked }.forEach { dest ->
                             SettingCard(
-                                title = if (dest == SettingsDestinations.DEVELOPER) stringResource(R.string.developer_tools) else dest.title,
-                                description = if (dest == SettingsDestinations.DEVELOPER) stringResource(R.string.developer_description) else dest.description,
+                                title = if (dest == SettingsDestinations.DEVELOPER) stringResource(R.string.developer_tools) else stringResource(when (dest) {
+                                    SettingsDestinations.GENERAL -> R.string.settings_general
+                                    SettingsDestinations.CUSTOMIZATION -> R.string.settings_customization
+                                    else -> R.string.player_playback
+                                }),
+                                description = if (dest == SettingsDestinations.DEVELOPER) stringResource(R.string.developer_description) else stringResource(when (dest) {
+                                    SettingsDestinations.GENERAL -> R.string.settings_general_description
+                                    SettingsDestinations.CUSTOMIZATION -> R.string.settings_customization_description
+                                    else -> R.string.player_section_description
+                                }),
                                 icon = dest.icon,
                                 onClick = {
                                     onSubsettingClick(dest)
@@ -133,7 +137,6 @@ fun SettingsScreen(
                 item {
                     Column(
                         modifier = Modifier
-                            .padding(innerPadding)
                             .padding(16.dp),
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -163,11 +166,11 @@ fun SettingsScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = "Made by lechixy",
+                                text = stringResource(R.string.settings_made_by),
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Just for you 💖",
+                                text = stringResource(R.string.settings_for_you),
                                 color = MaterialTheme.colorScheme.primary,
                             )
                         }
@@ -192,16 +195,16 @@ fun SettingsScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = "Version ${appInfo.versionName}"
+                                text = stringResource(R.string.settings_version, appInfo.versionName)
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Updated at ${AppUtils.formatLastUpdateTime(appInfo.lastUpdateTimeMs)}",
+                                text = stringResource(R.string.settings_updated, AppUtils.formatLastUpdateTime(appInfo.lastUpdateTimeMs)),
                                 color = MaterialTheme.colorScheme.secondary
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Wanna check out GitHub? Tap here!",
+                                text = stringResource(R.string.settings_github),
                                 color = MaterialTheme.colorScheme.secondary
                             )
                         }
